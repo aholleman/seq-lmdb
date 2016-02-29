@@ -27,120 +27,65 @@ Extended by: None
 
 use Moose 2;
 use Moose::Util::TypeConstraints;
+with 'MooseX::SimpleConfig';
 
 use Carp;
-use Cpanel::JSON::XS;
-use KyotoCabinet;
+use Cpanel::JSON::XS qw/encode_json decode_json/;
+use LMDB_File qw(:flags :cursor_op);
+use Hash::Merge::Simple qw/ merge /;
 use Type::Params qw/ compile /;
 use Types::Standard qw/ :types /;
 
-enum db_type => [qw/ hash btree /];
-
 with 'Seq::Role::IO';
 
-has filename => (
+#the build config file
+has db_path => (
   is       => 'ro',
   isa      => 'Str',
   required => 1,
 );
 
 # mode: - read or create
-has mode => (
-  is       => 'ro',
-  isa      => 'Str',
-  required => 1,
+has read_only => (
+  is => 'ro',
+  isa => 'Bool',
+  default => 0,
 );
 
-# bucket number for the file hash; KyotoCabinet docs indicate 50% to 400% of
-# the number of stored elements should be used for optimal speed; this only
-# needs to be set at creation
-has bnum => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 10_000_000,
+has _env => (
+  is => 'ro',
+  lazy => 1,
+  builder => '_buildEnv',
 );
 
-# size of mapped memory - set for read/write
-has msiz => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 1_280_000_000,
+has _dbi => (
+  is => 'ro',
+  lazy => 1,
+  builder => '_makeDbi',
 );
 
-has _db => (
-  is      => 'ro',
-  isa     => 'Maybe[KyotoCabinet::DB]',
-  lazy    => 1,
-  builder => '_build_db',
-);
-
-sub _build_db {
+sub _buildEnv {
   my $self = shift;
 
-  my $this_msiz = join "=", "msiz", $self->msiz;
-
-  if ( $self->mode eq 'create' ) {
-    my $this_bnum = join "=", "bnum", $self->bnum;
-
-    # this option is recommended when creating a db with a prespecified bucket
-    # number
-    my $options          = "opts=HashDB::TLINEAR";
-    my $params           = join "#", $options, $this_bnum;
-    my $file_with_params = join "#", $self->filename, $params;
-    my $db               = new KyotoCabinet::DB;
-
-    if ( $db->open( $file_with_params, $db->OWRITER | $db->OCREATE ) ) {
-      return $db;
-    }
-    else {
-      printf STDERR "open error: %s\n", $db->error;
-      return;
-    }
-  }
-  elsif ( $self->mode eq 'read' ) {
-    my $file_with_params = join "#", $self->filename, $this_msiz;
-    my $db = new KyotoCabinet::DB;
-
-    if ( $db->open( $file_with_params, $db->OREADER ) ) {
-      return $db;
-    }
-    else {
-      printf STDERR "open error: %s\n", $db->error;
-      return;
-    }
-  }
-  else {
-    croak "ERROR: expected mode to be 'read' or 'create' but got: " . $self->mode;
-  }
+  my $read_mode = $self->read_only ? MDB_RDONLY : '';
+  return LMDB::Env->new($self->db_path, {
+    mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
+    maxdbs => 0, #database isn't named, identified by path alone
+    flags => MDB_NOMETASYNC | MDB_NOTLS | $read_mode
+  });
 }
 
-# db_put_string writes an entry for the key-value pair, which will overwrite
-#   existing data and write the string
-#   -> retrieve this data using db_get_string
-sub db_put_string {
-  my ( $self, $key, $string ) = @_;
-  return $self->_db->set( $key, $string );
-}
+sub _makeDbi {
+  my ($self, $create) = @_;
 
-# db_get_string retireves the string for the given key
-sub db_get_string {
-  my ( $self, $key ) = @_;
+  my $create_if_not_found = $create && !$self->read_only ? MDB_CREATE : '';
+  my $txn = $self->_env->BeginTxn();
 
-  my $dbm = $self->_db;
-
-  if ( defined $dbm ) {
-    my $string = $dbm->get($key);
-
-    if ( defined $string ) {
-      return $string;
-    }
-    else {
-      return;
-    }
-  }
-  else {
-    return;
-  }
+  my $dbi = $txn->open( {
+    flags => $create_if_not_found ? MDB_CREATE : '',
+  });
+  $txn->commit();
+  return $dbi;
 }
 
 # rationale - hashes cannot really have duplicate keys; so, to circumvent this
@@ -149,15 +94,94 @@ sub db_get_string {
 sub db_put {
   my ( $self, $key, $href ) = @_;
 
-  my $existing_aref = $self->db_get($key);
+  my $txn = $self->_env->BeginTxn();
 
-  if ( defined $existing_aref ) {
-    my @data = @$existing_aref;
-    push @data, $href;
-    return $self->_db->set( $key, encode_json( \@data ) );
+  $txn->put($key, encode_json($href) ); #overwrites existing values
+
+  $txn->commit();
+}
+
+# @param [HashRef[HashRef] ] $kvAref ; $key => {}, $key2 => {}
+sub db_put_bulk {
+  my ( $self, $kvHref ) = @_;
+
+  my $txn = $self->_env->BeginTxn();
+
+  for my $key (keys %{$kvHref} ) {
+    $txn->put($self->_dbi, $key, encode_json($kvHref->{$key} ) ); #overwrites existing values
+  }
+  
+  $txn->commit();
+}
+
+sub db_patch {
+  my ( $self, $key, $new_href) = @_;
+
+  my $txn = $self->_env->BeginTxn();
+
+  my $previous_href;
+
+  $txn->get($self->_dbi, $key, $previous_href);
+
+  if($previous_href) {
+    $previous_href = decode_json($previous_href);
+    $previous_href = merge $previous_href, $new_href; #righthand merge
+  } else {
+    $previous_href = $new_href;
+  }
+
+  $txn->put($self->_dbi, $key, encode_json($previous_href) );
+
+  $txn->commit();
+}
+
+sub db_patch_bulk {
+  my ( $self, $kvHref ) = @_;
+
+  my $txn = $self->_env->BeginTxn();
+
+  for my $key (keys $kvHref) {
+    my $previous_href;
+
+    $txn->get($self->_dbi, $key, $previous_href);
+
+    if($previous_href) {
+      $previous_href = decode_json($previous_href);
+      $previous_href = merge $previous_href, $kvHref->{$key}; #righthand merge
+    } else {
+      $previous_href = $kvHref->{$key};
+    }
+
+    $txn->put($self->_dbi, $key, encode_json($previous_href) );
+  }
+
+  $txn->commit();
+}
+
+sub db_get {
+  my ( $self, $keys ) = @_;
+
+  # the reason we need to check the existance of the db has to do with that we
+  # allow non-existant file names to be used in creating the object and since
+  # the creation of the _db attribute is done in a lazy way we may never need to
+  # bother checking the file system or opening the databse.
+  my $dbm = $self->_db;
+
+  # does dbm doesn't exist?
+  my $val;
+  if ( defined $dbm ) {
+    $val = $dbm->get($keys);
+
+    # does the value exist within the dbm?
+    if ( defined $val ) {
+      return decode_json $val;
+    }
+    else {
+      return;
+    }
   }
   else {
-    return $self->_db->set( $key, encode_json( [$href] ) );
+    return;
   }
 }
 
@@ -183,33 +207,6 @@ sub db_bulk_get {
         return map { decode_json( $val->{$_} ) } sort { $b <=> $a } keys(%$val);
       }
       return map { decode_json( $val->{$_} ) } sort { $a <=> $b } keys(%$val);
-    }
-    else {
-      return;
-    }
-  }
-  else {
-    return;
-  }
-}
-
-sub db_get {
-  my ( $self, $keys ) = @_;
-
-  # the reason we need to check the existance of the db has to do with that we
-  # allow non-existant file names to be used in creating the object and since
-  # the creation of the _db attribute is done in a lazy way we may never need to
-  # bother checking the file system or opening the databse.
-  my $dbm = $self->_db;
-
-  # does dbm doesn't exist?
-  my $val;
-  if ( defined $dbm ) {
-    $val = $dbm->get($keys);
-
-    # does the value exist within the dbm?
-    if ( defined $val ) {
-      return decode_json $val;
     }
     else {
       return;
