@@ -86,15 +86,20 @@ around BUILDARGS => sub {
   my $class = shift;
   my $href = shift;
 
+  say "building tracks" if $self->debug;
+
   #avoid needing to know Seq::Tracks::Build implementation details
   $href->{trackBuilders} = Seq::Tracks::Build->new($href);
+
+  say "built tracks" if $self->debug;
   $class->$orign($href);
 }
 
 sub BUILD {
   my $self = shift;
-  $self->_logger->info( "wanted_chr: " .    ( $self->wanted_chr    || 'all' ) );
+  $self->tee_logger('info', "wanted_chr: " .    ( $self->wanted_chr    || 'all' ) );
 
+  say "building reference track" if $self->debug;
   $self->refTrack->buildTrack();
 }
 

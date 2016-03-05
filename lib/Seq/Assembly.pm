@@ -52,6 +52,18 @@ with 'Seq::Role::ConfigFromFile','Seq::Role::Message','Seq::Role::DBManager';
 has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
 has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 
+=property @public {Str} database_dir
+
+  The path (relative or absolute) to the index folder, which contains all databases
+
+  Defined in the required input yaml config file, as a key : value pair, and
+  used by:
+  @role Seq::Role::ConfigFromFile
+
+  The existance of this directory is checked in Seq::Annotate::BUILDARGS
+
+@example database_dir: hg38/index
+=cut
 has database_dir => ( 
   is => 'ro', 
   isa => AbsPath, 
@@ -74,23 +86,6 @@ has publisherAddress => (
   lazy => 1,
   default => sub{ [] },
 );
-# has genome_index_dir => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, );
-
-=property @public {Str} genome_index_dir
-
-  The path (relative or absolute) to the index folder, which contains:
-  1) the binary GenomeSizedTrack of the reference genome, 2) the chr offset
-  file, 3) all SparseTrack database files, and 4) all binary GenomeSizedTrack
-  files of the optional 'score' and 'cadd' types.
-
-  Defined in the required input yaml config file, as a key : value pair, and
-  used by:
-  @role Seq::Role::ConfigFromFile
-
-  The existance of this directory is checked in Seq::Annotate::BUILDARGS
-
-@example genome_index_dir: hg38/index
-=cut
 
 #moved all track handling to Tracks.pm
 
@@ -115,7 +110,7 @@ sub BUILD {
   }
   
   #needs to be initialized before dbmanager can be used
-  $self->setDbPath( path($self->database_dir)->child($self->genome_name) );
+  $self->setDbPath( $self->database_dir );
 }
 
 __PACKAGE__->meta->make_immutable;

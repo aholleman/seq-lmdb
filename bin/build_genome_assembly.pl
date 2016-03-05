@@ -31,14 +31,6 @@ my %cmd_2_method = (
   gene_db       => 'build_gene_sites',
 );
 
-my %bin_2_default = (
-  genome_cadd_bin   => "bin/genome_cadd",
-  genome_hasher_bin => "bin/genome_hasher",
-  genome_scorer_bin => "bin/genome_scorer",
-  ngene_bin         => "bin/ngene",
-);
-my %bin_2_path = map { $_ => undef } ( keys %bin_2_default );
-
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
@@ -47,10 +39,6 @@ GetOptions(
   'h|help'       => \$help,
   'f|force'      => \$force,
   'd|debug=i'      => \$debug,
-  'hasher=s'     => \$bin_2_path{genome_hasher_bin},
-  'scorer=s'     => \$bin_2_path{genome_scorer_bin},
-  'cadd=s'       => \$bin_2_path{genome_cadd_bin},
-  'ngene=s'      => \$bin_2_path{ngene_bin},
   'wanted_chr=s' => \$wanted_chr,
 );
 
@@ -70,36 +58,11 @@ my $config_href = LoadFile($yaml_config);
 
 p $config_href;
 
-# location of the binaries
-#   NOTE: precidence is cmd line > config file > default
-for my $binary ( keys %bin_2_path ) {
-  if ( exists $config_href->{$binary} ) {
-    $bin_2_path{$binary} = $config_href->{$binary} unless $bin_2_path{$binary};
-  }
-  else {
-    $bin_2_path{$binary} = $bin_2_default{$binary} unless $bin_2_path{$binary};
-  }
-
-  # get absolute path
-  $bin_2_path{$binary} = path( $bin_2_path{$binary} )->absolute->stringify;
-
-  # check the file exists
-  unless ( -f $bin_2_path{$binary} ) {
-    my $msg = sprintf( "ERROR: cannot find binary file: '%s'", $bin_2_path{$binary} );
-    say $msg;
-    exit(1);
-  }
-}
-
 # get absolute path for YAML file and db_location
 $yaml_config = path($yaml_config)->absolute->stringify;
 
 my $builder_options_href = {
   configfile    => $yaml_config,
-  genome_scorer => $bin_2_path{genome_scorer_bin},
-  genome_hasher => $bin_2_path{genome_hasher_bin},
-  genome_cadd   => $bin_2_path{genome_cadd_bin},
-  ngene_bin     => $bin_2_path{ngene_bin},
   wanted_chr    => $wanted_chr,
   force         => $force,
   debug         => $debug,
