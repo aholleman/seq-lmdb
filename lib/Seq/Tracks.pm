@@ -108,39 +108,40 @@ sub _buildDataTracks {
 sub getAllDataAsHref {
 
 }
+#Not certain if this is needed yet; if it is we should keep track of types
 #all* returns array ref
-sub allSnpTracks {
-  my $self = shift;
-  return $self->dataTracks->{$self->snpType};
-}
+# sub allSnpTracks {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->snpType};
+# }
 
-sub allRegionTracks {
-  my $self = shift;
-  return $self->dataTracks->{$self->regionType};
-}
+# sub allRegionTracks {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->regionType};
+# }
 
-sub allScoreTracks {
-  my $self = shift;
-  return $self->dataTracks->{$self->scoreType};
-}
+# sub allScoreTracks {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->scoreType};
+# }
 
-sub allSparseTracks {
-  my $self = shift;
-  return $self->dataTracks->{$self->sparseType};
-}
+# sub allSparseTracks {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->sparseType};
+# }
 
-#returns hashRef; only one of the following tracks is allowed
-sub refTrack {
-  my $self = shift;
-  return $self->dataTracks->{$self->refType}[0];
-}
+# #returns hashRef; only one of the following tracks is allowed
+# sub refTrack {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->refType}[0];
+# }
 
-#we could think about relaxing this constraint.
-#in that case, we should couple ngene and gene tracks as one type
-sub geneTrack {
-  my $self = shift;
-  return $self->dataTracks->{$self->geneType};
-}
+# #we could think about relaxing this constraint.
+# #in that case, we should couple ngene and gene tracks as one type
+# sub geneTrack {
+#   my $self = shift;
+#   return $self->dataTracks->{$self->geneType};
+# }
 
 #this has been coupled to gene
 # sub ngeneTrack {
