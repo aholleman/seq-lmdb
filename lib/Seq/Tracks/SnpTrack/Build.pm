@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Build::SnpTrack;
+package Seq::Tracks::SnpTrack::Build;
 
 our $VERSION = '0.001';
 
@@ -36,13 +36,12 @@ Extended by: None
 
 use Moose 2;
 
-use File::Path qw/ make_path /;
 use File::Spec;
 use namespace::autoclean;
 
 use Seq::Site::Snp;
 
-extends 'Seq::Build::SparseTrack';
+extends 'Seq::Tracks::SparseTrack::Build';
 with 'Seq::Role::IO';
 
 sub build_db {

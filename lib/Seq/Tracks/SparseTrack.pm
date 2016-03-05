@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Config::SparseTrack;
+package Seq::Tracks::SparseTrack;
 
 our $VERSION = '0.001';
 
@@ -41,13 +41,7 @@ Used in:
 =cut
 
 use Moose 2;
-use Moose::Util::TypeConstraints;
-use MooseX::Types::Path::Tiny qw/ AbsPath AbsPaths /;
-
-use Carp qw/ croak /;
 use namespace::autoclean;
-use Type::Params qw/ compile /;
-use Types::Standard qw/ Object Maybe Str /;
 
 extends 'Seq::Base';
 
@@ -98,19 +92,19 @@ Called in:
 @returns {ArrayRef|void}
 
 =cut
-
-sub snp_fields_aref {
-  my $self = shift;
-  if ( $self->type eq 'snp' ) {
-    my @out_array;
-    #resulting array is @snp_track_fields values followed @self->features values
-    push @out_array, @snp_track_fields, @{ $self->features };
-    return \@out_array;
-  }
-  else {
-    return;
-  }
-}
+#TODO:
+# sub snp_fields_aref {
+#   my $self = shift;
+#   if ( $self->type eq 'snp' ) {
+#     my @out_array;
+#     #resulting array is @snp_track_fields values followed @self->features values
+#     push @out_array, @snp_track_fields, @{ $self->features };
+#     return \@out_array;
+#   }
+#   else {
+#     return;
+#   }
+# }
 
 =method @public snp_fields_aref
 
@@ -133,18 +127,18 @@ Called in:
 @returns {ArrayRef|void}
 
 =cut
-
-sub gene_fields_aref {
-  my $self = shift;
-  if ( $self->type eq 'gene' ) {
-    my @out_array;
-    push @out_array, @gene_track_fields, @{ $self->features };
-    return \@out_array;
-  }
-  else {
-    return;
-  }
-}
+# TODO, but this belongs in GeneTrack
+# sub gene_fields_aref {
+#   my $self = shift;
+#   if ( $self->type eq 'gene' ) {
+#     my @out_array;
+#     push @out_array, @gene_track_fields, @{ $self->features };
+#     return \@out_array;
+#   }
+#   else {
+#     return;
+#   }
+# }
 
 =method @public as_href
 

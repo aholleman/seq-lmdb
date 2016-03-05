@@ -42,12 +42,8 @@ Extended in:
 =cut
 
 use Moose 2;
-use Moose::Util::TypeConstraints;
-use MooseX::Types::Path::Tiny qw/ AbsPath AbsPaths /;
 
 use namespace::autoclean;
-use Scalar::Util qw/ reftype /;
-use Types::Standard qw/ Object Num /;
 
 extends 'Seq::Tracks::Base';
 
@@ -206,59 +202,6 @@ sub in_snp_val {
 
 =cut
 
-# TODO: Alex, could you clarify what you meant here?
-# TODO: move away from this in favor of read only accesssor
-sub BUILD {
-  my $self = shift;
-
-  return if ( !( $self->type eq "score" or $self->type eq "cadd" ) );
-
-  $self->_validate_feature_score_range();
-}
-
-# TODO: consider changing the min score_R to 5
-sub _validate_feature_score_range {
-  my $self = shift;
-
-  # TODO: set range for genome_scorer.c and Seq package from single config.
-  unless ( $self->score_R < 256 and $self->score_R >= 5 ) {
-    my $err_msg = "FATAL ERROR: score_R should be between 5 - 255";
-    $self->_logger->error($err_msg);
-    croak $err_msg;
-  }
-
-  if ( $self->score_min == 0 and $self->score_max == 0 ) {
-    my $wrn_msg = "score_min and score_max are 0";
-    $self->_logger->warn($wrn_msg);
-    warn $wrn_msg;
-  }
-}
-
-sub BUILDARGS {
-  my $class = shift;
-  my $href  = $_[0];
-  if ( scalar @_ > 1 || reftype($href) ne "HASH" ) {
-    confess "Error: $class expects hash reference.\n";
-  }
-  else {
-    if ( $href->{type} eq "score" ) {
-      if ( $href->{name} eq "phastCons" ) {
-        $href->{score_min} = 0;
-        $href->{score_max} = 1;
-      }
-      elsif ( $href->{name} eq "phyloP" ) {
-        $href->{score_min} = -30;
-        $href->{score_max} = 30;
-      }
-    }
-    elsif ( $href->{type} eq "cadd" ) {
-      $href->{score_min} = 0;
-      $href->{score_max} = 127;
-    }
-    return $class->SUPER::BUILDARGS($href);
-  }
-}
-
 =method @public as_href
 
   Returns hash reference containing data needed to create BUILD and annotate
@@ -279,23 +222,23 @@ Uses Moose built-in meta method.
 
 # TODO: edit as_href to export data needed for BUILD and annotation stuff
 
-sub as_href {
-  my $self = shift;
-  my %hash;
-  my @attrs = qw/ name genome_chrs genome_index_dir genome_raw_dir
-    local_files remote_files remote_dir type/;
-  for my $attr (@attrs) {
-    if ( defined $self->$attr ) {
-      if ( $self->$attr eq 'genome_index_dir' or $self->$attr eq 'genome_raw_dir' ) {
-        $hash{$attr} = $self->$attr->absolute->stringify;
-      }
-      elsif ( $self->$attr ) {
-        $hash{$attr} = $self->$attr;
-      }
-    }
-  }
-  return \%hash;
-}
+# sub as_href {
+#   my $self = shift;
+#   my %hash;
+#   my @attrs = qw/ name genome_chrs genome_index_dir genome_raw_dir
+#     local_files remote_files remote_dir type/;
+#   for my $attr (@attrs) {
+#     if ( defined $self->$attr ) {
+#       if ( $self->$attr eq 'genome_index_dir' or $self->$attr eq 'genome_raw_dir' ) {
+#         $hash{$attr} = $self->$attr->absolute->stringify;
+#       }
+#       elsif ( $self->$attr ) {
+#         $hash{$attr} = $self->$attr;
+#       }
+#     }
+#   }
+#   return \%hash;
+# }
 
 __PACKAGE__->meta->make_immutable;
 

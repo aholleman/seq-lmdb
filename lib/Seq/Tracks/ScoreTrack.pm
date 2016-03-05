@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::GenomeBin;
+package Seq::Tracks::ScoreTrack;
 
 our $VERSION = '0.001';
 
@@ -43,20 +43,9 @@ use namespace::autoclean;
 use Scalar::Util qw/ reftype /;
 
 # enum BinType => [ 'C', 'n' ];
-extends 'Seq::Config::GenomeSizedTrack';
+extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO', 'Seq::Role::Genome';
 
-# stores the 0-indexed off-set of each chromosome
-has chr_len => (
-  is      => 'ro',
-  isa     => 'HashRef[Str]',
-  traits  => ['Hash'],
-  handles => {
-    exists_chr_len     => 'exists',
-    char_genome_length => 'get',
-  },
-  required => 1,
-);
 
 =property @public {StrRef} bin_seq
 
@@ -83,11 +72,6 @@ Used in:
 
 =cut
 
-has bin_seq => (
-  is       => 'ro',
-  isa      => 'ScalarRef',
-  required => 1,
-);
 
 # dropped defining the binary type and just have different methods
 #   that work for differently encoded strings
@@ -97,18 +81,6 @@ has bin_seq => (
 #  required => 1,
 #  default => 'C',
 #);
-
-has genome_length => (
-  is      => 'ro',
-  isa     => 'Num',
-  builder => '_get_genome_length',
-  lazy    => 1,
-);
-
-sub _get_genome_length {
-  my $self = shift;
-  return length ${ $self->bin_seq };
-}
 
 =method @public get_base
 
@@ -127,17 +99,18 @@ sub _get_genome_length {
 
 =cut
 
-sub get_base {
-  my ( $self, $pos ) = @_;
-  state $genome_length = $self->_get_genome_length;
+#TODO:
+# sub get_base {
+#   my ( $self, $pos ) = @_;
+#   state $genome_length = $self->_get_genome_length;
 
-  if ( $pos >= 0 and $pos < $genome_length ) {
-    return unpack( 'C', substr( ${ $self->bin_seq }, $pos, 1 ) );
-  }
-  else {
-    confess "get_base() expects a position between 0 and $genome_length, got $pos.";
-  }
-}
+#   if ( $pos >= 0 and $pos < $genome_length ) {
+#     return unpack( 'C', substr( ${ $self->bin_seq }, $pos, 1 ) );
+#   }
+#   else {
+#     confess "get_base() expects a position between 0 and $genome_length, got $pos.";
+#   }
+# }
 
 =method @public get_nearest_gene
 
@@ -156,37 +129,39 @@ sub get_base {
 
 =cut
 
-sub get_nearest_gene {
-  my ( $self, $pos ) = @_;
+#TODO: but this should be in GeneTrack
+# sub get_nearest_gene {
+#   my ( $self, $pos ) = @_;
 
-  state $genome_length = $self->_get_genome_length;
+#   state $genome_length = $self->_get_genome_length;
 
-  if ( $pos >= 0 and $pos < $genome_length ) {
-    return unpack( 'n', substr( ${ $self->bin_seq }, $pos * 2, 2 ) );
-  }
-  else {
-    confess "get_base() expects a position between 0 and $genome_length, got $pos.";
-  }
-}
+#   if ( $pos >= 0 and $pos < $genome_length ) {
+#     return unpack( 'n', substr( ${ $self->bin_seq }, $pos * 2, 2 ) );
+#   }
+#   else {
+#     confess "get_base() expects a position between 0 and $genome_length, got $pos.";
+#   }
+# }
 
 =method @public get_score
 
 =cut
 
-sub get_score {
-  my ( $self, $pos ) = @_;
+# TODO:
+# sub get_score {
+#   my ( $self, $pos ) = @_;
 
-  confess "get_score() requires absolute genomic position (0-index)"
-    unless defined $pos;
-  confess "get_score() called on non-score track"
-    unless $self->type eq 'score'
-    or $self->type eq 'cadd';
+#   confess "get_score() requires absolute genomic position (0-index)"
+#     unless defined $pos;
+#   confess "get_score() called on non-score track"
+#     unless $self->type eq 'score'
+#     or $self->type eq 'cadd';
 
-  my $char            = $self->get_base($pos);
-  my $score           = $self->get_score_lu($char);
-  my $formatted_score = ( $score eq 'NA' ) ? $score : sprintf( "%0.3f", $score );
-  return $formatted_score;
-}
+#   my $char            = $self->get_base($pos);
+#   my $score           = $self->get_score_lu($char);
+#   my $formatted_score = ( $score eq 'NA' ) ? $score : sprintf( "%0.3f", $score );
+#   return $formatted_score;
+# }
 
 __PACKAGE__->meta->make_immutable;
 
