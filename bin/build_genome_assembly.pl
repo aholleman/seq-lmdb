@@ -1,7 +1,6 @@
 #!/usr/bin/env perl
 
 use 5.10.0;
-use lib '/mnt/q22FSS/data/adsp/software/seq/lib';
 use strict;
 use warnings;
 use Carp qw/ croak /;
@@ -67,7 +66,8 @@ my $builder_options_href = {
   force         => $force,
   debug         => $debug,
 };
-
+  
+p $config_href;
 if ( $method and $config_href ) {
   $wanted_chr = ($wanted_chr) ? $wanted_chr : 'all';
   # set log file

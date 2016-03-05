@@ -98,7 +98,7 @@ sub getDbi {
 # rationale - hashes cannot really have duplicate keys; so, to circumvent this
 # issue we'll check to see if there's data there at they key first, unpack it
 # and add our new data to it and then store the merged data
-sub db_put {
+sub dbPut {
   my ( $self, $chr, $pos, $href ) = @_;
 
   my $dbi = $self->getDbi($chr);
@@ -110,7 +110,7 @@ sub db_put {
 }
 
 # @param [HashRef[HashRef] ] $kvAref ; $key => {}, $key2 => {}
-sub db_put_bulk {
+sub dbPutBulk {
   my ( $self, $chr, $posHref ) = @_;
 
   my $dbi = $self->getDbi($chr);
@@ -123,7 +123,7 @@ sub db_put_bulk {
   $txn->commit();
 }
 
-sub db_patch {
+sub dbPatch {
   my ( $self, $chr, $pos, $new_href) = @_;
 
   my $dbi = $self->getDbi($chr);
@@ -145,7 +145,7 @@ sub db_patch {
   $txn->commit();
 }
 
-sub db_patch_bulk {
+sub dbPatchBulk {
   my ( $self, $chr, $posHref ) = @_;
 
   my $dbi = $self->getDbi($chr);
@@ -169,7 +169,7 @@ sub db_patch_bulk {
   $txn->commit();
 }
 
-sub db_get {
+sub dbGet {
   my ( $self, $chr, $pos ) = @_;
 
   # the reason we need to check the existance of the db has to do with that we

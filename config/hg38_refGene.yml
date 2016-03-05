@@ -26,6 +26,7 @@ genome_chrs:
   - chrX
   - chrY
 genome_description: human
+genome_name: hg38 #not sure if necessary
 database_dir: /ssd/seqant_db_build/hg38_refGene_snp142/index
 files_dir: /ssd/seqant_db_build/hg38_refGene_snp142/raw
 tracks:
