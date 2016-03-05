@@ -134,16 +134,15 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 sub annotate_snpfile {
   my $self = shift;
 
-  $self->tee_logger( 'info', 'Loading annotation data' );
-
+  #loaded first because this also initializes our logger
   my $annotator = Seq::Annotate->new_with_config(
     {
       configfile       => $self->config_file_path,
       debug            => $self->debug,
-      messanger        => $self->messanger,
-      publisherAddress => $self->publisherAddress,
     }
   );
+
+  $self->tee_logger( 'info', 'Loading annotation data' );
 
   # cache import hashes that are otherwise obtained via method calls
   #   - does this speed things up?

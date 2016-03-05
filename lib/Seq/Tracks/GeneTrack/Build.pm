@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Build::GeneTrack;
+package Seq::Tracks::GeneTrack::Build;
 
 our $VERSION = '0.001';
 
@@ -34,13 +34,32 @@ use File::Path qw/ make_path /;
 use File::Spec;
 use namespace::autoclean;
 
-use Seq::Gene;
-use Seq::KCManager;
+use Seq::Tracks::GeneTrack::Build;
 
 use Data::Dump qw/dump/;
 
-extends 'Seq::Build::SparseTrack';
+extends 'Seq::Tracks::SparseTrack::Build';
 with 'Seq::Role::IO';
+
+state $requiredFields = \qw( chrom     strand    txStart   txEnd
+  cdsStart  cdsEnd    exonCount exonStarts
+  exonEnds  name );
+
+has '+requiredFields' => (
+  is      => 'ro',
+  isa     => 'ArrayRef',
+  init_arg => undef,
+  lazy => 1,
+  builder => '_buildRequiredFields',
+);
+
+sub _buildRequiredFields {
+  my $self = shift;
+
+  my @out;
+  push @out, @{$requiredFields}, @{$self->features};
+  return \@out;
+}
 
 sub _get_gene_data {
   my ( $self, $wanted_chr ) = @_;
@@ -170,25 +189,25 @@ sub build_tx_db_for_genome {
   say {$gene_region_fh} $self->in_gene_val;
 
   # create dbm object for transcripts
-  my $db_tx = Seq::KCManager->new(
-    filename => $tx_dbm_file,
-    mode     => 'create',
-    # bnum => bucket number => 50-400% of expected items in the hash is optimal
-    # annotated sites for hg38 is 22727477 (chr1) to 13222 (chrM) with avg of
-    # 9060664 and sd of 4925631; thus, took ~1/2 of maximal number of entries
-    bnum => 1_000_000,
-    msiz => 512_000_000,
-  );
+  # my $db_tx = Seq::KCManager->new(
+  #   filename => $tx_dbm_file,
+  #   mode     => 'create',
+  #   # bnum => bucket number => 50-400% of expected items in the hash is optimal
+  #   # annotated sites for hg38 is 22727477 (chr1) to 13222 (chrM) with avg of
+  #   # 9060664 and sd of 4925631; thus, took ~1/2 of maximal number of entries
+  #   bnum => 1_000_000,
+  #   msiz => 512_000_000,
+  # );
 
   # create dbm object for nearest neighbor gene list
-  my $db_nn = Seq::KCManager->new(
-    filename => $nn_dbm_file,
-    mode     => 'create',
-    # bnum => bucket number => 50-400% of expected items in the hash is optimal
-    # about ~5000 genes per chromosome
-    bnum => 2_500,
-    msiz => 512_000_000,
-  );
+  # my $db_nn = Seq::KCManager->new(
+  #   filename => $nn_dbm_file,
+  #   mode     => 'create',
+  #   # bnum => bucket number => 50-400% of expected items in the hash is optimal
+  #   # about ~5000 genes per chromosome
+  #   bnum => 2_500,
+  #   msiz => 512_000_000,
+  # );
 
   my $gene_number = 1;
   my ( %chr_for_gene, %txStartStop, %txGeneToNum );
@@ -212,7 +231,7 @@ sub build_tx_db_for_genome {
     };
 
     # save gene attr in dbm
-    $db_tx->db_put( $record_href->{transcript_id}, $record_href );
+    $self->db_put( $record_href->{transcript_id}, $record_href );
 
     # save tx start/stop for gene
     say {$gene_region_fh} join "\t", $gene->transcript_start, $gene->transcript_end;

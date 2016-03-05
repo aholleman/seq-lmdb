@@ -41,21 +41,25 @@ use DDP;
 # }
 
 #note: not using native traits because they don't support Maybe attrs
+state @publisherAddress;
 has publisherAddress => (
   is       => 'ro',
   isa      => 'Maybe[ArrayRef]',
   required => 0,
   lazy     => 1,
-  default  => undef,
+  writer   => '_setPublisherAddress',
+  default  => sub {\@publisherAddress},
 );
 
 #note: not using native traits because they don't support Maybe attrs
+state %messanger;
 has messanger => (
   is       => 'rw',
   isa      => 'Maybe[HashRef]',
   required => 0,
   lazy     => 1,
-  default  => undef,
+  writer   => '_setMessanger',
+  default  => sub {\%messanger},
 );
 
 has _publisher => (
@@ -68,6 +72,36 @@ has _publisher => (
   predicate => 'hasPublisher',
   handles   => { notify => 'command' },
 );
+
+sub setPublisher {
+  my ($self, $passedMessanger, $passedAddress) = @_;
+
+  if(!ref $passedMessanger eq 'Hash') {
+    $self->_logger->warn('setPublisher requires hashref messanger, given ' 
+      . ref $passedMessanger);
+    return;
+  }
+
+  if(%messanger) {
+    $self->_logger->warn('messangerHref exists already in setPublisher');
+  } else {
+    %messanger = %{$passedMessanger};
+    $self->_setMessanger(\%messanger);
+  }
+
+  if(!ref $passedAddress eq 'ARRAY') {
+    $self->_logger->warn('setPublisher requires ARRAY ref passedAddress, given '
+      . ref $passedAddress);
+    return;
+  }
+
+  if($passedAddress) {
+    $self->_logger->warn('passedAddress exists already in setPublisher');
+    return;
+  }
+  @publisherAddress = @{$passedAddress};
+  $self->_setPublisherAddress(\@publisherAddress);
+}
 
 sub _buildMessagePublisher {
   my $self = shift;

@@ -45,44 +45,28 @@ use Path::Tiny qw/ path /;
 use Scalar::Util qw/ reftype /;
 use YAML::XS qw/ Dump /;
 
-use Seq::Build::SnpTrack;
-use Seq::Build::GeneTrack;
-use Seq::Build::GenomeSizedTrackStr;
-use Seq::KCManager;
+use Seq::Tracks::Build;
 
 extends 'Seq::Assembly';
-with 'Seq::Role::IO';
+with 'Seq::Role::IO','Seq::Role::DBManager';
 
-has genome_str_track => (
-  is      => 'ro',
-  isa     => 'Seq::Build::GenomeSizedTrackStr',
-  handles => [ 'get_abs_pos', 'get_base', 'genome_length', ],
-  lazy    => 1,
-  builder => '_build_genome_str_track',
+has genome_chrs => (
+  is       => 'ro',
+  isa      => 'ArrayRef[Str]',
+  traits   => ['Array'],
+  required => 1,
+  handles  => { all_genome_chrs => 'elements', },
 );
 
-has genome_hasher => (
-  is     => 'ro',
-  isa    => AbsFile,
-  coerce => 1,
-);
-
-has genome_scorer => (
-  is     => 'ro',
-  isa    => AbsFile,
-  coerce => 1,
-);
-
-has genome_cadd => (
-  is     => 'ro',
-  isa    => AbsFile,
-  coerce => 1,
-);
-
-has ngene_bin => (
-  is     => 'ro',
-  isa    => AbsFile,
-  coerce => 1,
+has trackBuilders => (
+  is => 'ro',
+  isa => 'Seq::Tracks::Build',
+  lazy => 1,
+  required => 1,
+  handles => qw/
+    allGeneTracks allSnpTracks allRegionTracks allScoreTracks allSparseTracks
+    refTrack updateAllFeaturesData
+  /,
 );
 
 has wanted_chr => (
@@ -91,24 +75,32 @@ has wanted_chr => (
   default => 0,
 );
 
-sub BUILD {
-  my $self = shift;
-  $self->_logger->info( "loading genome of size " . $self->genome_length );
-  $self->_logger->info( "genome_hasher: " . ( $self->genome_hasher || 'NA' ) );
-  $self->_logger->info( "genome_scorer: " . ( $self->genome_scorer || 'NA' ) );
-  $self->_logger->info( "genome_cadd: " .   ( $self->genome_cadd   || 'NA' ) );
-  $self->_logger->info( "ngene_bin " .      ( $self->ngene_bin     || 'NA' ) );
-  $self->_logger->info( "wanted_chr: " .    ( $self->wanted_chr    || 'all' ) );
+has force => (
+  is      => 'ro',
+  isa     => 'Bool',
+  default => 0,
+);
+
+around BUILDARGS => sub {
+  my $orig  = shift;
+  my $class = shift;
+  my $href = shift;
+
+  #avoid needing to know Seq::Tracks::Build implementation details
+  $href->{trackBuilders} = Seq::Tracks::Build->new($href);
+  $class->$orign($href);
 }
 
-sub _build_genome_str_track {
+sub BUILD {
   my $self = shift;
-  for my $gst ( $self->all_genome_sized_tracks ) {
-    if ( $gst->type eq 'genome' ) {
-      my $href = $gst->as_href;
-      return Seq::Build::GenomeSizedTrackStr->new($href);
-    }
-  }
+  $self->_logger->info( "wanted_chr: " .    ( $self->wanted_chr    || 'all' ) );
+
+  $self->refTrack->buildTrack();
+}
+
+sub buildReference {
+  my $self = shift;
+  
 }
 
 sub build_transcript_db {
@@ -332,7 +324,7 @@ sub build_conserv_scores_index {
         my @local_files = $gst->all_local_files;
 
         # TODO: Do we have to look for "Cadd?" This limits the file name
-        # which is not "Seqant-like" convention over configuration 
+        # which is not "Seqant-like" convention over configuration
         unless ( scalar @local_files == 1 && $local_files[0] =~ m/cadd/ ) {
           my $msg = sprintf(
             "expected 1 local file to build but found %d: %s",

@@ -4,7 +4,10 @@ use warnings;
 
 package Seq::Assembly;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
+
+#TODO: turn this into a base class that sets up the logger ?
+#I think this class should hold all of the common stuff, much lke the previous version
 
 # ABSTRACT: A class for assembly information
 # VERSION
@@ -38,17 +41,32 @@ use namespace::autoclean;
 use Scalar::Util qw/ reftype /;
 use Path::Tiny qw/ path /;
 
-use Seq::Config::GenomeSizedTrack;
-use Seq::Config::SparseTrack;
+with 'Seq::Role::ConfigFromFile','Seq::Role::Message','Seq::Role::DBManager';
 
-with 'Seq::Role::ConfigFromFile'; #leaving Logger for now, for compat
-with 'Seq::Role::Message';
+#not sure in the current codebase that it doesn't make more sense to just 
+#have the package that needs the variable to declare it as has
 
-my @_attributes = qw/ genome_name genome_description genome_chrs genome_index_dir
-  genome_cadd genome_hasher genome_scorer ngene_bin debug wanted_chr debug force act/;
+# state $_attributesAref = \qw/ genome_name genome_description genome_chrs genome_index_dir
+#    debug wanted_chr debug force act/;
 
 has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
 has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
+
+has database_dir => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1 );
+
+has messanger => (
+  is => 'ro',
+  isa => 'HashRef',
+  default => sub{ {} },
+);
+
+has publisherAddress => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  lazy => 1,
+  default => sub{ [] },
+);
+# has genome_index_dir => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, );
 
 =property @public {Str} genome_index_dir
 
@@ -66,56 +84,7 @@ has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 @example genome_index_dir: hg38/index
 =cut
 
-has genome_index_dir => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, );
-
-has genome_chrs => (
-  is       => 'ro',
-  isa      => 'ArrayRef[Str]',
-  traits   => ['Array'],
-  required => 1,
-  handles  => { all_genome_chrs => 'elements', },
-);
-has genome_sized_tracks => (
-  is      => 'ro',
-  isa     => 'ArrayRef[Seq::Config::GenomeSizedTrack]',
-  traits  => ['Array'],
-  handles => {
-    all_genome_sized_tracks => 'elements',
-    add_genome_sized_track  => 'push',
-  },
-);
-has snp_tracks => (
-  is      => 'ro',
-  isa     => 'ArrayRef[Seq::Config::SparseTrack]',
-  traits  => ['Array'],
-  handles => {
-    all_snp_tracks => 'elements',
-    add_snp_track  => 'push',
-  },
-);
-has gene_tracks => (
-  is      => 'ro',
-  isa     => 'ArrayRef[Seq::Config::SparseTrack]',
-  traits  => ['Array'],
-  handles => {
-    all_gene_tracks => 'elements',
-    add_gene_track  => 'push',
-  },
-);
-
-=property @public dbm_dry_run
-
-  Deprecated: If you just wanted to test annotation without the database engine
-  locally installed. Allowed you to skip writing a (KyotoCabinet or BerkleyDB)
-  database files.
-
-=cut
-
-has dbm_dry_run => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 0,
-);
+#moved all track handling to Tracks.pm
 
 has debug => (
   is      => 'ro',
@@ -123,92 +92,131 @@ has debug => (
   default => 0,
 );
 
-has force => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 0,
-);
+#set up singleton stuff
+sub BUILD {
+  my $self = shift;
 
-sub BUILDARGS {
-  my $class = shift;
-  my $href  = $_[0];
-
-  if ( scalar @_ > 1 || reftype($href) ne "HASH" ) {
-    confess "Error: $class expects hash reference.\n";
+  if(%{$self->messanger} && @{$self->publisherAddress} ) {
+    $self->setPublisher($self->messanger, $self->publisherAddress);
   }
-  else {
-    my %hash;
-
-    # NOTE: handle essential directories
-    #   whether they are used depends on the context of subsequent calls
-    for my $req_dir (qw/ genome_index_dir genome_raw_dir/) {
-      if ( defined $href->{$req_dir} ) {
-        $href->{$req_dir} = path( $href->{$req_dir} );
-      }
-      else {
-        $href->{$req_dir} = path(".");
-        my $msg = sprintf( "WARNING: missing %s; defaulted to: %s",
-          $req_dir, $href->{$req_dir}->absolute->stringify );
-        say $msg;
-      }
-    }
-
-    if ( $href->{debug} ) {
-      my $msg =
-        sprintf( "genome_index_dir: %s", $href->{genome_index_dir}->absolute->stringify );
-      say $msg;
-      $msg = sprintf( "genome_raw_dir: %s", $href->{genome_raw_dir}->absolute->stringify );
-      say $msg;
-    }
-
-    for my $sparse_track ( @{ $href->{sparse_tracks} } ) {
-      # give all sparse tracks some needed information
-      for my $attr (qw/ genome_raw_dir genome_index_dir genome_chrs /) {
-        $sparse_track->{$attr} = $href->{$attr};
-      }
-
-      if ( $sparse_track->{type} eq 'gene' ) {
-        push @{ $hash{gene_tracks} }, Seq::Config::SparseTrack->new($sparse_track);
-      }
-      elsif ( $sparse_track->{type} eq 'snp' ) {
-        push @{ $hash{snp_tracks} }, Seq::Config::SparseTrack->new($sparse_track);
-      }
-      else {
-        croak sprintf( "unrecognized genome track type %s\n", $sparse_track->{type} );
-      }
-    }
-
-    for my $gst ( @{ $href->{genome_sized_tracks} } ) {
-      # give all genome size tracks some needed information
-      for my $attr (qw/ genome_raw_dir genome_index_dir genome_chrs /) {
-        $gst->{$attr} = $href->{$attr};
-      }
-
-      if ( $gst->{type} eq 'genome'
-        or $gst->{type} eq 'score'
-        or $gst->{type} eq 'ngene'
-        or $gst->{type} eq 'cadd' )
-      {
-        my $obj = Seq::Config::GenomeSizedTrack->new($gst);
-        push @{ $hash{genome_sized_tracks} }, $obj;
-      }
-      else {
-        croak sprintf( "unrecognized genome track type %s\n", $gst->{type} );
-      }
-    }
-    for my $attrib (@_attributes) {
-      $hash{$attrib} = $href->{$attrib} if exists $href->{$attrib};
-    }
-    #allows mixins to get attributes without making subclasses
-    #avoid knowitall antipatterns (defeat purpose of encapsulation in mixins)
-    for my $key ( keys %$href ) {
-      next if exists $hash{$key};
-      $hash{$key} = $href->{$key};
-    }
-    return $class->SUPER::BUILDARGS( \%hash );
-  }
+  
+  #needs to be initialized before dbmanager can be used
+  $self->setDbPath( path($self->database_dir)->child($self->genome_name) );
 }
 
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+# not sure of the value of this in the new schema
+# sub BUILDARGS {
+#   my $class = shift;
+#   my $href  = $_[0];
+
+#   if ( scalar @_ > 1 || reftype($href) ne "HASH" ) {
+#     confess "Error: $class expects hash reference.\n";
+#   }
+#   else {
+#     my %hash;
+    
+#     #don't want to use a default directory, because user needs to have 
+#     #hundreds of gigs available for a single 
+
+#     #not sure of the overall utility of making assembly control this
+#     #since it introduces maintenance overhead; we need to keep track 
+#     #of what each package needs here
+#     # for my $attrib (@$_attributesAref) {
+#     #   $hash{$attrib} = $href->{$attrib} if exists $href->{$attrib};
+#     # }
+#     # #allows mixins to get attributes without making subclasses
+#     # #avoid knowitall antipatterns (defeat purpose of encapsulation in mixins)
+#     # for my $key ( keys %$href ) {
+#     #   next if exists $hash{$key};
+#     #   $hash{$key} = $href->{$key};
+#     # }
+
+#     #all packages are responsible for declaring what they need
+#     #anything that is set as required and isn't given causes errors
+#     return $class->SUPER::BUILDARGS( $href );
+#   }
+# }
+
+# has genome_chrs => (
+#   is       => 'ro',
+#   isa      => 'ArrayRef[Str]',
+#   traits   => ['Array'],
+#   required => 1,
+#   handles  => { all_genome_chrs => 'elements', },
+# );
+
+# has genome_sized_tracks => (
+#   is      => 'ro',
+#   isa     => 'ArrayRef[Seq::Config::GenomeSizedTrack]',
+#   traits  => ['Array'],
+#   handles => {
+#     all_genome_sized_tracks => 'elements',
+#     add_genome_sized_track  => 'push',
+#   },
+# );
+# has snp_tracks => (
+#   is      => 'ro',
+#   isa     => 'ArrayRef[Seq::Config::SparseTrack]',
+#   traits  => ['Array'],
+#   handles => {
+#     all_snp_tracks => 'elements',
+#     add_snp_track  => 'push',
+#   },
+# );
+# has gene_tracks => (
+#   is      => 'ro',
+#   isa     => 'ArrayRef[Seq::Config::SparseTrack]',
+#   traits  => ['Array'],
+#   handles => {
+#     all_gene_tracks => 'elements',
+#     add_gene_track  => 'push',
+#   },
+# );
+
+# if ( $href->{debug} ) {
+    #   my $msg =
+    #     sprintf( "genome_index_dir: %s", $href->{genome_index_dir}->absolute->stringify );
+    #   say $msg;
+    #   $msg = sprintf( "genome_raw_dir: %s", $href->{genome_raw_dir}->absolute->stringify );
+    #   say $msg;
+    # }
+
+    # for my $sparse_track ( @{ $href->{sparse_tracks} } ) {
+    #   # give all sparse tracks some needed information
+    #   for my $attr (qw/ genome_raw_dir genome_index_dir genome_chrs /) {
+    #     $sparse_track->{$attr} = $href->{$attr};
+    #   }
+
+    #   if ( $sparse_track->{type} eq 'gene' ) {
+    #     push @{ $hash{gene_tracks} }, Seq::Config::SparseTrack->new($sparse_track);
+    #   }
+    #   elsif ( $sparse_track->{type} eq 'snp' ) {
+    #     push @{ $hash{snp_tracks} }, Seq::Config::SparseTrack->new($sparse_track);
+    #   }
+    #   else {
+    #     croak sprintf( "unrecognized genome track type %s\n", $sparse_track->{type} );
+    #   }
+    # }
+
+    # for my $gst ( @{ $href->{genome_sized_tracks} } ) {
+    #   # give all genome size tracks some needed information
+    #   for my $attr (qw/ genome_raw_dir genome_index_dir genome_chrs /) {
+    #     $gst->{$attr} = $href->{$attr};
+    #   }
+
+    #   if ( $gst->{type} eq 'genome'
+    #     or $gst->{type} eq 'score'
+    #     or $gst->{type} eq 'ngene'
+    #     or $gst->{type} eq 'cadd' )
+    #   {
+    #     my $obj = Seq::Config::GenomeSizedTrack->new($gst);
+    #     push @{ $hash{genome_sized_tracks} }, $obj;
+    #   }
+    #   else {
+    #     croak sprintf( "unrecognized genome track type %s\n", $gst->{type} );
+    #   }
+    # }

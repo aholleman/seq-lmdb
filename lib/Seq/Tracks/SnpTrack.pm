@@ -45,7 +45,7 @@ use Seq::Site::Snp;
 extends 'Seq::Build::SparseTrack';
 with 'Seq::Role::IO';
 
-sub build_snp_db {
+sub build_db {
   my ( $self, $wanted_chr ) = @_;
 
   $self->_logger->info("starting to build snp db for chr: $wanted_chr");

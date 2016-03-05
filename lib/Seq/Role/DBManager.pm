@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::DBManager;
+package Seq::Role::DBManager;
 
 our $VERSION = '0.001';
 
@@ -15,34 +15,31 @@ our $VERSION = '0.001';
   #TODO: Check description
 
   @example
-
+# A singleton role; must be configured by some process before use
 Used in:
 =for :list
-* Seq::Annotate
-* Seq::Build::GeneTrack
 
-Extended by: None
+
 
 =cut
 
-use Moose 2;
-use Moose::Util::TypeConstraints;
+use Moose::Role;
 with 'MooseX::SimpleConfig';
 
 use Carp;
 use Cpanel::JSON::XS qw/encode_json decode_json/;
 use LMDB_File qw(:flags :cursor_op);
 use Hash::Merge::Simple qw/ merge /;
-use Type::Params qw/ compile /;
-use Types::Standard qw/ :types /;
-
-with 'Seq::Role::IO';
+use MooseX::Types::Path::Tiny qw/AbsDir/;
 
 #the build config file
-has db_path => (
+state $database_dir;
+has database_dir => (
   is       => 'ro',
-  isa      => 'Str',
-  required => 1,
+  isa      => AbsDir,
+  default  => sub{$database_dir},
+  coerce   => 1,
+  writer => 'setDbPath',
 );
 
 # mode: - read or create
@@ -52,40 +49,50 @@ has read_only => (
   default => 1,
 );
 
-our %envs;
-our %dbis;
-
+#using state to make implicit singleton for the state that we want
+#shared across all instances, without requiring exposing to public
+#at the moment we generate a new environment for each $name
+#because we can only have one writer per environment,
+#across all threads
+#and because there is some minor overhead with opening many named databases
 sub getEnv {
   my ($self, $name) = @_;
+  state $envs;
 
-  return $envs{$name} if $envs{$name};
+  return $envs->{$name} if $envs->{$name};
 
   my $read_mode = $self->read_only ? MDB_RDONLY : '';
 
-  $envs{$name} = LMDB::Env->new($self->db_path, {
+  #IMPORTANT: can't use MDB_WRITEMAP safely, unless we are sure that
+  #the underlying file system supports sparse files
+  #else, the entire mapsize will be written at once
+  my $dbPath = $self->database_dir->child($name)->stringify;
+  $envs->{$name} = LMDB::Env->new($dbPath, {
     mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
     maxdbs => 0, #database isn't named, identified by path alone
     flags => MDB_NOMETASYNC | MDB_NOTLS | $read_mode
   });
 
-  return $envs{$name};
+  return $envs->{$name};
 }
 
 sub getDbi {
   my ($self, $name) = @_;
+  state $envs;
+  state $dbis;
 
-  return $dbis{$name} if defined $dbis{$name};
+  return $dbis->{$name} if defined $dbis->{$name};
 
-  $envs{$name} = $self->getEnv($name) if !$envs{$name};
+  $envs->{$name} = $self->getEnv($name) if !$envs->{$name};
 
-  my $txn = $envs{$name}->BeginTxn();
+  my $txn = $envs->{$name}->BeginTxn();
 
-  $dbis{$name} = $txn->open( {
+  $dbis->{$name} = $txn->open( {
     flags => $self->read_only ? MDB_CREATE : '',
   });
 
   $txn->commit();
-  return $dbis{$name};
+  return $dbis->{$name};
 }
 
 # rationale - hashes cannot really have duplicate keys; so, to circumvent this
@@ -186,7 +193,7 @@ sub db_get {
   }
 }
 
-__PACKAGE__->meta->make_immutable;
+no Moose::Role;
 
 1;
 

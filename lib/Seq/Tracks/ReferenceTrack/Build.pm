@@ -2,7 +2,8 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Build::GenomeSizedTrackStr;
+#old GenomeSizedTrackStr
+package Seq::Types::Reference;
 
 our $VERSION = '0.001';
 
@@ -11,7 +12,7 @@ our $VERSION = '0.001';
 
 =head1 DESCRIPTION
 
-  @class B<Seq::Build::GenomeSizedTrackStr>
+  @class B<Seq::Types::Reference>
 
   TODO: Add description
   Stores a String representation of a genome, as well as the length of each chromosome in the genome.
@@ -37,65 +38,51 @@ use YAML::XS qw/ Dump LoadFile /;
 extends 'Seq::Config::GenomeSizedTrack';
 with 'Seq::Role::IO', 'Seq::Role::Genome';
 
-# str_seq stores a string in a single scalar
-has genome_seq => (
-  is      => 'ro',
-  writer  => undef,
-  isa     => 'Str',
-  traits  => ['String'],
+has db => (
+  is => 'ro',
+  isa => 'Seq::DBManager',
   handles => {
-    add_seq       => 'append',
-    clear_genome  => 'clear',
-    genome_length => 'length',
-    get_base      => 'substr', # zero-indexed
+    get => 'db_get',
+    patch => 'db_patch',
+    patch_bulk => 'db_patch_bulk',
   },
-  lazy    => 1,
-  builder => '_build_str_genome',
+  builder => '_buildDb',
 );
 
-# stores the 1-indexed length of each chromosome
-# TODO: enumerate where this is used, and make sure we're consistent with 0 vs 1 index
-# NOTE: this is only used for building - e.g., Seq::Build, Seq::Build::* packages
-has chr_len => (
-  is      => 'rw',
-  isa     => 'HashRef[Str]',
-  traits  => ['Hash'],
-  handles => {
-    exists_chr_len     => 'exists',
-    char_genome_length => 'get',
-    set_chr_len        => 'set',
-  },
+has key_name => (
+  is => 'ro',
+  lazy => 1,
+  default => 'ref',
 );
 
-sub BUILD {
+sub _buildDb {
   my $self = shift;
-  my $msg = sprintf( "genome length: %d", $self->genome_length );
-  $self->_logger->info($msg);
-  say $msg;
+
+  $self->db
 }
 
-sub _build_str_genome {
+# @param {HashRef} $posHref : something that contains a key pertaining to this feature
+sub get_base {
+  my ($self, $posHref) = @_;
+
+  return $posHref->{$self->key_name};
+}
+
+sub build_str_genome {
   my $self = shift;
 
   $self->_logger->info('starting to build string genome');
 
-  # prepare output dir, as needed, and files
-  $self->genome_index_dir->mkpath unless ( -d $self->genome_index_dir );
-  my $chr_len_file     = $self->genome_offset_file;
   my $genome_file      = $self->genome_str_file;
   my $genome_file_size = -s $genome_file;
   my $genome_str       = '';
 
-  if ( -s $chr_len_file && $genome_file_size ) {
+  if ( $genome_file_size ) {
 
-    $self->_logger->info('about to read genome string');
+    $self->_logger->info('Skipping reading genome');
 
     my $fh = $self->get_read_fh($genome_file);
     read $fh, $genome_str, $genome_file_size;
-    my $chr_len_href = LoadFile($chr_len_file);
-    map { $self->set_chr_len( $_ => $chr_len_href->{$_} ) } keys %$chr_len_href;
-
-    $self->_logger->info('read chrome length offsets');
   }
   else {
     $self->_logger->info("building genome string");
@@ -113,11 +100,17 @@ sub _build_str_genome {
       my $in_fh      = $self->get_read_fh($file);
       my $wanted_chr = 0;
       my $chr;
+      my $chr_position; # absolute by default, 0 index
 
       while ( my $line = $in_fh->getline() ) {
         chomp $line;
         $line =~ s/\s+//g;
         if ( $line =~ m/\A>([\w\d]+)/ ) {
+          if(%seq_of_chr) {
+            $self->db_patch_bulk($chr, \%seq_of_chr);
+            %seq_of_chr = ();
+            $chr_position = 0;
+          }
           $chr = $1;
           if ( grep { /$chr/ } $self->all_genome_chrs ) {
             $wanted_chr = 1;
@@ -128,9 +121,13 @@ sub _build_str_genome {
             warn $msg . "\n";
             $wanted_chr = 0;
           }
-        }
-        elsif ( $wanted_chr && $line =~ m/(\A[ATCGNatcgn]+)\z/xms ) {
-          $seq_of_chr{$chr} .= uc $1;
+        } elsif ( $wanted_chr && $line =~ m/(\A[ATCGNatcgn]+)\z/xms ) {
+          for my $char (@{split(//, $line) } ) {
+            $seq_of_chr{$chr_position} = {
+              $self->key_name => $char,
+            };
+            $chr_position++;
+          }
         }
 
         # warn if a file does not appear to have a vaild chromosome - concern
@@ -145,32 +142,11 @@ sub _build_str_genome {
           warn $err_msg;
         }
       }
-    }
-
-    # build final genome string and chromosome off-set hash
-    for my $chr ( $self->all_genome_chrs ) {
-      if ( exists $seq_of_chr{$chr} && defined $seq_of_chr{$chr} ) {
-        $self->set_chr_len( $chr => length $genome_str );
-        $genome_str .= $seq_of_chr{$chr};
-        $seq_of_chr{$chr} = ();
-      }
-      else {
-        (
-          my $err_msg =
-            qq{did not find chromosome data for required chromosome
-          $chr while building genome for $self->name}
-        ) =~ s/\n/ /xmi;
-        $self->_logger->info($err_msg);
-        say $err_msg;
-        exit(1);
+      if(%seq_of_chr) {
+        $self->db_patch_bulk($chr, \%seq_of_chr);
+        %seq_of_chr = ();
       }
     }
-
-    my $fh = $self->get_write_fh($genome_file);
-    print {$fh} $genome_str;
-
-    $fh = $self->get_write_fh($chr_len_file);
-    print {$fh} Dump( $self->chr_len );
   }
   $self->_logger->info('finished building string genome');
   return $genome_str;
