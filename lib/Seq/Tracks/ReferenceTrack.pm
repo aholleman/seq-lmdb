@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Config::GenomeSizedTrack;
+package Seq::Tracks::ReferenceTrack;
 
 our $VERSION = '0.001';
 
