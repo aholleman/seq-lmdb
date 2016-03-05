@@ -100,8 +100,7 @@ sub _buildTrackBuilders {
 #The role of this func is NOT to decide how to model $data;
 #that's the job of the individual builder methods
 sub writeFeaturesData {
-  #overwrite not currently used
-  my ($self, $chr, $pos, $data, $overwrite) = @_;
+  my ($self, $chr, $pos, $data) = @_;
 
   #Seq::Tracks::Base should know to retrieve data this way
   #this is our schema

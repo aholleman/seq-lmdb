@@ -7,6 +7,17 @@ package Seq::Gene;
 our $VERSION = '0.001';
 
 # ABSTRACT: Class for creating particular sites for a given gene / transcript
+# This track is a lot like a region track
+# The differences:
+# We will bulk load all of its region database into a hash
+# {
+#   geneID or 0-N position : {
+#       features
+#}  
+#}
+# (We could also use a number as a key, using geneID would save space
+# as we avoid needing 1 key : value pair
+# and gain some meaningful information in the key
 # VERSION
 
 =head1 DESCRIPTION
@@ -36,6 +47,10 @@ use Data::Dump qw/ dump /;
 use Seq::Site::Gene;
 
 with 'MooX::Role::Logger';
+
+state $gene_track_fields = \qw( chrom     strand    txStart   txEnd
+  cdsStart  cdsEnd    exonCount exonStarts
+  exonEnds  name );
 
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite

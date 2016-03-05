@@ -52,7 +52,15 @@ with 'Seq::Role::ConfigFromFile','Seq::Role::Message','Seq::Role::DBManager';
 has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
 has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 
-has database_dir => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1 );
+has database_dir => ( 
+  is => 'ro', 
+  isa => AbsPath, 
+  coerce => 1, 
+  required => 1,
+  handles => {
+    databasePath => 'stringify',
+  }
+);
 
 has messanger => (
   is => 'ro',
@@ -98,6 +106,12 @@ sub BUILD {
 
   if(%{$self->messanger} && @{$self->publisherAddress} ) {
     $self->setPublisher($self->messanger, $self->publisherAddress);
+  }
+
+  if(!$self->database_dir->exists) {
+    $self->database_dir->mkpath;
+  } elsif (!$self->database_dir->is_dir) {
+    $self->tee_logger('error', 'database_dir given is not a directory');
   }
   
   #needs to be initialized before dbmanager can be used
