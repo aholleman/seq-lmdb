@@ -11,7 +11,9 @@ our $VERSION = '0.001';
 
 use Moose 2;
 use namespace::autoclean;
-use MooseX::Types::Path::Tiny qw/AbsPath/;
+use Path::Tiny qw/path/;
+
+use DDP;
 
 #this only is used by Build
 has local_files => (
@@ -37,6 +39,25 @@ has remote_files => (
 
 has sql_statement => ( is => 'ro', isa => 'Str', lazy => 1, default => '');
 
+
+around BUILDARGS => sub {
+  my $orig = shift;
+  my $class = shift;
+  my $href = shift;
+
+  my @localFiles;
+  my $fileDir = $href->{files_dir};
+
+  for my $localFile (@{$href->{local_files} } ) {
+    push @localFiles, path($fileDir)->child($href->{type} )->child($localFile)->absolute->stringify;
+  }
+
+  if(@localFiles) {
+    $href->{local_files} = \@localFiles;
+  }
+
+  $class->$orig($href);
+};
 __PACKAGE__->meta->make_immutable;
 
 1;

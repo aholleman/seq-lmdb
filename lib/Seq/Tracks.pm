@@ -12,7 +12,76 @@ use Moose 2;
 use namespace::autoclean;
 use DDP;
 
+use Seq::Tracks::ReferenceTrack::Build;
+use Seq::Tracks::GeneTrack::Build;
+use Seq::Tracks::ScoreTrack::Build;
+use Seq::Tracks::SparseTrack::Build;
+use Seq::Tracks::SnpTrack::Build;
+use Seq::Tracks::RegionTrack::Build;
+
 with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::ConfigFromFile';
+
+has files_dir => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
+
+has database_dir => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
+
+has trackMap => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    getTrack => 'get',
+  },
+  init_arg => undef,
+  builder => '_buildTrackMap',
+  lazy => 1,
+);
+
+sub _buildTrackMap {
+  my $self = shift;
+
+  return {
+    $self->refType => 'Seq::Tracks::ReferenceTrack',
+    $self->geneType => 'Seq::Tracks::GeneTrack',
+    $self->scoreType => 'Seq::Tracks::ScoreTrack',
+    $self->sparseType => 'Seq::Tracks::SparseTrack',
+    $self->snpType => 'Seq::Tracks::SnpTrack',
+    $self->regionType => 'Seq::Tracks::RegionTrack',
+  }
+};
+
+has builderMap => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    getBuilder => 'get',
+  },
+  init_arg => undef,
+  builder => '_buildTrackBuilderMap',
+  lazy => 1,
+);
+
+sub _buildTrackBuilderMap {
+  my $self = shift;
+
+  return {
+    $self->refType => 'Seq::Tracks::ReferenceTrack::Build',
+    $self->geneType => 'Seq::Tracks::GeneTrack::Build',
+    $self->scoreType => 'Seq::Tracks::ScoreTrack::Build',
+    $self->sparseType => 'Seq::Tracks::SparseTrack::Build',
+    $self->snpType => 'Seq::Tracks::SnpTrack::Build',
+    $self->regionType => 'Seq::Tracks::RegionTrack::Build',
+  }
+};
 
 =property @public @required {Str} name
 
@@ -225,6 +294,8 @@ sub _buildTrackBuilders {
       $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
     }
+    # a bit awkward;
+    $trackHref->{files_dir} = $self->{files_dir};
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
   return \%out;

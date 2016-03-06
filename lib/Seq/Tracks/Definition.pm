@@ -20,12 +20,12 @@ use namespace::autoclean;
 # use Seq::Tracks::SnpTrack;
 # use Seq::Tracks::RegionTrack;
 
-use Seq::Tracks::ReferenceTrack::Build;
-use Seq::Tracks::GeneTrack::Build;
-use Seq::Tracks::ScoreTrack::Build;
-use Seq::Tracks::SparseTrack::Build;
-use Seq::Tracks::SnpTrack::Build;
-use Seq::Tracks::RegionTrack::Build;
+# use Seq::Tracks::ReferenceTrack::Build;
+# use Seq::Tracks::GeneTrack::Build;
+# use Seq::Tracks::ScoreTrack::Build;
+# use Seq::Tracks::SparseTrack::Build;
+# use Seq::Tracks::SnpTrack::Build;
+# use Seq::Tracks::RegionTrack::Build;
 
 use DDP;
 # use Seq::Tracks::ReferenceTrack::Build;
@@ -72,51 +72,6 @@ has regionType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$reg
 
 enum TrackType => [$refType, $geneType, 
   $scoreType, $sparseType, $snpType, $regionType];
-
-#This may not be the smartest way to organize these mappings
-#Maybe they should go in Seq::Tracks and Seq::Tracks::Build
-state $trackMap = {
-  $refType => 'Seq::Tracks::ReferenceTrack',
-  $geneType => 'Seq::Tracks::GeneTrack',
-  $scoreType => 'Seq::Tracks::ScoreTrack',
-  $sparseType => 'Seq::Tracks::SparseTrack',
-  $snpType => 'Seq::Tracks::SnpTrack',
-  $regionType => 'Seq::Tracks::RegionTrack',
-};
-
-has trackMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  lazy => 1,
-  handles => {
-    getTrack => 'get',
-  },
-  init_arg => undef,
-  default => sub {$trackMap},
-);
-
-state $trackBuildMap = {
-  $refType => 'Seq::Tracks::ReferenceTrack::Build',
-  $geneType => 'Seq::Tracks::GeneTrack::Build',
-  $scoreType => 'Seq::Tracks::ScoreTrack::Build',
-  $sparseType => 'Seq::Tracks::SparseTrack::Build',
-  $snpType => 'Seq::Tracks::SnpTrack::Build',
-  $regionType => 'Seq::Tracks::RegionTrack::Build',
-};
-
-say "trackMap is";
-p $trackBuildMap;
-has trackBuildMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getBuilder => 'get',
-  },
-  lazy => 1,
-  init_arg => undef,
-  default => sub {$trackBuildMap}
-);
 
 no Moose::Role;
 1;

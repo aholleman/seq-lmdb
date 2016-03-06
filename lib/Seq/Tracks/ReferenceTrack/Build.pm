@@ -29,6 +29,7 @@ Extended in: None
 
 use Moose 2;
 use Parallel::ForkManager;
+use DDP;
 
 use namespace::autoclean;
 
@@ -47,16 +48,21 @@ sub buildTrack {
   my %seq_of_chr;
 
   for my $file ( $self->all_local_files ) {
+    say "file is $file";
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
     }
     my $in_fh      = $self->get_read_fh($file);
+    say "fh is";
+    p $in_fh;
     my $wanted_chr = 0;
     my $chr;
     my $chr_position; # absolute by default, 0 index
 
-    while ( my $line = $in_fh->getline() ) {
+    while ( <$in_fh> ) {
+      my $line = $_;
       chomp $line;
+      say "line is $line";
       $line =~ s/\s+//g;
       if ( $line =~ m/\A>([\w\d]+)/ ) { #we found a fasta header
         $chr = $1;
