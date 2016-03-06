@@ -40,7 +40,7 @@ use namespace::autoclean;
 use DDP;
 
 extends 'Seq::Tracks';
-with 'Seq::Role::Message','Seq::Role::DBManager', 'Seq::Role::ConfigFromFile';
+with 'Seq::Role::Message', 'Seq::Role::ConfigFromFile';
 
 #not sure in the current codebase that it doesn't make more sense to just 
 #have the package that needs the variable to declare it as has
@@ -63,7 +63,6 @@ has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 
 @example database_dir: hg38/index
 =cut
-has files_dir   => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1 );
 
 has messanger => (
   is => 'ro',

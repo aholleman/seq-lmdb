@@ -11,6 +11,7 @@ package Seq::Tracks;
 use Moose 2;
 use namespace::autoclean;
 use DDP;
+use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
 use Seq::Tracks::ReferenceTrack::Build;
 use Seq::Tracks::GeneTrack::Build;
@@ -24,13 +25,16 @@ with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::DBManager',
 
 has files_dir => (
   is => 'ro',
-  isa => 'Str',
+  isa => AbsDir,
+  coerce => 1,
   required => 1,
 );
 
+#we'll make the database_dir if it doesn't exist in the buid step
 has database_dir => (
   is => 'ro',
-  isa => 'Str',
+  isa => AbsPath,
+  coerce => 1,
   required => 1,
 );
 
@@ -155,6 +159,7 @@ sub BUILD {
   my $self = shift;
 
   if(!$self->database_dir->exists) {
+    say "database dir doesnt exist";
     $self->database_dir->mkpath;
   } elsif (!$self->database_dir->is_dir) {
     $self->tee_logger('error', 'database_dir given is not a directory');
@@ -340,8 +345,6 @@ sub allSparseTrackBuilder {
 #returns hashRef; only one of the following tracks is allowed
 sub refTrackBuilder {
   my $self = shift;
-  say "trackBuilders are";
-  p $self->trackBuilders;
   return $self->trackBuilders->{$self->refType}[0];
 }
 

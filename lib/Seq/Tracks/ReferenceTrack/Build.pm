@@ -34,9 +34,9 @@ use DDP;
 use namespace::autoclean;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO', 'Seq::Role::Genome';
+with 'Seq::Role::IO', 'Seq::Role::Genome', 'Seq::Role::DBManager';
 
-my $pm = Parallel::ForkManager->new(4);
+my $pm = Parallel::ForkManager->new(8);
 sub buildTrack {
   my $self = shift;
 
@@ -44,7 +44,11 @@ sub buildTrack {
   
   $self->tee_logger('info', "building genome string");
 
-  # hash to hold temporary chromosome strings
+  #pre-make all databases
+  #done to avoid weird race condition issues from forking
+  for my $chr ($self->allWantedChrs) {
+    $self->getDbi($chr);
+  }
 
   my $re = qr/(\A[ATCGNatcgn]+)\z/xms;
   for my $file ( $self->all_local_files ) {
@@ -56,6 +60,7 @@ sub buildTrack {
     my $wanted_chr = 0;
     my $chr;
     my $chr_position = 0; # absolute by default, 0 index
+    my $count = 0;
     say "reading new file, $file";
     while ( <$in_fh> ) {
       chomp $_;
@@ -90,8 +95,12 @@ sub buildTrack {
         #TODO:
         #this is purely for debug, this should be removed as soon
         #as _write works appropriately
-        $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
-        $seq_of_chr{data} = {};
+        # if($count > 10000) {
+        #   $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
+        #   $seq_of_chr{data} = {};
+        #   $count = 0;
+        # }
+        # $count++;
       }
 
       # warn if a file does not appear to have a vaild chromosome - concern
@@ -119,12 +128,12 @@ sub buildTrack {
 
 sub _write {
   my $self = shift;
-  say "entering fork";
-  $pm->start or $self->tee_logger('warn', "couldn't write $_[0] Reference track");
+  $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
     my ($chr, $data) = @_;
+    say "entering fork";
     p $data;
     $self->writeAllFeaturesData( $chr, $data );
-  $pm->finish;
+    $pm->finish;
 }
 __PACKAGE__->meta->make_immutable;
 

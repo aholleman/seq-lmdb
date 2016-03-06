@@ -18,6 +18,19 @@ use DDP;
 
 extends 'Seq::Tracks::Base';
 
+# this should move to some overall package, that is a singleton
+# maybe assembly should be moved to a role
+has debug => (
+  is => 'ro',
+  isa => 'Int',
+  lazy => 1,
+  default => 0,
+);
+
+# this should move to some overall package, that is a singleton
+# maybe assembly should be moved to a role
+# as should anything that is set once for the entire config
+# and should be shared between all types
 has genome_chrs => (
   is => 'ro',
   isa => 'ArrayRef',

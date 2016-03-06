@@ -79,12 +79,11 @@ has force => (
 
 sub BUILD {
   my $self = shift;
-  say "Hello";
+
   $self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
   say "building reference track" if $self->debug;
 
-  p $self;
   my $refTrack = $self->refTrackBuilder;
   $refTrack->buildTrack();
 }
