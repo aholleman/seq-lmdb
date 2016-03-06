@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 #old GenomeSizedTrackStr
-package Seq::Tracks::Reference::Build;
+package Seq::Tracks::ReferenceTrack::Build;
 
 our $VERSION = '0.001';
 
@@ -41,7 +41,7 @@ sub buildTrack {
 
   $self->tee_logger('info', 'starting to build string genome');
   
-  $self->tee_logger->info("building genome string");
+  $self->tee_logger('info', "building genome string");
 
   # hash to hold temporary chromosome strings
   my %seq_of_chr;

@@ -24,7 +24,6 @@ Used in:
 =cut
 
 use Moose::Role;
-with 'MooseX::SimpleConfig';
 
 use Carp;
 use Cpanel::JSON::XS qw/encode_json decode_json/;

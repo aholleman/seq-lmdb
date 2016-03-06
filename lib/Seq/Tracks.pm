@@ -1,21 +1,18 @@
 use 5.10.0;
 use strict;
 use warnings;
+our $VERSION = '0.002';
 
-package Seq::Config::Track;
-
-our $VERSION = '0.001';
+package Seq::Tracks;
 
 # ABSTRACT: A base class for track classes
 # VERSION
 
 use Moose 2;
-use Moose::Util::TypeConstraints; 
 use namespace::autoclean;
-use Path::Tiny;
-use MooseX::Types::Path::Tiny qw/Path/;
+use DDP;
 
-with 'Seq::Role::Messages', 'Seq::Tracks::Definition';
+with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::ConfigFromFile';
 
 =property @public @required {Str} name
 
@@ -27,10 +24,17 @@ with 'Seq::Role::Messages', 'Seq::Tracks::Definition';
   * snp
 
 =cut
+has trackBuilders =>(
+  is => 'ro',
+  #isa => 'HashRef[ArrayRef]',
+  lazy => 1,
+  builder => '_buildTrackBuilders',
+);
+
 
 has dataTracks =>(
   is => 'ro',
-  isa => 'HashRef[ArrayRef]',
+  #isa => 'HashRef[ArrayRef]',
   lazy => 1,
   builder => '_buildDataTracks',
   traits => ['Hash'],
@@ -76,6 +80,22 @@ has tracks => (
 #     featureName: featureValue  
 #} 
 #}
+
+sub BUILD {
+  my $self = shift;
+
+  if(!$self->database_dir->exists) {
+    $self->database_dir->mkpath;
+  } elsif (!$self->database_dir->is_dir) {
+    $self->tee_logger('error', 'database_dir given is not a directory');
+  }
+  
+  #needs to be initialized before dbmanager can be used
+  $self->setDbPath( $self->database_dir );
+
+  say "tracks are";
+  $self->tracks;
+}
 sub _buildDataTracks {
   my $self = shift;
 
@@ -169,17 +189,136 @@ sub getAllDataAsHref {
 #  trackName : {typeStuff},
 #  typeName2 : {typeStuff2},
 #}
-sub insantiateTracks {
-  my ( $self, $href ) = @_;
+# sub insantiateTracks {
+#   my ( $self, $href ) = @_;
 
-  my @out;
-  for my $maybeTrackType (keys %$href) {
-    if(!$trackMap->{$maybeTrackType} ) {
-      $self->tee_logger('warn', "Invalid track type $maybeTrackType");
+#   my @out;
+#   for my $maybeTrackType (keys %$href) {
+#     if(!$trackMap->{$maybeTrackType} ) {
+#       $self->tee_logger('warn', "Invalid track type $maybeTrackType");
+#       next;
+#     }
+#     push @out, $trackMap->{$maybeTrackType}->new( data => $href->{$maybeTrackType} );
+#   }
+# }
+
+# used to simplify process of detecting tracks
+# I think that Tracks.pm should know which features it has access to
+# and anything conforming to that interface should become an instance
+# of the appropriate class
+# and everythign else shouldn't, and should generate a warning
+# This is heavily inspired by Dr. Thomas Wingo's primer picking software design
+# expects structure to be {
+#  trackName : {typeStuff},
+#  typeName2 : {typeStuff2},
+#}
+
+#different from Seq::Tracks in that we store class instances hashed on track type
+#this is to allow us to more easily build tracks of one type in a certain order
+sub _buildTrackBuilders {
+  my $self = shift;
+
+  my %out;
+  for my $trackHref (@{$self->tracks}) {
+    my $className = $self->getBuilder($trackHref->{type} );
+    if(!$className) {
+      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
     }
-    push @out, $trackMap->{$maybeTrackType}->new( data => $href->{$maybeTrackType} );
+    push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
+  return \%out;
+}
+
+#like the original as_href this prepares a site for serialization
+#instead of introspecting, it uses the features defined in the config
+#This defines our schema, e.g how the data is stored in the kv database
+# {
+#  name (this is the track name) : {
+#   type: someType,
+#   data: {
+#     feature1: featureVal1, feature2: featureVal2, ...
+#} } } }
+
+#The role of this func is to wrap the data that each individual build method
+#creates, in a consistent schema. This should match the way that Seq::Tracks::Base
+#retrieves data
+#@param $chr: this is a bit of a misnomer
+#it is really the name of the database
+#for region databases it will be the name of track (name: )
+#The role of this func is NOT to decide how to model $data;
+#that's the job of the individual builder methods
+sub writeFeaturesData {
+  my ($self, $chr, $pos, $data) = @_;
+
+  #Seq::Tracks::Base should know to retrieve data this way
+  #this is our schema
+  my %out = (
+    $self->name => {
+      $self->typeKey => $self->type,
+      $self->dataKy => $data,
+    }
+  );
+
+  $self->dbPatch($chr, $pos, \%out);
+}
+
+#@param $posHref : {positionKey : data}
+#the positionKey doesn't have to be numerical;
+#for instance a gene track may use its gene name
+sub writeAllFeaturesData {
+  #overwrite not currently used
+  my ($self, $chr, $posHref) = @_;
+
+  my $featuresData;
+
+  my %out;
+
+  for my $key (keys %$posHref) {
+    $out{$key} = {
+      $self->name => {
+        $self->typeKey => $self->type,
+        $self->dataKy => $posHref->{$key},
+      }
+    }
+  }
+
+  $self->dbPatchBulk($chr, \%out);
+}
+
+#all* returns array ref
+#we coupled ngene to gene tracks, to allow this
+sub allGeneTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->geneType};
+}
+
+sub allSnpTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->snpType};
+}
+
+sub allRegionTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->regionType};
+}
+
+sub allScoreTrackBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->scoreType};
+}
+
+sub allSparseTrackBuilder {
+  my $self = shift;
+  return $self->trackBuilders->{$self->sparseType};
+}
+
+#returns hashRef; only one of the following tracks is allowed
+sub refTrackBuilder {
+  my $self = shift;
+  say "trackBuilders are";
+  p $self->trackBuilders;
+  return $self->trackBuilders->{$self->refType}[0];
 }
 
 # sub insantiateRef {

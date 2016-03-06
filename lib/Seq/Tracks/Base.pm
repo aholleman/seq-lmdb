@@ -7,7 +7,7 @@ package Seq::Tracks::Base;
 our $VERSION = '0.001';
 
 use Moose 2;
-with 'Seq::Role::DBManager', 'Seq::Tracks::Definition', 'Seq::Role::Messages';
+with 'Seq::Role::DBManager', 'Seq::Tracks::Definition', 'Seq::Role::Message';
 
 #only required for building;
 has features => (
@@ -15,6 +15,7 @@ has features => (
   isa => 'ArrayRef[Str|HashRef]',
   lazy => 1,
   traits   => ['Array'],
+  default  => sub{[]},
   handles  => { allFeatures => 'elements', noFeatures => 'is_empty' },
 );
 

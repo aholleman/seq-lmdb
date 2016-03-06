@@ -6,6 +6,7 @@ package Seq::Build;
 
 our $VERSION = '0.001';
 
+use DDP;
 # ABSTRACT: A class for building all files associated with a genome assembly
 # VERSION
 
@@ -35,17 +36,9 @@ Extended in: None
 =cut
 
 use Moose 2;
-use MooseX::Types::Path::Tiny qw/ AbsFile /;
 
-use Carp qw/ croak /;
-use File::Path qw/ make_path /;
 use File::Spec;
 use namespace::autoclean;
-use Path::Tiny qw/ path /;
-use Scalar::Util qw/ reftype /;
-use YAML::XS qw/ Dump /;
-
-use Seq::Tracks::Build;
 
 extends 'Seq::Assembly';
 with 'Seq::Role::IO';
@@ -56,17 +49,6 @@ has genome_chrs => (
   traits   => ['Array'],
   required => 1,
   handles  => { all_genome_chrs => 'elements', },
-);
-
-has trackBuilders => (
-  is => 'ro',
-  isa => 'Seq::Tracks::Build',
-  lazy => 1,
-  required => 1,
-  handles => qw/
-    allGeneTracks allSnpTracks allRegionTracks allScoreTracks allSparseTracks
-    refTrack updateAllFeaturesData
-  /,
 );
 
 has wanted_chr => (
@@ -81,26 +63,30 @@ has force => (
   default => 0,
 );
 
-around BUILDARGS => sub {
-  my $orig  = shift;
-  my $class = shift;
-  my $href = shift;
+# around BUILDARGS => sub {
+#   my $orig  = shift;
+#   my $class = shift;
+#   my $href = shift;
 
-  say "building tracks" if $self->debug;
+#   say "building tracks" if $href->{debug};
 
-  #avoid needing to know Seq::Tracks::Build implementation details
-  $href->{trackBuilders} = Seq::Tracks::Build->new($href);
+#   #avoid needing to know Seq::Tracks::Build implementation details
+#   #$href->{trackBuilders} = Seq::Tracks->new($href);
 
-  say "built tracks" if $self->debug;
-  $class->$orign($href);
-}
+#   say "built tracks" if $href->{debug};
+#   $class->$orig($href);
+# };
 
 sub BUILD {
   my $self = shift;
-  $self->tee_logger('info', "wanted_chr: " .    ( $self->wanted_chr    || 'all' ) );
+  say "Hello";
+  $self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
   say "building reference track" if $self->debug;
-  $self->refTrack->buildTrack();
+
+  p $self;
+  my $refTrack = $self->refTrackBuilder;
+  $refTrack->buildTrack();
 }
 
 # TODO

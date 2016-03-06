@@ -26,7 +26,7 @@ genome_chrs:
 - chrX
 - chrY
 genome_description: human
-genome_name: hg19 #not sure if necessary
+genome_name: hg19 
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:

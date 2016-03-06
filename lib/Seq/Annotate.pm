@@ -209,12 +209,6 @@ has discordant_bases => (
   handles => { count_discordant => 'inc', }
 );
 
-sub BUILDARGS {
-  my($class, $href) = @_;
-
-  $href->{trackContainerss} = Seq::Tracks->new($href);
-};
-
 sub BUILD {
   my $self = shift;
   p $self if $self->debug;

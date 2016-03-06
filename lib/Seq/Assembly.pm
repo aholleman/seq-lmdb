@@ -36,12 +36,11 @@ Uses:
 use Moose 2;
 use MooseX::Types::Path::Tiny qw/ AbsPath /;
 
-use Carp qw/ croak confess/;
 use namespace::autoclean;
-use Scalar::Util qw/ reftype /;
-use Path::Tiny qw/ path /;
+use DDP;
 
-with 'Seq::Role::ConfigFromFile','Seq::Role::Message','Seq::Role::DBManager';
+extends 'Seq::Tracks';
+with 'Seq::Role::Message','Seq::Role::DBManager', 'Seq::Role::ConfigFromFile';
 
 #not sure in the current codebase that it doesn't make more sense to just 
 #have the package that needs the variable to declare it as has
@@ -64,15 +63,7 @@ has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 
 @example database_dir: hg38/index
 =cut
-has database_dir => ( 
-  is => 'ro', 
-  isa => AbsPath, 
-  coerce => 1, 
-  required => 1,
-  handles => {
-    databasePath => 'stringify',
-  }
-);
+has files_dir   => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1 );
 
 has messanger => (
   is => 'ro',
@@ -98,19 +89,11 @@ has debug => (
 #set up singleton stuff
 sub BUILD {
   my $self = shift;
-
+  
   if(%{$self->messanger} && @{$self->publisherAddress} ) {
+    #p $self;
     $self->setPublisher($self->messanger, $self->publisherAddress);
   }
-
-  if(!$self->database_dir->exists) {
-    $self->database_dir->mkpath;
-  } elsif (!$self->database_dir->is_dir) {
-    $self->tee_logger('error', 'database_dir given is not a directory');
-  }
-  
-  #needs to be initialized before dbmanager can be used
-  $self->setDbPath( $self->database_dir );
 }
 
 __PACKAGE__->meta->make_immutable;

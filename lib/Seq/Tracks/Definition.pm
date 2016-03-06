@@ -13,6 +13,23 @@ use Moose::Role;
 use Moose::Util::TypeConstraints; 
 use namespace::autoclean;
 
+# use Seq::Tracks::ReferenceTrack;
+# use Seq::Tracks::GeneTrack;
+# use Seq::Tracks::ScoreTrack;
+# use Seq::Tracks::SparseTrack;
+# use Seq::Tracks::SnpTrack;
+# use Seq::Tracks::RegionTrack;
+
+use Seq::Tracks::ReferenceTrack::Build;
+use Seq::Tracks::GeneTrack::Build;
+use Seq::Tracks::ScoreTrack::Build;
+use Seq::Tracks::SparseTrack::Build;
+use Seq::Tracks::SnpTrack::Build;
+use Seq::Tracks::RegionTrack::Build;
+
+use DDP;
+# use Seq::Tracks::ReferenceTrack::Build;
+# use Seq::Tracks::GeneTrack;
 =property @public @required {Str} name
 
   The track name. This is defined directly in the input config file.
@@ -87,6 +104,8 @@ state $trackBuildMap = {
   $regionType => 'Seq::Tracks::RegionTrack::Build',
 };
 
+say "trackMap is";
+p $trackBuildMap;
 has trackBuildMap => (
   is => 'ro',
   isa => 'HashRef',

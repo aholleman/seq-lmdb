@@ -95,93 +95,93 @@ Used in:
 =cut
 
 
-sub get_idx_base {
-  my ( $self, $char ) = @_;
-  return $idx_base[$char];
-}
+# sub get_idx_base {
+#   my ( $self, $char ) = @_;
+#   return $idx_base[$char];
+# }
 
-sub get_idx_in_gan {
-  my ( $self, $char ) = @_;
-  return $idx_in_gan[$char];
-}
+# sub get_idx_in_gan {
+#   my ( $self, $char ) = @_;
+#   return $idx_in_gan[$char];
+# }
 
-sub get_idx_in_gene {
-  my ( $self, $char ) = @_;
-  return $idx_in_gene[$char];
-}
+# sub get_idx_in_gene {
+#   my ( $self, $char ) = @_;
+#   return $idx_in_gene[$char];
+# }
 
-sub get_idx_in_exon {
-  my ( $self, $char ) = @_;
-  return $idx_in_exon[$char];
-}
+# sub get_idx_in_exon {
+#   my ( $self, $char ) = @_;
+#   return $idx_in_exon[$char];
+# }
 
-=method @public get_idx_in_snp
+# =method @public get_idx_in_snp
 
-  Takes an integer code representing the features at a genomic position.
-  Returns a 1 if this position is a snp, or 0 if not
+#   Takes an integer code representing the features at a genomic position.
+#   Returns a 1 if this position is a snp, or 0 if not
 
-  $self->get_idx_in_snp($site_code)
+#   $self->get_idx_in_snp($site_code)
 
-  See the anonymous routine ~line 100 that fills $idx_in_snp.
+#   See the anonymous routine ~line 100 that fills $idx_in_snp.
 
-Used in @class Seq::Annotate
+# Used in @class Seq::Annotate
 
-@requires @private {Array<Bool>} $idx_in_snp
+# @requires @private {Array<Bool>} $idx_in_snp
 
-@param {Int} $char
+# @param {Int} $char
 
-@returns {Bool} @values 0, 1
+# @returns {Bool} @values 0, 1
 
-=cut
+# =cut
 
-sub get_idx_in_snp {
-  my ( $self, $char ) = @_;
-  return $idx_in_snp[$char];
-}
+# sub get_idx_in_snp {
+#   my ( $self, $char ) = @_;
+#   return $idx_in_snp[$char];
+# }
 
-=method @public get_idx_in_snp
+# =method @public get_idx_in_snp
 
-  @see get_idx_in_snp
+#   @see get_idx_in_snp
 
-=cut
+# =cut
 
-sub in_gan_val {
-  my $self = @_;
-  return $in_gan[1];
-}
+# sub in_gan_val {
+#   my $self = @_;
+#   return $in_gan[1];
+# }
 
-=method @public get_idx_in_snp
+# =method @public get_idx_in_snp
 
-  @see get_idx_in_snp
+#   @see get_idx_in_snp
 
-=cut
+# =cut
 
-sub in_exon_val {
-  my $self = @_;
-  return $in_exon[1];
-}
+# sub in_exon_val {
+#   my $self = @_;
+#   return $in_exon[1];
+# }
 
-=method @public get_idx_in_snp
+# =method @public get_idx_in_snp
 
-  @see get_idx_in_snp
+#   @see get_idx_in_snp
 
-=cut
+# =cut
 
-sub in_gene_val {
-  my $self = @_;
-  return $in_gene[1];
-}
+# sub in_gene_val {
+#   my $self = @_;
+#   return $in_gene[1];
+# }
 
-=method @public get_idx_in_snp
+# =method @public get_idx_in_snp
 
-  @see get_idx_in_snp
+#   @see get_idx_in_snp
 
-=cut
+# =cut
 
-sub in_snp_val {
-  my $self = @_;
-  return $in_snp[1];
-}
+# sub in_snp_val {
+#   my $self = @_;
+#   return $in_snp[1];
+# }
 
 =constructor
 
