@@ -31,20 +31,31 @@ use LMDB_File qw(:flags :cursor_op);
 use Hash::Merge::Simple qw/ merge /;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
 
-#the build config file
-state $database_dir;
+#needed so that we can initialize DBManager onces
+state $databaseDir;
 has database_dir => (
   is       => 'ro',
   isa      => AbsDir,
-  default  => sub{$database_dir},
+  lazy => 1, 
+  required => 1,
+  default => sub{$databaseDir},
   coerce   => 1,
-  writer => 'setDbPath',
+  handles => {
+    dbPath => 'stringify',
+  }
 );
 
+sub setDbPath {
+  my ($self, $dir) = @_;
+
+  $databaseDir = $dir;
+ # $self->database_dir($databaseDir);
+}
 # mode: - read or create
 has read_only => (
-  is => 'ro',
+  is => 'rw',
   isa => 'Bool',
+  lazy => 1,
   default => 1,
 );
 
@@ -60,17 +71,29 @@ sub getEnv {
 
   return $envs->{$name} if $envs->{$name};
 
-  my $read_mode = $self->read_only ? MDB_RDONLY : '';
-
   #IMPORTANT: can't use MDB_WRITEMAP safely, unless we are sure that
   #the underlying file system supports sparse files
   #else, the entire mapsize will be written at once
-  my $dbPath = $self->database_dir->child($name)->stringify;
-  $envs->{$name} = LMDB::Env->new($dbPath, {
-    mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
-    maxdbs => 0, #database isn't named, identified by path alone
-    flags => MDB_NOMETASYNC | MDB_NOTLS | $read_mode
-  });
+  my $dbPath = $self->database_dir->child($name);
+  if(!$self->database_dir->child($name)->is_dir) {
+    $self->database_dir->child($name)->mkpath;
+  }
+
+  $dbPath = $dbPath->stringify;
+  if($self->read_only) {
+    $envs->{$name} = LMDB::Env->new($dbPath .'/', {
+      mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
+      maxdbs => 0, #database isn't named, identified by path alone
+      flags => MDB_NOMETASYNC | MDB_NOTLS | MDB_RDONLY,
+    });
+  } else {
+    $envs->{$name} = LMDB::Env->new($dbPath .'/', {
+      mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
+      maxdbs => 0, #database isn't named, identified by path alone
+      flags => MDB_NOMETASYNC | MDB_NOTLS
+    });
+  }
+  
 
   return $envs->{$name};
 }
@@ -86,9 +109,15 @@ sub getDbi {
 
   my $txn = $envs->{$name}->BeginTxn();
 
-  $dbis->{$name} = $txn->open( {
-    flags => $self->read_only ? MDB_CREATE : '',
-  });
+  say "making database";
+  if($self->read_only) {
+    $dbis->{$name} = $txn->open();
+  } else {
+    $dbis->{$name} = $txn->open( {
+      flags => MDB_CREATE,
+    });
+  }
+  
 
   $txn->commit();
   return $dbis->{$name};

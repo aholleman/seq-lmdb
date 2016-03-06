@@ -19,7 +19,8 @@ use Seq::Tracks::SparseTrack::Build;
 use Seq::Tracks::SnpTrack::Build;
 use Seq::Tracks::RegionTrack::Build;
 
-with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::ConfigFromFile';
+with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::DBManager',
+  'Seq::Role::ConfigFromFile';
 
 has files_dir => (
   is => 'ro',
@@ -161,9 +162,6 @@ sub BUILD {
   
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
-
-  say "tracks are";
-  $self->tracks;
 }
 sub _buildDataTracks {
   my $self = shift;
@@ -295,7 +293,8 @@ sub _buildTrackBuilders {
       next;
     }
     # a bit awkward;
-    $trackHref->{files_dir} = $self->{files_dir};
+    $trackHref->{files_dir} = $self->files_dir;
+    $trackHref->{genome_chrs} = $self->genome_chrs;
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
   return \%out;
@@ -310,52 +309,6 @@ sub _buildTrackBuilders {
 #   data: {
 #     feature1: featureVal1, feature2: featureVal2, ...
 #} } } }
-
-#The role of this func is to wrap the data that each individual build method
-#creates, in a consistent schema. This should match the way that Seq::Tracks::Base
-#retrieves data
-#@param $chr: this is a bit of a misnomer
-#it is really the name of the database
-#for region databases it will be the name of track (name: )
-#The role of this func is NOT to decide how to model $data;
-#that's the job of the individual builder methods
-sub writeFeaturesData {
-  my ($self, $chr, $pos, $data) = @_;
-
-  #Seq::Tracks::Base should know to retrieve data this way
-  #this is our schema
-  my %out = (
-    $self->name => {
-      $self->typeKey => $self->type,
-      $self->dataKy => $data,
-    }
-  );
-
-  $self->dbPatch($chr, $pos, \%out);
-}
-
-#@param $posHref : {positionKey : data}
-#the positionKey doesn't have to be numerical;
-#for instance a gene track may use its gene name
-sub writeAllFeaturesData {
-  #overwrite not currently used
-  my ($self, $chr, $posHref) = @_;
-
-  my $featuresData;
-
-  my %out;
-
-  for my $key (keys %$posHref) {
-    $out{$key} = {
-      $self->name => {
-        $self->typeKey => $self->type,
-        $self->dataKy => $posHref->{$key},
-      }
-    }
-  }
-
-  $self->dbPatchBulk($chr, \%out);
-}
 
 #all* returns array ref
 #we coupled ngene to gene tracks, to allow this
