@@ -61,27 +61,26 @@ sub buildTrack {
     my $chr;
     my $chr_position = 0; # absolute by default, 0 index
     my $count = 0;
-    say "reading new file, $file";
+
     while ( <$in_fh> ) {
       chomp $_;
 
       $_ =~ s/\s+//g;
       if ( $_ =~ m/\A>([\w\d]+)/ ) { #we found a fasta header
         $chr = $1;
-        say "chr is $chr";
+
         if(!$seq_of_chr{chr} ) {
           %seq_of_chr = ( chr => $chr, data => {} );
         }
 
         if($seq_of_chr{chr} ne $chr) {
-          say "chr is new";
+          say "chr is new"; #TODO: remove
           $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
           %seq_of_chr = ( chr => $chr, data => {} );
           $chr_position = 0;
         }
 
         if ( $self->chrIsWanted($chr) ) {
-          say "chr is wanted";
           $wanted_chr = 1;
         } else {
           $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
@@ -106,7 +105,6 @@ sub buildTrack {
       # warn if a file does not appear to have a vaild chromosome - concern
       #   that it's not in fasta format
       if ( $. == 2 and !$wanted_chr ) {
-        say "error";
         my $err_msg = sprintf(
           "WARNING: Found %s in %s but '%s' is not a valid chromsome for %s.
           You might want to ensure %s is a valid fasta file.", $chr, $file, $self->name, $file
@@ -130,8 +128,7 @@ sub _write {
   my $self = shift;
   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
     my ($chr, $data) = @_;
-    say "entering fork";
-    p $data;
+    say "entering fork"; #TODO: remove
     $self->writeAllFeaturesData( $chr, $data );
     $pm->finish;
 }

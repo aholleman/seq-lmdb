@@ -78,7 +78,6 @@ sub get_read_fh {
   $fh = IO::File->new($filePath, 'r') unless $fh;
   $self->tee_logger('error', "Unable to open file $filePath") unless $fh;
 
-  say "got fh";
   return $fh;
 }
 
