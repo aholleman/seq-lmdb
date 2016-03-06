@@ -70,13 +70,13 @@ sub buildTrack {
         $chr = $1;
 
         if(!$seq_of_chr{chr} ) {
-          %seq_of_chr = ( chr => $chr, data => {} );
+          %seq_of_chr = ( chr => $chr, data => '' );
         }
 
         if($seq_of_chr{chr} ne $chr) {
           say "chr is new"; #TODO: remove
           $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
-          %seq_of_chr = ( chr => $chr, data => {} );
+          %seq_of_chr = ( chr => $chr, data => '' );
           $chr_position = 0;
         }
 
@@ -87,10 +87,7 @@ sub buildTrack {
           $wanted_chr = 0;
         }
       } elsif ( $wanted_chr && $_ =~ $re ) {
-        for my $char (split(//, $1) ) {
-          $seq_of_chr{data}->{$chr_position} = $char;
-          $chr_position++;
-        }
+        $seq_of_chr{data} .= $1;
         #TODO:
         #this is purely for debug, this should be removed as soon
         #as _write works appropriately
@@ -127,9 +124,16 @@ sub buildTrack {
 sub _write {
   my $self = shift;
   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
-    my ($chr, $data) = @_;
+    my ($chr, $dataStr) = @_;
     say "entering fork"; #TODO: remove
-    $self->writeAllFeaturesData( $chr, $data );
+    my %data;
+    my $chr_position = 0;
+    #say "dataStr is $dataStr";
+    for my $char (split(//, $dataStr) ) {
+      $data{$chr_position} = $char;
+      $chr_position++;
+    }
+    $self->writeAllFeaturesData( $chr, \%data );
     $pm->finish;
 }
 __PACKAGE__->meta->make_immutable;

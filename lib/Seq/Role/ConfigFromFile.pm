@@ -25,7 +25,7 @@ Used in:
 Extended by: None
 
 =cut
-
+#TODO: we should remove croak in favor of tee_logger('error', '')
 use Moose::Role 2;
 use MooseX::Types::Path::Tiny qw/ Path /;
 

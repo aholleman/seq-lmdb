@@ -177,6 +177,7 @@ sub dbPatch {
   $txn->commit();
 }
 
+#TODO: we should allow an array ref, more memory efficient
 sub dbPatchBulk {
   my ( $self, $chr, $posHref ) = @_;
 
