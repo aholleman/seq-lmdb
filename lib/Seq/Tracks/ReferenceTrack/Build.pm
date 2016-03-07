@@ -36,7 +36,7 @@ use namespace::autoclean;
 extends 'Seq::Tracks::Build';
 with 'Seq::Role::IO', 'Seq::Role::Genome', 'Seq::Role::DBManager';
 
-my $pm = Parallel::ForkManager->new(8);
+my $pm = Parallel::ForkManager->new(4);
 sub buildTrack {
   my $self = shift;
 
@@ -91,7 +91,7 @@ sub buildTrack {
         #TODO:
         #this is purely for debug, this should be removed as soon
         #as _write works appropriately
-        # if($count > 10000) {
+        # if($count > 100) {
         #   $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
         #   $seq_of_chr{data} = {};
         #   $count = 0;
@@ -126,14 +126,23 @@ sub _write {
   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
     my ($chr, $dataStr) = @_;
     say "entering fork"; #TODO: remove
-    my %data;
-    my $chr_position = 0;
-    #say "dataStr is $dataStr";
+
+    my %out;
+    my $pos = 0;
+    my $cnt = 0;
     for my $char (split(//, $dataStr) ) {
-      $data{$chr_position} = $char;
-      $chr_position++;
+      $out{$pos} = $char;
+      $pos++;
+      $cnt++;
+      if($cnt > $self->_maxWrite) {
+        $cnt = 0;
+        $self->writeAllData( $chr, \%out );
+        %out = ();
+      }
     }
-    $self->writeAllFeaturesData( $chr, \%data );
+    $self->writeAllData( $chr, \%out);
+    %out = ();
+  
     $pm->finish;
 }
 __PACKAGE__->meta->make_immutable;

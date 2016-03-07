@@ -24,7 +24,7 @@ has debug => (
   is => 'ro',
   isa => 'Int',
   lazy => 1,
-  default => 0,
+  default => 1,
 );
 
 # this should move to some overall package, that is a singleton
@@ -107,7 +107,7 @@ sub chrIsWanted {
 #for region databases it will be the name of track (name: )
 #The role of this func is NOT to decide how to model $data;
 #that's the job of the individual builder methods
-sub writeFeaturesData {
+sub writeData {
   my ($self, $chr, $pos, $data) = @_;
 
   #Seq::Tracks::Base should know to retrieve data this way
@@ -125,16 +125,19 @@ sub writeFeaturesData {
 #@param $posHref : {positionKey : data}
 #the positionKey doesn't have to be numerical;
 #for instance a gene track may use its gene name
-sub writeAllFeaturesData {
+
+#NOT safe for the input data
+sub writeAllData {
   #overwrite not currently used
   my ($self, $chr, $posHref) = @_;
 
-  my $featuresData;
+  if(ref $posHref eq 'ARRAY') {
+    goto &writeAllDataArray;
+  }
 
-  my %out;
-
+ # save memory, mutate
   for my $key (keys %$posHref) {
-    $out{$key} = {
+    $posHref->{$key} = {
       $self->name => {
         $self->typeKey => $self->type,
         $self->dataKey => $posHref->{$key},
@@ -142,7 +145,26 @@ sub writeAllFeaturesData {
     }
   }
 
-  $self->dbPatchBulk($chr, \%out);
+  $self->dbPatchBulk($chr, $posHref);
+}
+
+#not safe for the input data
+sub writeAllDataArray {
+  my ($self, $chr, $posAref) = @_;
+
+  # save memory, mutate
+  my $idx = 0;
+  for my $data (@$posAref) {
+    $posAref->[$idx] = {
+      $self->name => {
+        $self->typeKey => $self->type,
+        $self->dataKey => $data,
+      }
+    };
+    $idx++;
+  }
+
+  $self->dbPatchBulkArray($chr, $posAref);
 }
 
 __PACKAGE__->meta->make_immutable;

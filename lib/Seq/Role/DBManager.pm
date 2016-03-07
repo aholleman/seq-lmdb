@@ -58,6 +58,14 @@ has read_only => (
   default => 1,
 );
 
+#every 10,000 records
+has _commitEvery => (
+  is => 'ro',
+  init_arg => undef,
+  default => 10000,
+  lazy => 1,
+);
+
 #using state to make implicit singleton for the state that we want
 #shared across all instances, without requiring exposing to public
 #at the moment we generate a new environment for each $name
@@ -88,9 +96,12 @@ sub getDbi {
 
   my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
 
-  my $DB = $txn->open( #{    # Create a new database
-    undef, !$self->read_only ? MDB_CREATE : 0,
+  $envs->{$name}->set_flags(
+    MDB_NOMETASYNC | MDB_NOTLS | $self->read_only ? MDB_RDONLY : 0,
+    1
   );
+  
+  my $dbi = $self->_openDB($txn);
 
   $txn->commit();
   # # my $env = $self->getEnv($name);
@@ -104,11 +115,6 @@ sub getDbi {
   # #     flags  => MDB_CREATE | !$self->read_only ? MDB_CREATE : 0
   # #   }),
   # # };
-
-  $envs->{$name}->set_flags(
-    MDB_NOMETASYNC | MDB_NOTLS | $self->read_only ? MDB_RDONLY : 0,
-    1
-  );
   # #don't work when creating database flags => MDB_NOMETASYNC | MDB_NOTLS | $self->read_only ? MDB_RDONLY : 0,
   # say "dbis->name is";
   # p $dbis->{$name};
@@ -119,11 +125,18 @@ sub getDbi {
   
   # $txn->commit();
   $dbis->{$name} = {
-    dbi => $DB,
+    dbi => $dbi,
     env => $envs->{$name},
   };
 
   return $dbis->{$name};
+}
+
+sub _openDB {
+  my ($self, $txn) = @_;
+  return $txn->open( #{    # Create a new database
+    undef, !$self->read_only ? MDB_CREATE : 0,
+  );
 }
 
 # I had wanted to use low-level transactions, but these seem to have
@@ -148,8 +161,15 @@ sub dbPutBulk {
   my $dbi = $self->getDbi($chr);
   my $txn = $dbi->{env}->BeginTxn();
 
+  my $cnt = 0;
   for my $pos (keys %{$posHref} ) {
     $txn->put($dbi->{dbi}, $pos, encode_json($posHref->{$pos} ) ); #overwrites existing values
+    $cnt++;
+    if($cnt > $self->_commitEvery) {
+      $cnt = 0;
+      $txn->commit();
+      $txn = $dbi->{env}->BeginTxn();
+    }
   }
   
   $txn->commit();
@@ -160,10 +180,18 @@ sub dbPatch {
 
   my $dbi = $self->getDbi($chr);
   my $txn = $dbi->{env}->BeginTxn();
+  my $response;
 
   my $previous_href;
 
-  $txn->get($dbi->{dbi}, $pos, $previous_href);
+  $response = $txn->get($dbi->{dbi}, $pos, $previous_href);
+  if($response) {
+    if($response == MDB_NOTFOUND) {
+      #nothing found
+    }
+  } else {
+    $self->tee_logger('warn', "DBI error: $response");
+  }
 
   if($previous_href) {
     $previous_href = decode_json($previous_href);
@@ -183,17 +211,19 @@ sub dbPatchBulk {
 
   my $dbi = $self->getDbi($chr);
   my $txn = $dbi->{env}->BeginTxn();
+  my $response;
 
+  my $cnt = 0;
   for my $pos (keys %{$posHref} ) {
     my $previous_href;
 
-    $LMDB_File::last_err = 0;
-    $txn->get($dbi->{dbi}, $pos, $previous_href);
-    if($LMDB_File::last_err) {
-     # say "nothing found";
-    } elsif ($self->debug) {
-      say "previous value was";
-      p $previous_href;
+    $response = $txn->get($dbi->{dbi}, $pos, $previous_href);
+    if($response) {
+      if($response == MDB_NOTFOUND) {
+        #nothing found
+      }
+    } else {
+      $self->tee_logger('warn', "DBI error: $response");
     }
 
    # say "Last error is " . $LMDB_File::last_err;
@@ -205,8 +235,67 @@ sub dbPatchBulk {
     }
 
     $txn->put($dbi->{dbi}, $pos, encode_json($previous_href) );
+
+    $cnt++;
+    if($cnt > $self->_commitEvery) {
+      $cnt = 0;
+      $txn->commit();
+      $txn = $dbi->{env}->BeginTxn();
+    }
   }
 
+  $txn->commit();
+}
+
+# we could use a cursor here, to allow non-whole chr insertion
+sub dbPatchBulkArray {
+  my ( $self, $chr, $posAref ) = @_;
+
+  my $dbi = $self->getDbi($chr);
+  my $txn = $dbi->{env}->BeginTxn();
+  my $cnt = 0;
+  #Expects 0 to end position (abs pos)
+  my $pos = 0; #so maybe cursor would be faster, not certain, is this still sequential?
+  my $cntFound = 0;
+
+  my $response;
+  for my $href (@$posAref) {
+    my $previous_href;
+    $LMDB_File::last_err = 0;
+    
+    $response = $txn->get($dbi->{dbi}, $pos, $previous_href);
+    if($response) {
+      if($response == MDB_NOTFOUND) {
+        #nothing found
+      }
+    } else {
+      $self->tee_logger('warn', "DBI error: $response");
+    }
+
+   # say "Last error is " . $LMDB_File::last_err;
+    if($previous_href) {
+      $href = merge decode_json($previous_href), $href; #righthand merge
+    }
+
+    $txn->put($dbi->{dbi}, $pos, encode_json($href) );
+    $cnt++;
+    if($cnt > $self->_commitEvery) {
+      $cnt = 0;
+      $txn->commit();
+      $txn = $dbi->{env}->BeginTxn();
+      if($self->debug) {
+        say "number entered : $pos";
+      }
+    }
+    $pos++;
+  }
+
+  if($self->debug) {
+    say "number items in aref: " . scalar @$posAref;
+    say "number found : $cntFound";
+    say "number entered : $pos";
+  }
+ 
   $txn->commit();
 }
 
@@ -219,10 +308,19 @@ sub dbGet {
   # bother checking the file system or opening the databse.
   my $dbi = $self->getDbi($chr);
   my $txn = $dbi->{env}->BeginTxn();
+  my $response;
 
   my $val;
 
-  $txn->get($dbi->{dbi}, $pos, $val);
+  $response = $txn->get($dbi->{dbi}, $pos, $val);
+
+  if($response) {
+    if($response == MDB_NOTFOUND) {
+      return;
+    }
+  } else {
+    $self->tee_logger('warn', "DBI error: $response");
+  }
 
   $txn->commit();
 
