@@ -350,7 +350,7 @@ sub build_snp_sites {
 # this is no longer necessary in the new version
 # now, the GeneTrack will handle these facts, by checking for the associated 
 # data stored in an internal hash
-# sub build_genome_index {
+sub build_genome_index {
 #   my $self = shift;
 
 #   $self->_logger->info('build indexed genome: start');
@@ -448,7 +448,7 @@ sub build_snp_sites {
 #   }
 
 #   $self->_logger->info('build indexed genome: done');
-# }
+}
 
 __PACKAGE__->meta->make_immutable;
 

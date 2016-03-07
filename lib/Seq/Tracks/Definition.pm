@@ -41,18 +41,18 @@ use DDP;
 
 =cut
 
-state $typeKey = 'type';
+state $typeKey = 't';
 has typeKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$typeKey});
 
 
-state $dataKey = 'data';
+state $dataKey = 'd';
 has dataKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$dataKey});
 
 # I've coupled this to gene
 # state $ngeneType = 'ngene';
 # has ngeneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$ngeneType});
 
-state $refType = 'reference';
+state $refType = 'ref';
 has refType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$refType});
 
 state $geneType = 'gene';

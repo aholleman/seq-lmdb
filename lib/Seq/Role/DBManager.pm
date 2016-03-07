@@ -59,7 +59,7 @@ has read_only => (
 );
 
 #every 10,000 records
-has _commitEvery => (
+has commitEvery => (
   is => 'ro',
   init_arg => undef,
   default => 10000,
@@ -165,7 +165,7 @@ sub dbPutBulk {
   for my $pos (keys %{$posHref} ) {
     $txn->put($dbi->{dbi}, $pos, encode_json($posHref->{$pos} ) ); #overwrites existing values
     $cnt++;
-    if($cnt > $self->_commitEvery) {
+    if($cnt > $self->commitEvery) {
       $cnt = 0;
       $txn->commit();
       $txn = $dbi->{env}->BeginTxn();
@@ -237,7 +237,7 @@ sub dbPatchBulk {
     $txn->put($dbi->{dbi}, $pos, encode_json($previous_href) );
 
     $cnt++;
-    if($cnt > $self->_commitEvery) {
+    if($cnt > $self->commitEvery) {
       $cnt = 0;
       $txn->commit();
       $txn = $dbi->{env}->BeginTxn();
@@ -279,7 +279,7 @@ sub dbPatchBulkArray {
 
     $txn->put($dbi->{dbi}, $pos, encode_json($href) );
     $cnt++;
-    if($cnt > $self->_commitEvery) {
+    if($cnt > $self->commitEvery) {
       $cnt = 0;
       $txn->commit();
       $txn = $dbi->{env}->BeginTxn();

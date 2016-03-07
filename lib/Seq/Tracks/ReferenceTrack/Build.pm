@@ -34,7 +34,7 @@ use DDP;
 use namespace::autoclean;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO', 'Seq::Role::Genome', 'Seq::Role::DBManager';
+with 'Seq::Role::IO', 'Seq::Role::Genome'; #, 'Seq::Role::DBManager'
 
 my $pm = Parallel::ForkManager->new(4);
 sub buildTrack {
@@ -46,9 +46,9 @@ sub buildTrack {
 
   #pre-make all databases
   #done to avoid weird race condition issues from forking
-  for my $chr ($self->allWantedChrs) {
-    $self->getDbi($chr);
-  }
+  # for my $chr ($self->allWantedChrs) {
+  #   $self->getDbi($chr);
+  # }
 
   my $re = qr/(\A[ATCGNatcgn]+)\z/xms;
   for my $file ( $self->all_local_files ) {
@@ -125,7 +125,7 @@ sub _write {
   my $self = shift;
   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
     my ($chr, $dataStr) = @_;
-    say "entering fork"; #TODO: remove
+    say "entering fork" if $self->debug; #TODO: remove
 
     my %out;
     my $pos = 0;
@@ -134,7 +134,7 @@ sub _write {
       $out{$pos} = $char;
       $pos++;
       $cnt++;
-      if($cnt > $self->_maxWrite) {
+      if($cnt > $self->commitEvery) {
         $cnt = 0;
         $self->writeAllData( $chr, \%out );
         %out = ();

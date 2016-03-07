@@ -17,7 +17,6 @@ use List::Util::XS; #qw/first/ doesn't work
 use DDP;
 
 extends 'Seq::Tracks::Base';
-
 # this should move to some overall package, that is a singleton
 # maybe assembly should be moved to a role
 has debug => (
