@@ -133,6 +133,10 @@ sub buildTrack{
   $self->tee_logger('info', 'finished building string genome');
 };
 
+#Because of linux copy-on-write, this is actually very memory efficient
+#however, "top" will show the same initial memory usage between the two processes
+#(parent and child), which may seem like a gigantic memory leak
+#http://serverfault.com/questions/440115/how-do-you-measure-the-memory-footprint-of-a-set-of-forked-processes
 sub _write {
   my $self = shift;
   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
