@@ -9,6 +9,26 @@ our $VERSION = '0.001';
 use Moose 2;
 with 'Seq::Role::DBManager', 'Seq::Tracks::Definition', 'Seq::Role::Message';
 
+has debug => (
+  is => 'ro',
+  isa => 'Int',
+  lazy => 1,
+  default => 1,
+);
+
+# should be shared between all types
+# Since Seq::Tracks;:Base is extended by every Track, this is an ok place for it.
+# Could also use state, and not re-initialize it for every instance
+has genome_chrs => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  handles => {
+    'allWantedChrs' => 'elements',
+  },
+  lazy_build => 1,
+);
+
 #only required for building;
 has features => (
   is => 'ro',

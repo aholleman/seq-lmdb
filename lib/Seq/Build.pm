@@ -51,10 +51,16 @@ has genome_chrs => (
   handles  => { all_genome_chrs => 'elements', },
 );
 
-has wanted_chr => (
-  is      => 'ro',
-  isa     => 'Str',
-  default => 0,
+# #this isn't used yet.
+# has wanted_chr => (
+#   is      => 'ro',
+#   isa     => 'Maybe[Str]',
+# );
+
+# comes from Seq::Tracks, which is extended by Seq::Assembly
+has wanted_type => (
+  is => 'ro',
+  isa => 'Maybe[TrackType]',
 );
 
 has force => (
@@ -80,12 +86,26 @@ has force => (
 sub BUILD {
   my $self = shift;
 
-  $self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
+  #$self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
   say "building reference track" if $self->debug;
 
-  my $refTrack = $self->refTrackBuilder;
-  $refTrack->buildTrack();
+  my @builders = $self->getBuilders($self->wanted_type);
+
+  if($self->wanted_type) {
+    for my $builder (@{$self->getBuilders($self->wanted_type) } ) {
+      say "builder is";
+      p $builder;
+      $builder->buildTrack();
+      say "finished building $builder->{name} track" if $self->debug;
+    }
+  } else {
+    for my $builder ($self->getAllBuilders) {
+      $builder->buildTrack();
+    }
+  }
+
+  say "finished building all tracks" if $self->debug;
 }
 
 # TODO
@@ -162,43 +182,44 @@ sub BUILD {
 #   $self->_logger->info('build transcripts: done');
 # }
 
-sub build_snp_sites {
-  my $self = shift;
+#TODO: move to snp builder track definition
+# sub build_snp_sites {
+#   my $self = shift;
 
-  $self->_logger->info('build snp tracks: start');
-  my $wanted_chr = $self->wanted_chr;
+#   $self->_logger->info('build snp tracks: start');
+#   my $wanted_chr = $self->wanted_chr;
 
-  for my $snp_track ( $self->allSnpTracks ) {
+#   for my $snp_track ( $self->allSnpTracks ) {
 
-    # extract keys from snp_track for creation of Seq::Build::SnpTrack
-    my $record = $snp_track->as_href;
+#     # extract keys from snp_track for creation of Seq::Build::SnpTrack
+#     my $record = $snp_track->as_href;
 
-    # add required fields for the build track
-    for my $attr (qw/ force debug genome_str_track /) {
-      $record->{$attr} = $self->$attr if $self->$attr;
-    }
+#     # add required fields for the build track
+#     for my $attr (qw/ force debug genome_str_track /) {
+#       $record->{$attr} = $self->$attr if $self->$attr;
+#     }
 
-    for my $chr ( $self->all_genome_chrs ) {
+#     for my $chr ( $self->all_genome_chrs ) {
 
-      # skip to the next chr if we specified a chr to build
-      # and this chr isn't the one we specified
-      if ($wanted_chr) {
-        next unless $wanted_chr eq $chr;
-      }
+#       # skip to the next chr if we specified a chr to build
+#       # and this chr isn't the one we specified
+#       if ($wanted_chr) {
+#         next unless $wanted_chr eq $chr;
+#       }
 
-      my $msg = sprintf( "snp db, '%s', for chrom '%s': start", $snp_track->name, $chr );
-      $self->_logger->info($msg) if $self->debug;
+#       my $msg = sprintf( "snp db, '%s', for chrom '%s': start", $snp_track->name, $chr );
+#       $self->_logger->info($msg) if $self->debug;
 
-      # Seq::Build::SnpTrack needs the string genome
-      my $snp_db = Seq::Build::SnpTrack->new($record);
-      $snp_db->build_snp_db($chr);
+#       # Seq::Build::SnpTrack needs the string genome
+#       my $snp_db = Seq::Build::SnpTrack->new($record);
+#       $snp_db->build_snp_db($chr);
 
-      $msg = sprintf( "snp db, '%s', for chrom '%s': done ", $snp_track->name, $chr );
-      $self->_logger->info($msg) if $self->debug;
-    }
-  }
-  $self->_logger->info('build snp tracks: done');
-}
+#       $msg = sprintf( "snp db, '%s', for chrom '%s': done ", $snp_track->name, $chr );
+#       $self->_logger->info($msg) if $self->debug;
+#     }
+#   }
+#   $self->_logger->info('build snp tracks: done');
+# }
 
 # now held within Seq::Tracks::GeneTrack::Build
 # sub build_gene_sites {
@@ -350,7 +371,7 @@ sub build_snp_sites {
 # this is no longer necessary in the new version
 # now, the GeneTrack will handle these facts, by checking for the associated 
 # data stored in an internal hash
-sub build_genome_index {
+#sub build_genome_index {
 #   my $self = shift;
 
 #   $self->_logger->info('build indexed genome: start');
@@ -448,7 +469,7 @@ sub build_genome_index {
 #   }
 
 #   $self->_logger->info('build indexed genome: done');
-}
+#}
 
 __PACKAGE__->meta->make_immutable;
 

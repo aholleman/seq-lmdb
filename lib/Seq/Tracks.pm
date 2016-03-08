@@ -43,7 +43,7 @@ has trackMap => (
   isa => 'HashRef',
   traits => ['Hash'],
   handles => {
-    getTrack => 'get',
+    getDataTrackClass => 'get',
   },
   init_arg => undef,
   builder => '_buildTrackMap',
@@ -68,7 +68,7 @@ has builderMap => (
   isa => 'HashRef',
   traits => ['Hash'],
   handles => {
-    getBuilder => 'get',
+    getBuilderTrackClass => 'get',
   },
   init_arg => undef,
   builder => '_buildTrackBuilderMap',
@@ -100,9 +100,14 @@ sub _buildTrackBuilderMap {
 =cut
 has trackBuilders =>(
   is => 'ro',
-  #isa => 'HashRef[ArrayRef]',
+  isa => 'HashRef',
   lazy => 1,
   builder => '_buildTrackBuilders',
+  traits => ['Hash'],
+  handles => {
+    getBuilders => 'get',
+    getAllBuilders => 'values',
+  }
 );
 
 
@@ -173,7 +178,7 @@ sub _buildDataTracks {
 
   my %out;
   for my $trackHref (@{$self->tracks}) {
-    my $trackClass = $self->getBuilder($trackHref->{type} );
+    my $trackClass = $self->getDataTrackClass($trackHref->{type} );
     if(!$trackClass) {
       $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
@@ -292,7 +297,7 @@ sub _buildTrackBuilders {
 
   my %out;
   for my $trackHref (@{$self->tracks}) {
-    my $className = $self->getBuilder($trackHref->{type} );
+    my $className = $self->getBuilderTrackClass($trackHref->{type} );
     if(!$className) {
       $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
@@ -302,6 +307,7 @@ sub _buildTrackBuilders {
     $trackHref->{genome_chrs} = $self->genome_chrs;
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
+
   return \%out;
 }
 

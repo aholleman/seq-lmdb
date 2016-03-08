@@ -24,15 +24,6 @@ my (
 );
 $wanted_chr = 0;
 $debug = 0;
-# cmd to method
-my %cmd_2_method = (
-  genome        => 'build_genome_index',
-  conserv       => 'build_conserv_scores_index',
-  transcript_db => 'build_transcript_db',
-  snp_db        => 'build_snp_sites',
-  gene_db       => 'build_gene_sites',
-);
-
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
@@ -49,11 +40,9 @@ if ($help) {
   exit;
 }
 
-unless ( defined $yaml_config and exists $cmd_2_method{$build_type} ) {
+unless ($yaml_config) {
   Pod::Usage::pod2usage();
 }
-
-my $method = $cmd_2_method{$build_type};
 
 # read config file to determine genome name for log and check validity
 my $config_href = LoadFile($yaml_config);
@@ -66,25 +55,22 @@ $yaml_config = path($yaml_config)->absolute->stringify;
 my $builder_options_href = {
   configfile    => $yaml_config,
   wanted_chr    => $wanted_chr,
+  wanted_type   => $build_type,
   force         => $force,
   debug         => $debug,
 };
   
 p $config_href;
-if ( $method and $config_href ) {
-  $wanted_chr = ($wanted_chr) ? $wanted_chr : 'all';
   # set log file
-  my $log_name = join '.', 'build', $config_href->{genome_name}, $build_type,
-    $wanted_chr, 'log';
-  my $log_file = path(".")->child($log_name)->absolute->stringify;
-  Log::Any::Adapter->set( 'File', $log_file );
+my $log_name = join '.', 'build', $config_href->{genome_name}, $build_type,
+  $wanted_chr, 'log';
+my $log_file = path(".")->child($log_name)->absolute->stringify;
+Log::Any::Adapter->set( 'File', $log_file );
 
-  my $builder = Seq::Build->new_with_config($builder_options_href);
+my $builder = Seq::Build->new_with_config($builder_options_href);
 
-  # build encoded genome, gene and snp site databases
-  $builder->$method;
-  say "done: $build_type";
-}
+say "done: $build_type";
+
 
 __END__
 

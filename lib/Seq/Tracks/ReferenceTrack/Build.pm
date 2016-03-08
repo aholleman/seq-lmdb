@@ -32,14 +32,18 @@ use Parallel::ForkManager;
 use DDP;
 
 use namespace::autoclean;
-
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO', 'Seq::Role::Genome'; #, 'Seq::Role::DBManager'
+with 'Seq::Tracks::Build::Interface';
 
+# TODO: globally manage forks, so we don't get some crazy resource use
 my $pm = Parallel::ForkManager->new(4);
 sub buildTrack {
   my $self = shift;
 
+  #TODO: use cursor to read first and last position;
+  #compare these to first and last entry in the resulting string
+  #if identical, and identical length for that chromosome, 
+  #don't do any writing.
   $self->tee_logger('info', 'starting to build string genome');
   
   $self->tee_logger('info', "building genome string");

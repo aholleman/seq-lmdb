@@ -17,29 +17,7 @@ use List::Util::XS; #qw/first/ doesn't work
 use DDP;
 
 extends 'Seq::Tracks::Base';
-# this should move to some overall package, that is a singleton
-# maybe assembly should be moved to a role
-has debug => (
-  is => 'ro',
-  isa => 'Int',
-  lazy => 1,
-  default => 1,
-);
-
-# this should move to some overall package, that is a singleton
-# maybe assembly should be moved to a role
-# as should anything that is set once for the entire config
-# and should be shared between all types
-has genome_chrs => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
-  handles => {
-    'allWantedChrs' => 'elements',
-  },
-  lazy_build => 1,
-);
-
+with 'Seq::Role::IO';
 #anything with an underscore comes from the config format
 #this only is used by Build
 has local_files => (
@@ -135,19 +113,23 @@ sub writeAllData {
   }
 
  # save memory, mutate
-  for my $key (keys %$posHref) {
-    $posHref->{$key} = {
+  for my $pos (sort { $a <=> $b } keys %$posHref) {
+    $posHref->{$pos} = {
       $self->name => {
         $self->typeKey => $self->type,
-        $self->dataKey => $posHref->{$key},
+        $self->dataKey => $posHref->{$pos},
       }
-    }
+    };
+    # say "had we been writing, we would have written a record at $chr : $pos that looks like";
+    # p $posHref->{$pos};
   }
-
+  
   $self->dbPatchBulk($chr, $posHref);
 }
 
 #not safe for the input data
+#expects that every position in a database has a corresponding
+#idx in posAref
 sub writeAllDataArray {
   my ($self, $chr, $posAref) = @_;
 
