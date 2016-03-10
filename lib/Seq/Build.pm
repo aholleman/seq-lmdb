@@ -94,8 +94,8 @@ sub BUILD {
 
   if($self->wanted_type) {
     for my $builder (@{$self->getBuilders($self->wanted_type) } ) {
-      say "builder is";
-      p $builder;
+      # say "builder is";
+      # p $builder;
       $builder->buildTrack();
       say "finished building $builder->{name} track" if $self->debug;
     }

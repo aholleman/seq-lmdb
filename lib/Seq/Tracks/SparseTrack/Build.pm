@@ -32,58 +32,81 @@ use Moose 2;
 
 use Carp qw/ croak /;
 use namespace::autoclean;
+use List::Util::XS qw/none first/;
+use Parallel::ForkManager;
 
 extends 'Seq::Tracks::Build';
 
 #do we really need 'name'
-state $requiredFields  = ['chrom','chromStart','chromEnd', 'name'];
+
 has requiredFields => (
   is      => 'ro',
   isa     => 'ArrayRef',
+  traits  => ['Array'],
   init_arg => undef,
   lazy => 1,
   builder => '_buildRequiredFields',
+  handles => {
+    allRequiredFields => 'elements',
+  }
 );
 
 sub _buildRequiredFields {
   my $self = shift;
+  state $requiredFields;
 
-  my @out;
-  push @out, @{$requiredFields}, @{$self->features};
-  return \@out;
+  if($requiredFields) {
+    return $requiredFields;
+  }
+
+  push @$requiredFields, ('chrom','chromStart','chromEnd'), @{$self->features};
+  return $requiredFields;
 }
 
-has force => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 0,
-);
+# sub hasRequiredFields {
+#   my ( $self, $headerAref) = @_;
 
-has debug => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 0,
-);
+#   #assumes trimmed headerStr;
+#   for my $f ($self->requiredFields) {
+#     if( none{ $f eq $_ } @$headerAref ) {
+#       return;
+#     }
+#   }
+#   return 1;
+# }
 
-sub _check_header_keys {
-  my ( $self, $header_href, $req_header_aref ) = @_;
-  my %missing_attr;
-  for my $req_attr (@$req_header_aref) {
-    $missing_attr{$req_attr}++ unless exists $header_href->{$req_attr};
-  }
-  if (%missing_attr) {
-    my $err_msg =
-      sprintf(
-      "ERROR: Missing expected header information for track_name: %s of type %s: '%s'",
-      $self->name, $self->type, join ", ", ( sort keys %missing_attr ) );
-    $self->_logger->error($err_msg);
-    croak $err_msg;
-  }
-  else {
-    return;
+my $pm = Parallel::Forkmanager->new(8);
+sub buildTrack {
+  my ($self) = @_;
+
+  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+  for my $file ($self->all_local_files) {
+    $pm->start and next;
+    my $fh = $self->get_read_fh($file);
+
+    my %out = ();
+    my $wantedChr;
+    my $pos;
+    my %iFieldIdx = ();
+    while (<$fh>) {
+      chomp $_;
+      $_ =~ s/^\s+|\s+$//g;
+
+      my @fields = split "/t", $_;
+
+      if($. == 1) {
+        for my $field ($self->allRequiredFields) {
+          my $idx = first {$_ eq $field} @fields;
+          if($idx) {
+            $iFieldIdx{$idx} = $field;
+            next;
+          }
+          $self->tee_logger('error', 'Required fields missing in $file');
+        }
+      }
+    }
   }
 }
-
 __PACKAGE__->meta->make_immutable;
 
 1;

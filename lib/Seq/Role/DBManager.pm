@@ -31,6 +31,7 @@ use LMDB_File qw(:all);
 use Hash::Merge::Simple qw/ merge /;
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 use DDP;
+use Sort::XS;
 
 $LMDB_File::die_on_err = 0;
 #needed so that we can initialize DBManager onces
@@ -59,7 +60,11 @@ has read_only => (
   default => 1,
 );
 
-#every 100,000 records
+#every 100,000 records by default between transactions
+#this isn't enforced here; individual build methods should use it
+#maybe move this to Build.pm, although we could certainly do that here
+#rationale for not making huge commitEvery is mostly that 
+#Perl gets slow with very big hashes
 #transactions carry overhead
 #if a transaction fails/ process dies
 #the database should remain intact, just the last
@@ -67,7 +72,7 @@ has read_only => (
 has commitEvery => (
   is => 'ro',
   init_arg => undef,
-  default => 1000000,
+  default => 100000,
   lazy => 1,
 );
 
@@ -84,11 +89,11 @@ has overwrite => (
 #across all threads
 #and because there is some minor overhead with opening many named databases
 
-sub BUILD {
-  my $self = shift;
+# sub BUILD {
+#   my $self = shift;
 
-  say "Overwrite is" .  int($self->overwrite);
-}
+#   say "Overwrite is" .  int($self->overwrite);
+# }
 
 sub getDbi {
   my ($self, $name) = @_;
@@ -105,34 +110,21 @@ sub getDbi {
   $dbPath = $dbPath->stringify;
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
-      mapsize => 1024 * 1024 * 1024 * 1024, # Plenty space, don't worry
+      mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
       #maxdbs => 20, # Some databases
       mode   => 0755,
       #can't just use ternary that outputs 0 if not read only...
-      flags => $self->read_only ? MDB_RDONLY | MDB_NOTLS | MDB_NOMETASYNC
-        : MDB_NOTLS | MDB_NOMETASYNC,
+      flags => $self->read_only ? MDB_RDONLY | MDB_NOTLS | MDB_NOMETASYNC #| MDB_WRITEMAP 
+      : MDB_NOTLS | MDB_NOMETASYNC,
       maxreaders => 1000,
-
-      # More options
+      maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
   my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
  
   my $DB = $self->_openDB($txn);
 
-  #set read mode
-  # LMDB_File::_mydbflags($envs->{$name}, $dbi, 1);
   $txn->commit(); #now db is open
-
-  # say MDB_RDONLY . " " . MDB_NOTLS . " " . MDB_NOMETASYNC;
-  # $envs->{$name}->get_flags(my $flags);
-  # say "flags are $flags";
-  #unfortunately doesn't work if set after the fact
-  #documentation is wrong, submitted Github issue: 
-  # $envs->{$name}->set_flags(MDB_RDONLY,1);
-  # if($self->read_only) {
-  #   $envs->{$name}->set_flags(MDB_RDONLY,1);
-  # }
 
   $dbis->{$name} = {
     env => $envs->{$name},
@@ -247,60 +239,156 @@ sub _openDB {
 # }
 # Since we make this assumption, we can just check if the feature exists
 # and if it does, replace it (if we wish to overwrite);
+#was having huge performance issues. so trying to separate read and
+#write transactions
+# this mutates posHref
 sub dbPatchBulk {
   my ( $self, $chr, $posHref ) = @_;
 
-  my $dbi = $self->getDbi($chr);
-  my $txn = $dbi->{env}->BeginTxn();
-  my $response;
+  my $db = $self->getDbi($chr);
+  my $dbi = $db->{dbi};
+  my $txn = $db->{env}->BeginTxn();
 
   my $cnt = 0;
-  for my $pos (sort { $a <=> $b } keys %{$posHref} ) { #want sequential
+
+  $_[3] = xsort([keys %{$posHref} ] );
+  
+  for my $pos (@{$_[3] }) { #want sequential
     my $json; #zero-copy
     my $href;
-    # say "pos is $pos";
-    $response = $txn->get($dbi->{dbi}, $pos, $json);
-    if($response) {
-      if($response == MDB_NOTFOUND) {
-        #nothing found
-      }
-    } else {
-      $self->tee_logger('warn', "DBI error: $response");
-    }
 
+    if($LMDB_File::last_err) {
+      if($LMDB_File::last_err == MDB_NOTFOUND) {
+
+      } else {
+        $self->tee_logger('warn', "DBI error" . $LMDB_File::last_err);
+      }
+    }
    # say "Last error is " . $LMDB_File::last_err;
     if($json) {
       my ($featureID) = %{$posHref->{$pos} };
-      #can't modify json, read-only value, from memory map
+      #can't modify $json, read-only value, from memory map
       $href = decode_json($json);
 
       # say "previous href was";
       # p $previous_href;
       if(!$self->overwrite) {
         if(defined $href->{$featureID} ) {
+          $posHref->{$pos} = $href;
           #say "defined $featureID, skipping";
           next;
         }
       }
       $href->{$featureID} = $posHref->{$pos}{$featureID};
+      $posHref->{$pos} = $href;
       #much more robust, but I'm worried about performance, so trying alternative
       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
-    } else {
-      $href = $posHref->{$pos};
     }
-    
-    $txn->put($dbi->{dbi}, $pos, encode_json($href) );
+    #say "about to put in $chr $pos";
+    #p $href;
+    #$response = $txn->put($dbi, $pos, encode_json($href) );
+    #say "response was";
+    #p $response;
+    # $cnt++;
+    # if($cnt > $self->commitEvery) {
+    #   $cnt = 0;
+    #   $txn->commit();
+    #   $txn = $db->{env}->BeginTxn();
+    # }
+  }
 
+  $txn->commit();
+
+  goto &dbPutBulk;
+}
+
+sub dbPutBulk {
+  my ( $self, $chr, $posHref, $sortedPosAref) = @_;
+
+  my $db = $self->getDbi($chr);
+  my $dbi = $db->{dbi};
+  my $txn = $db->{env}->BeginTxn();
+
+  if(!$sortedPosAref) {
+    $sortedPosAref = xsort([keys %{$posHref} ] );
+  }
+
+  my $cnt = 0;
+  for my $pos (@$sortedPosAref) { #want sequential
+    # say "about to put in $chr $pos";
+    # p $href;
+    my $response = $txn->put($dbi, $pos, encode_json($posHref->{$pos} ) );
+    # say "response was";
+    # p $response;
     $cnt++;
     if($cnt > $self->commitEvery) {
       $cnt = 0;
       $txn->commit();
-      $txn = $dbi->{env}->BeginTxn();
+      $txn = $db->{env}->BeginTxn();
     }
   }
 
   $txn->commit();
 }
+
+# backup
+# sub dbPatchBulk {
+#   my ( $self, $chr, $posHref ) = @_;
+
+#   my $db = $self->getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn();
+
+#   my $cnt = 0;
+#   for my $pos (sort { $a <=> $b } keys %{$posHref} ) { #want sequential
+#     my $json; #zero-copy
+#     my $href;
+#     my $response;
+#     # say "pos is $pos";
+#     # my $response = $txn->get($dbi, $pos, $json);
+#     # if($response) {
+#     #   if($response == MDB_NOTFOUND) {
+#     #     #nothing found
+#     #   }
+#     # } else {
+#     #   $self->tee_logger('warn', "DBI error: $response");
+#     # }
+
+#    # say "Last error is " . $LMDB_File::last_err;
+#     if($json) {
+#       my ($featureID) = %{$posHref->{$pos} };
+#       #can't modify $json, read-only value, from memory map
+#       $href = decode_json($json);
+
+#       # say "previous href was";
+#       # p $previous_href;
+#       if(!$self->overwrite) {
+#         if(defined $href->{$featureID} ) {
+#           #say "defined $featureID, skipping";
+#           next;
+#         }
+#       }
+#       $href->{$featureID} = $posHref->{$pos}{$featureID};
+#       #much more robust, but I'm worried about performance, so trying alternative
+#       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
+#     } else {
+#       $href = $posHref->{$pos};
+#     }
+#     #say "about to put in $chr $pos";
+#     #p $href;
+#     $response = $txn->put($dbi, $pos, encode_json($href) );
+#     #say "response was";
+#     #p $response;
+#     $cnt++;
+#     if($cnt > $self->commitEvery) {
+#       $cnt = 0;
+#       $txn->commit();
+#       $txn = $db->{env}->BeginTxn();
+#     }
+#   }
+
+#   $txn->commit();
+# }
 
 #Not currently in use
 # we could use a cursor here, to allow non-whole chr insertion

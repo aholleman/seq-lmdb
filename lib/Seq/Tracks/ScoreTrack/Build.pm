@@ -37,7 +37,7 @@ extends 'Seq::Tracks::Build';
 #they're extremely similar
 #extends 'Seq::Tracks::Reference::Build';
 with 'Seq::Tracks::Build::Interface';
-my $pm = Parallel::ForkManager->new(20);
+my $pm = Parallel::ForkManager->new(6);
 sub buildTrack{
   my $self = shift;
 
@@ -50,6 +50,9 @@ sub buildTrack{
   my $fStep = 'fixedStep';
   my $vStep = 'variableStep';
   my $headerRegex = qr/^($fStep|$vStep)\s+chrom=(\S+)\s+start=(\d+)\s+step=(\d+)/;
+  
+  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
@@ -62,7 +65,7 @@ sub buildTrack{
     $pm->start and next; 
       my $tfile = $file;
       #say "entering fork with $file";
-      my @lines = (1,2,3,4,5);#$self->get_file_lines($file);
+      #my @lines = $self->get_file_lines($file);
       my $fh = $self->get_read_fh($file);
       my %data = ();
       my $wantedChr;
@@ -72,7 +75,7 @@ sub buildTrack{
       my $step;
       my $stepType;
 
-      while ( <$fh> ) {
+      FH_LOOP: while ( <$fh> ) {
         #already chomped chomp $_;
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
@@ -103,7 +106,6 @@ sub buildTrack{
               %data = ();
               undef $wantedChr;
               undef $chrPosition;
-              
             }
           }
 
@@ -117,6 +119,10 @@ sub buildTrack{
             %data = ();
             undef $wantedChr;
             undef $chrPosition;
+
+            if ( $chrPerFile ) {
+              last FH_LOOP; 
+            }
           }
         } elsif ( $wantedChr ) {
           if($stepType eq $vStep) {

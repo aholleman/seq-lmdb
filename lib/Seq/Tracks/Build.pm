@@ -12,7 +12,6 @@ our $VERSION = '0.001';
 use Moose 2;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
-use List::Util::XS; #qw/first/ doesn't work
 
 use DDP;
 
@@ -66,32 +65,12 @@ around BUILDARGS => sub {
 sub BUILD {
   my $self = shift;
 
-  $self->read_only(0);
-}
-
-sub chrIsWanted {
-  my ($self, $chr) = @_;
-
-  #using internal methods, public API for public use (regarding wantedChrs)
-  return List::Util::first { $_ eq $chr } @{$self->genome_chrs };
+  $self->read_only(0); #default is read_only = 1
 }
 
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
 #retrieves data
-#@param $chr: this is a bit of a misnomer
-#it is really the name of the database
-#for region databases it will be the name of track (name: )
-#The role of this func is NOT to decide how to model $data;
-#that's the job of the individual builder methods
-sub writeData {
-  my ($self, $chr, $pos, $data) = @_;
-
-  #Seq::Tracks::Base should know to retrieve data this way
-  #this is our schema
-  $self->dbPatch($chr, $pos, {$self->name => $data} );
-}
-
 sub prepareData {
   my ($self, $data) = @_;
 
@@ -102,48 +81,61 @@ sub prepareData {
   }
 }
 
+#@param $chr: this is a bit of a misnomer
+#it is really the name of the database
+#for region databases it will be the name of track (name: )
+#The role of this func is NOT to decide how to model $data;
+#that's the job of the individual builder methods
+# sub writeData {
+#   my ($self, $chr, $pos, $data) = @_;
+
+#   #Seq::Tracks::Base should know to retrieve data this way
+#   #this is our schema
+#   $self->dbPatch($chr, $pos, {$self->name => $data} );
+# }
+
 #@param $posHref : {positionKey : data}
 #the positionKey doesn't have to be numerical;
 #for instance a gene track may use its gene name
 
 #NOT safe for the input data
-sub writeAllData {
-  #overwrite not currently used
-  my ($self, $chr, $posHref, $overwrite) = @_;
+# sub writeAllData {
+#   #overwrite not currently used
+#   my ($self, $chr, $posHref, $overwrite) = @_;
 
-  if(ref $posHref eq 'ARRAY') {
-    goto &writeAllDataArray;
-  }
+#   if(ref $posHref eq 'ARRAY') {
+#     goto &writeAllDataArray;
+#   }
 
- # save memory, mutate
-  for my $pos (%$posHref) {
-    $posHref->{$pos} = {
-      $self->name => $posHref->{$pos}
-    };
-    # say "had we been writing, we would have written a record at $chr : $pos that looks like";
-    # p $posHref->{$pos};
-  }
+#  # save memory, mutate
+#   for my $pos (%$posHref) {
+#     $posHref->{$pos} = {
+#       $self->name => $posHref->{$pos}
+#     };
+#     # say "had we been writing, we would have written a record at $chr : $pos that looks like";
+#     # p $posHref->{$pos};
+#   }
   
-  $self->dbPatchBulk($chr, $posHref);
-}
+#   $self->dbPatchBulk($chr, $posHref);
+# }
 
-#not safe for the input data
-#expects that every position in a database has a corresponding
-#idx in posAref
-sub writeAllDataArray {
-  my ($self, $chr, $posAref) = @_;
+# #not safe for the input data
+# #expects that every position in a database has a corresponding
+# #idx in posAref
+# sub writeAllDataArray {
+#   my ($self, $chr, $posAref) = @_;
 
-  # save memory, mutate
-  my $idx = 0;
-  for my $data (@$posAref) {
-    $posAref->[$idx] = {
-      $self->name => $data,
-    };
-    $idx++;
-  }
+#   # save memory, mutate
+#   my $idx = 0;
+#   for my $data (@$posAref) {
+#     $posAref->[$idx] = {
+#       $self->name => $data,
+#     };
+#     $idx++;
+#   }
 
-  $self->dbPatchBulkArray($chr, $posAref);
-}
+#   $self->dbPatchBulkArray($chr, $posAref);
+# }
 
 
 # sub prepareAllData {

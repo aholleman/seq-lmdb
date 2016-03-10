@@ -1,0 +1,338 @@
+\ {
+    database_dir         "/ssd/seqant_db_build/hg19_snp142/index_lmdb/",
+    files_dir            "/ssd/seqant_db_build/hg19_snp142/raw/",
+    genome_chrs          [
+        [0] "chr22"
+    ],
+    genome_description   "human",
+    genome_name          "hg19",
+    tracks               [
+        [0] {
+            local_files    [
+                [0]  "chr1.fa.gz",
+                [1]  "chr2.fa.gz",
+                [2]  "chr3.fa.gz",
+                [3]  "chr4.fa.gz",
+                [4]  "chr5.fa.gz",
+                [5]  "chr6.fa.gz",
+                [6]  "chr7.fa.gz",
+                [7]  "chr8.fa.gz",
+                [8]  "chr9.fa.gz",
+                [9]  "chr10.fa.gz",
+                [10] "chr11.fa.gz",
+                [11] "chr12.fa.gz",
+                [12] "chr13.fa.gz",
+                [13] "chr14.fa.gz",
+                [14] "chr15.fa.gz",
+                [15] "chr16.fa.gz",
+                [16] "chr17.fa.gz",
+                [17] "chr18.fa.gz",
+                [18] "chr19.fa.gz",
+                [19] "chr20.fa.gz",
+                [20] "chr21.fa.gz",
+                [21] "chr22.fa.gz",
+                [22] "chrM.fa.gz",
+                [23] "chrX.fa.gz",
+                [24] "chrY.fa.gz"
+            ],
+            name           "ref",
+            remote_dir     "http://hgdownload.soe.ucsc.edu/goldenPath/hg19/chromosomes/",
+            remote_files   [
+                [0]  "chr1.fa.gz",
+                [1]  "chr2.fa.gz",
+                [2]  "chr3.fa.gz",
+                [3]  "chr4.fa.gz",
+                [4]  "chr5.fa.gz",
+                [5]  "chr6.fa.gz",
+                [6]  "chr7.fa.gz",
+                [7]  "chr8.fa.gz",
+                [8]  "chr9.fa.gz",
+                [9]  "chr10.fa.gz",
+                [10] "chr11.fa.gz",
+                [11] "chr12.fa.gz",
+                [12] "chr13.fa.gz",
+                [13] "chr14.fa.gz",
+                [14] "chr15.fa.gz",
+                [15] "chr16.fa.gz",
+                [16] "chr17.fa.gz",
+                [17] "chr18.fa.gz",
+                [18] "chr19.fa.gz",
+                [19] "chr20.fa.gz",
+                [20] "chr21.fa.gz",
+                [21] "chr22.fa.gz",
+                [22] "chrM.fa.gz",
+                [23] "chrX.fa.gz",
+                [24] "chrY.fa.gz"
+            ],
+            type           "ref"
+        },
+        [1] {
+            local_files    [
+                [0]  "chr1.phyloP100way.wigFix.gz",
+                [1]  "chr2.phyloP100way.wigFix.gz",
+                [2]  "chr3.phyloP100way.wigFix.gz",
+                [3]  "chr4.phyloP100way.wigFix.gz",
+                [4]  "chr5.phyloP100way.wigFix.gz",
+                [5]  "chr6.phyloP100way.wigFix.gz",
+                [6]  "chr7.phyloP100way.wigFix.gz",
+                [7]  "chr8.phyloP100way.wigFix.gz",
+                [8]  "chr9.phyloP100way.wigFix.gz",
+                [9]  "chr10.phyloP100way.wigFix.gz",
+                [10] "chr11.phyloP100way.wigFix.gz",
+                [11] "chr12.phyloP100way.wigFix.gz",
+                [12] "chr13.phyloP100way.wigFix.gz",
+                [13] "chr14.phyloP100way.wigFix.gz",
+                [14] "chr15.phyloP100way.wigFix.gz",
+                [15] "chr16.phyloP100way.wigFix.gz",
+                [16] "chr17.phyloP100way.wigFix.gz",
+                [17] "chr18.phyloP100way.wigFix.gz",
+                [18] "chr19.phyloP100way.wigFix.gz",
+                [19] "chr20.phyloP100way.wigFix.gz",
+                [20] "chr21.phyloP100way.wigFix.gz",
+                [21] "chr22.phyloP100way.wigFix.gz",
+                [22] "chrX.phyloP100way.wigFix.gz",
+                [23] "chrY.phyloP100way.wigFix.gz",
+                [24] "chrM.phyloP100way.wigFix.gz"
+            ],
+            name           "phyloP",
+            remote_dir     "http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phyloP100way/hg19.100way.phyloP100way/",
+            remote_files   [
+                [0]  "chr1.phyloP100way.wigFix.gz",
+                [1]  "chr2.phyloP100way.wigFix.gz",
+                [2]  "chr3.phyloP100way.wigFix.gz",
+                [3]  "chr4.phyloP100way.wigFix.gz",
+                [4]  "chr5.phyloP100way.wigFix.gz",
+                [5]  "chr6.phyloP100way.wigFix.gz",
+                [6]  "chr7.phyloP100way.wigFix.gz",
+                [7]  "chr8.phyloP100way.wigFix.gz",
+                [8]  "chr9.phyloP100way.wigFix.gz",
+                [9]  "chr10.phyloP100way.wigFix.gz",
+                [10] "chr11.phyloP100way.wigFix.gz",
+                [11] "chr12.phyloP100way.wigFix.gz",
+                [12] "chr13.phyloP100way.wigFix.gz",
+                [13] "chr14.phyloP100way.wigFix.gz",
+                [14] "chr15.phyloP100way.wigFix.gz",
+                [15] "chr16.phyloP100way.wigFix.gz",
+                [16] "chr17.phyloP100way.wigFix.gz",
+                [17] "chr18.phyloP100way.wigFix.gz",
+                [18] "chr19.phyloP100way.wigFix.gz",
+                [19] "chr20.phyloP100way.wigFix.gz",
+                [20] "chr21.phyloP100way.wigFix.gz",
+                [21] "chr22.phyloP100way.wigFix.gz",
+                [22] "chrX.phyloP100way.wigFix.gz",
+                [23] "chrY.phyloP100way.wigFix.gz",
+                [24] "chrM.phyloP100way.wigFix.gz"
+            ],
+            type           "score"
+        },
+        [2] {
+            features        [
+                [0] "kgID",
+                [1] "mRNA",
+                [2] "spID",
+                [3] "spDisplayID",
+                [4] "geneSymbol",
+                [5] "refseq",
+                [6] "protAcc",
+                [7] "description",
+                [8] "rfamAcc"
+            ],
+            local_files     [
+                [0] "hg19.refGene.chr1.txt"
+            ],
+            name            "refGene",
+            sql_statement   "SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq = hg19.refGene.name",
+            type            "gene"
+        },
+        [3] {
+            features        [
+                [0] "name",
+                [1] "strand",
+                [2] "refUCSC",
+                [3] "observed",
+                [4] "func",
+                [5] "alleleFreqCount",
+                [6] "alleles",
+                [7] "alleleNs",
+                [8] "alleleFreqs"
+            ],
+            local_files     [
+                [0] "hg19.snp142.chr1.txt"
+            ],
+            name            "snp142",
+            sql_statement   "SELECT _snp_fields FROM hg19.snp142",
+            type            "snp"
+        }
+    ]
+}
+\ {
+    database_dir         "/ssd/seqant_db_build/hg19_snp142/index_lmdb/",
+    files_dir            "/ssd/seqant_db_build/hg19_snp142/raw/",
+    genome_chrs          [
+        [0] "chr22"
+    ],
+    genome_description   "human",
+    genome_name          "hg19",
+    tracks               [
+        [0] {
+            local_files    [
+                [0]  "chr1.fa.gz",
+                [1]  "chr2.fa.gz",
+                [2]  "chr3.fa.gz",
+                [3]  "chr4.fa.gz",
+                [4]  "chr5.fa.gz",
+                [5]  "chr6.fa.gz",
+                [6]  "chr7.fa.gz",
+                [7]  "chr8.fa.gz",
+                [8]  "chr9.fa.gz",
+                [9]  "chr10.fa.gz",
+                [10] "chr11.fa.gz",
+                [11] "chr12.fa.gz",
+                [12] "chr13.fa.gz",
+                [13] "chr14.fa.gz",
+                [14] "chr15.fa.gz",
+                [15] "chr16.fa.gz",
+                [16] "chr17.fa.gz",
+                [17] "chr18.fa.gz",
+                [18] "chr19.fa.gz",
+                [19] "chr20.fa.gz",
+                [20] "chr21.fa.gz",
+                [21] "chr22.fa.gz",
+                [22] "chrM.fa.gz",
+                [23] "chrX.fa.gz",
+                [24] "chrY.fa.gz"
+            ],
+            name           "ref",
+            remote_dir     "http://hgdownload.soe.ucsc.edu/goldenPath/hg19/chromosomes/",
+            remote_files   [
+                [0]  "chr1.fa.gz",
+                [1]  "chr2.fa.gz",
+                [2]  "chr3.fa.gz",
+                [3]  "chr4.fa.gz",
+                [4]  "chr5.fa.gz",
+                [5]  "chr6.fa.gz",
+                [6]  "chr7.fa.gz",
+                [7]  "chr8.fa.gz",
+                [8]  "chr9.fa.gz",
+                [9]  "chr10.fa.gz",
+                [10] "chr11.fa.gz",
+                [11] "chr12.fa.gz",
+                [12] "chr13.fa.gz",
+                [13] "chr14.fa.gz",
+                [14] "chr15.fa.gz",
+                [15] "chr16.fa.gz",
+                [16] "chr17.fa.gz",
+                [17] "chr18.fa.gz",
+                [18] "chr19.fa.gz",
+                [19] "chr20.fa.gz",
+                [20] "chr21.fa.gz",
+                [21] "chr22.fa.gz",
+                [22] "chrM.fa.gz",
+                [23] "chrX.fa.gz",
+                [24] "chrY.fa.gz"
+            ],
+            type           "ref"
+        },
+        [1] {
+            local_files    [
+                [0]  "chr1.phyloP100way.wigFix.gz",
+                [1]  "chr2.phyloP100way.wigFix.gz",
+                [2]  "chr3.phyloP100way.wigFix.gz",
+                [3]  "chr4.phyloP100way.wigFix.gz",
+                [4]  "chr5.phyloP100way.wigFix.gz",
+                [5]  "chr6.phyloP100way.wigFix.gz",
+                [6]  "chr7.phyloP100way.wigFix.gz",
+                [7]  "chr8.phyloP100way.wigFix.gz",
+                [8]  "chr9.phyloP100way.wigFix.gz",
+                [9]  "chr10.phyloP100way.wigFix.gz",
+                [10] "chr11.phyloP100way.wigFix.gz",
+                [11] "chr12.phyloP100way.wigFix.gz",
+                [12] "chr13.phyloP100way.wigFix.gz",
+                [13] "chr14.phyloP100way.wigFix.gz",
+                [14] "chr15.phyloP100way.wigFix.gz",
+                [15] "chr16.phyloP100way.wigFix.gz",
+                [16] "chr17.phyloP100way.wigFix.gz",
+                [17] "chr18.phyloP100way.wigFix.gz",
+                [18] "chr19.phyloP100way.wigFix.gz",
+                [19] "chr20.phyloP100way.wigFix.gz",
+                [20] "chr21.phyloP100way.wigFix.gz",
+                [21] "chr22.phyloP100way.wigFix.gz",
+                [22] "chrX.phyloP100way.wigFix.gz",
+                [23] "chrY.phyloP100way.wigFix.gz",
+                [24] "chrM.phyloP100way.wigFix.gz"
+            ],
+            name           "phyloP",
+            remote_dir     "http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phyloP100way/hg19.100way.phyloP100way/",
+            remote_files   [
+                [0]  "chr1.phyloP100way.wigFix.gz",
+                [1]  "chr2.phyloP100way.wigFix.gz",
+                [2]  "chr3.phyloP100way.wigFix.gz",
+                [3]  "chr4.phyloP100way.wigFix.gz",
+                [4]  "chr5.phyloP100way.wigFix.gz",
+                [5]  "chr6.phyloP100way.wigFix.gz",
+                [6]  "chr7.phyloP100way.wigFix.gz",
+                [7]  "chr8.phyloP100way.wigFix.gz",
+                [8]  "chr9.phyloP100way.wigFix.gz",
+                [9]  "chr10.phyloP100way.wigFix.gz",
+                [10] "chr11.phyloP100way.wigFix.gz",
+                [11] "chr12.phyloP100way.wigFix.gz",
+                [12] "chr13.phyloP100way.wigFix.gz",
+                [13] "chr14.phyloP100way.wigFix.gz",
+                [14] "chr15.phyloP100way.wigFix.gz",
+                [15] "chr16.phyloP100way.wigFix.gz",
+                [16] "chr17.phyloP100way.wigFix.gz",
+                [17] "chr18.phyloP100way.wigFix.gz",
+                [18] "chr19.phyloP100way.wigFix.gz",
+                [19] "chr20.phyloP100way.wigFix.gz",
+                [20] "chr21.phyloP100way.wigFix.gz",
+                [21] "chr22.phyloP100way.wigFix.gz",
+                [22] "chrX.phyloP100way.wigFix.gz",
+                [23] "chrY.phyloP100way.wigFix.gz",
+                [24] "chrM.phyloP100way.wigFix.gz"
+            ],
+            type           "score"
+        },
+        [2] {
+            features        [
+                [0] "kgID",
+                [1] "mRNA",
+                [2] "spID",
+                [3] "spDisplayID",
+                [4] "geneSymbol",
+                [5] "refseq",
+                [6] "protAcc",
+                [7] "description",
+                [8] "rfamAcc"
+            ],
+            local_files     [
+                [0] "hg19.refGene.chr1.txt"
+            ],
+            name            "refGene",
+            sql_statement   "SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq = hg19.refGene.name",
+            type            "gene"
+        },
+        [3] {
+            features        [
+                [0] "name",
+                [1] "strand",
+                [2] "refUCSC",
+                [3] "observed",
+                [4] "func",
+                [5] "alleleFreqCount",
+                [6] "alleles",
+                [7] "alleleNs",
+                [8] "alleleFreqs"
+            ],
+            local_files     [
+                [0] "hg19.snp142.chr1.txt"
+            ],
+            name            "snp142",
+            sql_statement   "SELECT _snp_fields FROM hg19.snp142",
+            type            "snp"
+        }
+    ]
+}
+
+real	20m16.267s
+user	19m54.223s
+sys	0m5.434s
