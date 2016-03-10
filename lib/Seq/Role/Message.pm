@@ -126,13 +126,13 @@ sub tee_logger {
   my ( $self, $log_method, $msg ) = @_;
 
   #interestingly some kind of message bufferring occurs, such that
-  # #this will actually make it through to the rest of the tee_logger function
-  # if ( $log_method eq 'error' ) {
-  #   return confess "\n$msg\n";
-  # }
+  #this will actually make it through to the rest of the tee_logger function
+  if ( $log_method eq 'error' ) {
+    return confess "\n$msg\n";
+  }
 
-  # $self->publishMessage($msg);
-  # $self->_logger->$log_method($msg);
+  #$self->publishMessage($msg);
+  $self->_logger->$log_method($msg);
 }
 
 no Moose::Role;

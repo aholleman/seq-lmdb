@@ -37,7 +37,7 @@ extends 'Seq::Tracks::Build';
 #they're extremely similar
 #extends 'Seq::Tracks::Reference::Build';
 with 'Seq::Tracks::Build::Interface';
-my $pm = Parallel::ForkManager->new(1);
+my $pm = Parallel::ForkManager->new(20);
 sub buildTrack{
   my $self = shift;
 
@@ -54,79 +54,101 @@ sub buildTrack{
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
     }
-    my $in_fh      = $self->get_read_fh($file);
-    my %seq_of_chr;
-    my $wanted_chr = 0;
-    my $chr;
-    my $chr_position = 0; # absolute by default, 0 index
-    #my $count = 0;
-    my $step;
-    my $stepType;
+    #simple forking; could do something more involvd if we had guarantee
+    #that a single file would be in order of chr
+    #expects that if n+1 files, each file has a single chr (one writer per chr)
+    #important, because we'll probably get slower writes due to locks otherwise
+    #unless we pass the slurped file to the fork, it doesn't seem to actually
+    $pm->start and next; 
+      my $tfile = $file;
+      #say "entering fork with $file";
+      my @lines = (1,2,3,4,5);#$self->get_file_lines($file);
+      my $fh = $self->get_read_fh($file);
+      my %data = ();
+      my $wantedChr;
+      my $chr;
+      my $chrPosition; # absolute by default, 0 index
+      my $count = 0;
+      my $step;
+      my $stepType;
 
-    while ( <$in_fh> ) {
-      chomp $_;
-      $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
+      while ( <$fh> ) {
+        #already chomped chomp $_;
+        $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
-      #could do check here for cadd default format
-      #for now, let's assume that we put the CADD file into a wigfix format
-      if ( $_ =~ m/$headerRegex/ ) { #we found a wigfix
-        #say "read $_";
-        $stepType = $1;
-        $chr = $2;
-        my $start = $3;
-        $step = $4;
+        #could do check here for cadd default format
+        #for now, let's assume that we put the CADD file into a wigfix format
+        if ( $_ =~ m/$headerRegex/ ) { #we found a wigfix
+          #say "read $_";
+          $stepType = $1;
+          $chr = $2;
+          my $start = $3;
+          $step = $4;
 
-        #this will work better if the wigfix file is sorted by chr
-        #not sure what happens if two writers attempt 
-        #but I hope the 2nd would wait for the first to finish, instead of just dying
-        if(!defined $seq_of_chr{chr} ) {
-          %seq_of_chr = ( chr => $chr, data => {} );
-        } elsif ($seq_of_chr{chr} ne $chr) {
-          $self->_write($seq_of_chr{chr}, $seq_of_chr{data} );
-          %seq_of_chr = ( chr => $chr, data => {} );
+          if(!$chr && $step && $start && $stepType) {
+            $self->tee_logger('error', 'Require chr, step, start, 
+              and step type fields in wig header');
+          }
+          #this will work better if the wigfix file is sorted by chr
+          #not sure what happens if two writers attempt 
+          #but I hope the 2nd would wait for the first to finish, instead of just dying
+          if(%data) {
+            if(!$wantedChr) {
+              %data = ();
+            } elsif($wantedChr ne $chr) {
+              #it's a new chr, so let's write whatever we have left
+              #in case the file has more than one chr
+              $self->dbPatchBulk($wantedChr, \%data );
+              #erase the chr, we'll check below if we want the new one
+              %data = ();
+              undef $wantedChr;
+              undef $chrPosition;
+              
+            }
+          }
+
+          if ( $self->chrIsWanted($chr) ) {
+            $wantedChr = $chr;
+            #0 index positions
+            $chrPosition = $start - 1;
+          } else {
+            $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
+            
+            %data = ();
+            undef $wantedChr;
+            undef $chrPosition;
+          }
+        } elsif ( $wantedChr ) {
+          if($stepType eq $vStep) {
+            $self->tee_logger('error', 'variable step not currently supported');
+          }
+
+          $chrPosition += $step;
+          $data{$chrPosition} = $self->prepareData($_);
+
+          $count++;
+          if($count >= $self->commitEvery) {
+            $self->dbPatchBulk($wantedChr, \%data );
+            %data = ();
+            $count = 0;
+            #don't reset chrPosition, or wantedChr of course
+          }
         }
-
-        $chr_position = $start - 1; #0 index
-        #say "chr_position is $chr_position";
-
-        if ( $self->chrIsWanted($chr) ) {
-          $wanted_chr = 1;
-        } else {
-          $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
-          $wanted_chr = 0;
-        }
-      } elsif ( $wanted_chr ) {
-        if($stepType eq $vStep) {
-          $self->tee_logger('error', 'variable step not currently supported');
-        }
-        $chr_position += $step;
-        $seq_of_chr{data}->{$chr_position} = $_;
-
-        # $count++;
-        # if($count >= $self->commitEvery) {
-        #   $count = 0;
-        #   say "chr is". $seq_of_chr{chr};
-        #   $self->_write($seq_of_chr{chr}, $seq_of_chr{data} );
-        #   $seq_of_chr{data} = {};
-        # }
       }
 
-      # warn if a file does not appear to have a vaild chromosome - concern
-      #   that it's not in fasta format
-      if ( $. == 2 and !$wanted_chr ) {
-        my $err_msg = sprintf(
-          "WARNING: Found %s in %s but it's not a wanted chromsome", 
-          $chr, $file
-        );
-        $err_msg =~ s/[\s\n]+/ /xms;
-        $self->tee_logger('info', $err_msg);
-      }
-    }
+      if( %data ) {
+        if(!($wantedChr && %data) ) { #sanity check
+          $self->tee_logger('error', 'at the end of the file
+            wantedChr and/or data not found');
+        }
 
-    if( $seq_of_chr{chr} ) {
-      $self->_write($seq_of_chr{chr}, $seq_of_chr{data} );
-      %seq_of_chr = ();
-    }
+        $self->dbPatchBulk($wantedChr, \%data );
+
+        #shouldn't be necesasry, just in case
+        undef %data;
+        undef $wantedChr; 
+      }
+    $pm->finish;
   }
   $pm->wait_all_children;
 
@@ -137,18 +159,18 @@ sub buildTrack{
 #however, "top" will show the same initial memory usage between the two processes
 #(parent and child), which may seem like a gigantic memory leak
 #http://serverfault.com/questions/440115/how-do-you-measure-the-memory-footprint-of-a-set-of-forked-processes
-sub _write {
-  my $self = shift;
-  $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
-    my ($chr, $dataHref) = @_;
+# sub _write {
+#   my $self = shift;
+#   $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
+#     my ($chr, $dataHref) = @_;
     
-    say "entering fork for chr $chr"; #if $self->debug; #TODO: remove
-    # say "data is";
-    # p $dataHref;
-    $self->writeAllData( $chr, $dataHref );
+#     say "entering fork for chr $chr"; #if $self->debug; #TODO: remove
+#     # say "data is";
+#     # p $dataHref;
+#     $self->writeAllData( $chr, $dataHref );
   
-    $pm->finish;
-}
+#     $pm->finish;
+# }
 
 
 __PACKAGE__->meta->make_immutable;

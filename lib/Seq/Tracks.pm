@@ -23,17 +23,11 @@ use Seq::Tracks::RegionTrack::Build;
 with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::DBManager',
   'Seq::Role::ConfigFromFile';
 
+#expect that this exists, since this is where any local files are supposed
+#to be kept
 has files_dir => (
   is => 'ro',
   isa => AbsDir,
-  coerce => 1,
-  required => 1,
-);
-
-#we'll make the database_dir if it doesn't exist in the buid step
-has database_dir => (
-  is => 'ro',
-  isa => AbsPath,
   coerce => 1,
   required => 1,
 );
@@ -194,17 +188,92 @@ sub _buildDataTracks {
   return \%out;
 }
 
-#@param $data: {
-# type : {
-#  name: someName (optional),
-#  data: {
-#   feature1:   
-#}  
-#}
-#}
-sub getAllDataAsHref {
+#different from Seq::Tracks in that we store class instances hashed on track type
+#this is to allow us to more easily build tracks of one type in a certain order
+sub _buildTrackBuilders {
+  my $self = shift;
 
+  my %out;
+  for my $trackHref (@{$self->tracks}) {
+    my $className = $self->getBuilderTrackClass($trackHref->{type} );
+    if(!$className) {
+      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
+      next;
+    }
+    # a bit awkward;
+    $trackHref->{files_dir} = $self->files_dir;
+    $trackHref->{genome_chrs} = $self->genome_chrs;
+    $trackHref->{overwrite} = $self->overwrite;
+    push @{$out{$trackHref->{type} } }, $className->new($trackHref);
+  }
+
+  return \%out;
 }
+
+#like the original as_href this prepares a site for serialization
+#instead of introspecting, it uses the features defined in the config
+#This defines our schema, e.g how the data is stored in the kv database
+# {
+#  name (this is the track name) : {
+#   type: someType,
+#   data: {
+#     feature1: featureVal1, feature2: featureVal2, ...
+#} } } }
+
+#all* returns array ref
+#we coupled ngene to gene tracks, to allow this
+sub allGeneTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->geneType};
+}
+
+sub allSnpTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->snpType};
+}
+
+sub allRegionTracksBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->regionType};
+}
+
+sub allScoreTrackBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->scoreType};
+}
+
+sub allSparseTrackBuilder {
+  my $self = shift;
+  return $self->trackBuilders->{$self->sparseType};
+}
+
+#returns hashRef; only one of the following tracks is allowed
+sub refTrackBuilder {
+  my $self = shift;
+  return $self->trackBuilders->{$self->refType}[0];
+}
+
+# sub insantiateRef {
+#   my ( $self, $href ) = @_;
+
+#   for my $maybeTrackType (keys %$href) {
+#     if($maybeTrackType eq $refType) {
+#       return $trackMap->{$refType}->new($href)
+#     }
+#   }
+# }
+
+# sub insantiateSparse {
+#   my ( $self, $href ) = @_;
+
+#   my @out;
+#   for my $maybeTrackType (keys %$href) {
+#     if($maybeTrackType eq $refType) {
+#       return $trackMap->{$spareType}->new($href)
+#     }
+#   }
+# }
+
 #Not certain if this is needed yet; if it is we should keep track of types
 #all* returns array ref
 # sub allSnpTracks {
@@ -290,90 +359,19 @@ sub getAllDataAsHref {
 #  typeName2 : {typeStuff2},
 #}
 
-#different from Seq::Tracks in that we store class instances hashed on track type
-#this is to allow us to more easily build tracks of one type in a certain order
-sub _buildTrackBuilders {
-  my $self = shift;
 
-  my %out;
-  for my $trackHref (@{$self->tracks}) {
-    my $className = $self->getBuilderTrackClass($trackHref->{type} );
-    if(!$className) {
-      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
-      next;
-    }
-    # a bit awkward;
-    $trackHref->{files_dir} = $self->files_dir;
-    $trackHref->{genome_chrs} = $self->genome_chrs;
-    push @{$out{$trackHref->{type} } }, $className->new($trackHref);
-  }
 
-  return \%out;
+#@param $data: {
+# type : {
+#  name: someName (optional),
+#  data: {
+#   feature1:   
+#}  
+#}
+#}
+sub getAllDataAsHref {
+
 }
-
-#like the original as_href this prepares a site for serialization
-#instead of introspecting, it uses the features defined in the config
-#This defines our schema, e.g how the data is stored in the kv database
-# {
-#  name (this is the track name) : {
-#   type: someType,
-#   data: {
-#     feature1: featureVal1, feature2: featureVal2, ...
-#} } } }
-
-#all* returns array ref
-#we coupled ngene to gene tracks, to allow this
-sub allGeneTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->geneType};
-}
-
-sub allSnpTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->snpType};
-}
-
-sub allRegionTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->regionType};
-}
-
-sub allScoreTrackBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->scoreType};
-}
-
-sub allSparseTrackBuilder {
-  my $self = shift;
-  return $self->trackBuilders->{$self->sparseType};
-}
-
-#returns hashRef; only one of the following tracks is allowed
-sub refTrackBuilder {
-  my $self = shift;
-  return $self->trackBuilders->{$self->refType}[0];
-}
-
-# sub insantiateRef {
-#   my ( $self, $href ) = @_;
-
-#   for my $maybeTrackType (keys %$href) {
-#     if($maybeTrackType eq $refType) {
-#       return $trackMap->{$refType}->new($href)
-#     }
-#   }
-# }
-
-# sub insantiateSparse {
-#   my ( $self, $href ) = @_;
-
-#   my @out;
-#   for my $maybeTrackType (keys %$href) {
-#     if($maybeTrackType eq $refType) {
-#       return $trackMap->{$spareType}->new($href)
-#     }
-#   }
-# }
 
 __PACKAGE__->meta->make_immutable;
 

@@ -89,14 +89,17 @@ sub writeData {
 
   #Seq::Tracks::Base should know to retrieve data this way
   #this is our schema
-  my %out = (
-    $self->name => {
-      $self->typeKey => $self->type,
-      $self->dataKey => $data,
-    }
-  );
+  $self->dbPatch($chr, $pos, {$self->name => $data} );
+}
 
-  $self->dbPatch($chr, $pos, \%out);
+sub prepareData {
+  my ($self, $data) = @_;
+
+  #Seq::Tracks::Base should know to retrieve data this way
+  #this is our schema
+  return {
+    $self->name => $data,
+  }
 }
 
 #@param $posHref : {positionKey : data}
@@ -106,19 +109,16 @@ sub writeData {
 #NOT safe for the input data
 sub writeAllData {
   #overwrite not currently used
-  my ($self, $chr, $posHref) = @_;
+  my ($self, $chr, $posHref, $overwrite) = @_;
 
   if(ref $posHref eq 'ARRAY') {
     goto &writeAllDataArray;
   }
 
  # save memory, mutate
-  for my $pos (sort { $a <=> $b } keys %$posHref) {
+  for my $pos (%$posHref) {
     $posHref->{$pos} = {
-      $self->name => {
-        $self->typeKey => $self->type,
-        $self->dataKey => $posHref->{$pos},
-      }
+      $self->name => $posHref->{$pos}
     };
     # say "had we been writing, we would have written a record at $chr : $pos that looks like";
     # p $posHref->{$pos};
@@ -137,16 +137,55 @@ sub writeAllDataArray {
   my $idx = 0;
   for my $data (@$posAref) {
     $posAref->[$idx] = {
-      $self->name => {
-        $self->typeKey => $self->type,
-        $self->dataKey => $data,
-      }
+      $self->name => $data,
     };
     $idx++;
   }
 
   $self->dbPatchBulkArray($chr, $posAref);
 }
+
+
+# sub prepareAllData {
+#   #overwrite not currently used
+#   my ($self, $chr, $posHref) = @_;
+
+#   if(ref $posHref eq 'ARRAY') {
+#     goto &prepareAllDataArray;
+#   }
+
+#  # save memory, mutate
+#   for my $pos (keys %$posHref) {
+#     $posHref->{$pos} = {
+#       $self->name => {
+#         $self->typeKey => $self->type,
+#         $self->dataKey => $posHref->{$pos},
+#       }
+#     };
+#     # say "had we been writing, we would have written a record at $chr : $pos that looks like";
+#     # p $posHref->{$pos};
+#   }
+# }
+
+# sub prepareAllDataArray {
+#   #overwrite not currently used
+#   my ($self, $chr, $posAref) = @_;
+
+#   if(ref $posHref eq 'HASH') {
+#     goto &prepareAllData;
+#   }
+
+#   my $idx = 0;
+#   for my $data (@$posAref) {
+#     $posAref->[$idx] = {
+#       $self->name => {
+#         $self->typeKey => $self->type,
+#         $self->dataKey => $data,
+#       }
+#     };
+#     $idx++;
+#   }
+# }
 
 __PACKAGE__->meta->make_immutable;
 

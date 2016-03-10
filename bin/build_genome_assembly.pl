@@ -18,9 +18,9 @@ use DDP;
 use Seq::Build;
 
 my (
-  $yaml_config, $build_type,        $db_location,       $verbose,
-  $no_bdb,      $help,              $wanted_chr,        $force,
-  $debug,       $genome_hasher_bin, $genome_scorer_bin, $genome_cadd_bin,
+  $yaml_config, $build_type,        $verbose,
+  $no_bdb,      $help,              $wanted_chr,        
+  $debug,       $overwrite
 );
 $wanted_chr = 0;
 $debug = 0;
@@ -30,8 +30,8 @@ GetOptions(
   't|type=s'     => \$build_type,
   'v|verbose'    => \$verbose,
   'h|help'       => \$help,
-  'f|force'      => \$force,
   'd|debug=i'      => \$debug,
+  'o|overwrite'  => \$overwrite,
   'wanted_chr=s' => \$wanted_chr,
 );
 
@@ -56,7 +56,7 @@ my $builder_options_href = {
   configfile    => $yaml_config,
   wanted_chr    => $wanted_chr,
   wanted_type   => $build_type,
-  force         => $force,
+  overwrite     => $overwrite,
   debug         => $debug,
 };
   

@@ -6,7 +6,8 @@ package Seq::Tracks::GeneTrack::Build;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: Builds Gene Tracks and places into MongoDB instance.
+# ABSTRACT: Builds Gene Tracks 
+    # Takes care of gene_db, transcript_db, and ngene from the previous Seqant version
 # VERSION
 
 =head1 DESCRIPTION
