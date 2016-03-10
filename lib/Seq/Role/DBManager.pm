@@ -67,7 +67,7 @@ has read_only => (
 has commitEvery => (
   is => 'ro',
   init_arg => undef,
-  default => 10000,
+  default => 1000000,
   lazy => 1,
 );
 
