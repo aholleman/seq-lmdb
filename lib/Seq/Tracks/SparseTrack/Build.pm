@@ -52,6 +52,10 @@ has requiredFields => (
   }
 );
 
+#TODO: allow people to map these names in YAML, via -blah: chrom -blah2: chromStart
+state $chrom = 'chrom';
+state $cStart = 'chromStart';
+state $cEnd   = 'chromEnd';
 sub _buildRequiredFields {
   my $self = shift;
   state $requiredFields;
@@ -60,7 +64,7 @@ sub _buildRequiredFields {
     return $requiredFields;
   }
 
-  push @$requiredFields, ('chrom','chromStart','chromEnd'), @{$self->features};
+  push @$requiredFields, ($chrom, $cStart, $cEnd), @{$self->features};
   return $requiredFields;
 }
 
@@ -83,29 +87,47 @@ sub buildTrack {
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
   for my $file ($self->all_local_files) {
     $pm->start and next;
-    my $fh = $self->get_read_fh($file);
+      my $fh = $self->get_read_fh($file);
 
-    my %out = ();
-    my $wantedChr;
-    my $pos;
-    my %iFieldIdx = ();
-    while (<$fh>) {
-      chomp $_;
-      $_ =~ s/^\s+|\s+$//g;
+      my %out = ();
+      my $pos;
+      my $wantedChr;
+      
+      my $chr;
+      my %iFieldIdx = ();
 
-      my @fields = split "/t", $_;
+      while (<$fh>) {
+        chomp $_;
+        $_ =~ s/^\s+|\s+$//g;
 
-      if($. == 1) {
-        for my $field ($self->allRequiredFields) {
-          my $idx = firstidx {$_ eq $field} @fields;
-          if($idx) {
-            $iFieldIdx{$idx} = $field;
-            next;
+        my @fields = split "/t", $_;
+
+        if($. == 1) {
+          for my $field ($self->allRequiredFields) {
+            my $idx = firstidx {$_ eq $field} @fields;
+            if($idx) {
+              $iFieldIdx{$field} = $idx;
+              next;
+            }
+            $self->tee_logger('error', 'Required fields missing in $file');
           }
-          $self->tee_logger('error', 'Required fields missing in $file');
+        }
+
+        $chr = $fields[ $iFieldIdx{$chrom} ];
+
+        if( $fields[ $iFieldIdx{$cStart} ] == $fields[ $iFieldIdx{$cEnd} ] ) {
+          $pos = [ $fields[ $iFieldIdx{$cStart} ] ];
+        } else {
+          $pos = [ $fields[ $iFieldIdx{$cStart} ] .. $fields[ $iFieldIdx{$cEnd} ] ];
+        }
+
+        #TODO: remove
+        say "pos is $pos" if $self->debug;
+
+        if($self->chrIsWanted($chr) ) {
+
         }
       }
-    }
   }
 }
 __PACKAGE__->meta->make_immutable;
