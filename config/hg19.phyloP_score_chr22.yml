@@ -116,61 +116,61 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name: phastCons
-  type: score
-  local_files:
-    - chr1.phastCons100way.wigFix.gz
-    - chr2.phastCons100way.wigFix.gz
-    - chr3.phastCons100way.wigFix.gz
-    - chr4.phastCons100way.wigFix.gz
-    - chr5.phastCons100way.wigFix.gz
-    - chr6.phastCons100way.wigFix.gz
-    - chr7.phastCons100way.wigFix.gz
-    - chr8.phastCons100way.wigFix.gz
-    - chr9.phastCons100way.wigFix.gz
-    - chr10.phastCons100way.wigFix.gz
-    - chr11.phastCons100way.wigFix.gz
-    - chr12.phastCons100way.wigFix.gz
-    - chr13.phastCons100way.wigFix.gz
-    - chr14.phastCons100way.wigFix.gz
-    - chr15.phastCons100way.wigFix.gz
-    - chr16.phastCons100way.wigFix.gz
-    - chr17.phastCons100way.wigFix.gz
-    - chr18.phastCons100way.wigFix.gz
-    - chr19.phastCons100way.wigFix.gz
-    - chr20.phastCons100way.wigFix.gz
-    - chr21.phastCons100way.wigFix.gz
-    - chr22.phastCons100way.wigFix.gz
-    - chrX.phastCons100way.wigFix.gz
-    - chrY.phastCons100way.wigFix.gz
-    - chrM.phastCons100way.wigFix.gz
-  remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons100way/hg19.100way.phastCons/
-  remote_files:
-    - chr1.phastCons100way.wigFix.gz
-    - chr2.phastCons100way.wigFix.gz
-    - chr3.phastCons100way.wigFix.gz
-    - chr4.phastCons100way.wigFix.gz
-    - chr5.phastCons100way.wigFix.gz
-    - chr6.phastCons100way.wigFix.gz
-    - chr7.phastCons100way.wigFix.gz
-    - chr8.phastCons100way.wigFix.gz
-    - chr9.phastCons100way.wigFix.gz
-    - chr10.phastCons100way.wigFix.gz
-    - chr11.phastCons100way.wigFix.gz
-    - chr12.phastCons100way.wigFix.gz
-    - chr13.phastCons100way.wigFix.gz
-    - chr14.phastCons100way.wigFix.gz
-    - chr15.phastCons100way.wigFix.gz
-    - chr16.phastCons100way.wigFix.gz
-    - chr17.phastCons100way.wigFix.gz
-    - chr18.phastCons100way.wigFix.gz
-    - chr19.phastCons100way.wigFix.gz
-    - chr20.phastCons100way.wigFix.gz
-    - chr21.phastCons100way.wigFix.gz
-    - chr22.phastCons100way.wigFix.gz
-    - chrX.phastCons100way.wigFix.gz
-    - chrY.phastCons100way.wigFix.gz
-    - chrM.phastCons100way.wigFix.gz
+# - name: phastCons
+#   type: score
+#   local_files:
+#     - chr1.phastCons100way.wigFix.gz
+#     - chr2.phastCons100way.wigFix.gz
+#     - chr3.phastCons100way.wigFix.gz
+#     - chr4.phastCons100way.wigFix.gz
+#     - chr5.phastCons100way.wigFix.gz
+#     - chr6.phastCons100way.wigFix.gz
+#     - chr7.phastCons100way.wigFix.gz
+#     - chr8.phastCons100way.wigFix.gz
+#     - chr9.phastCons100way.wigFix.gz
+#     - chr10.phastCons100way.wigFix.gz
+#     - chr11.phastCons100way.wigFix.gz
+#     - chr12.phastCons100way.wigFix.gz
+#     - chr13.phastCons100way.wigFix.gz
+#     - chr14.phastCons100way.wigFix.gz
+#     - chr15.phastCons100way.wigFix.gz
+#     - chr16.phastCons100way.wigFix.gz
+#     - chr17.phastCons100way.wigFix.gz
+#     - chr18.phastCons100way.wigFix.gz
+#     - chr19.phastCons100way.wigFix.gz
+#     - chr20.phastCons100way.wigFix.gz
+#     - chr21.phastCons100way.wigFix.gz
+#     - chr22.phastCons100way.wigFix.gz
+#     - chrX.phastCons100way.wigFix.gz
+#     - chrY.phastCons100way.wigFix.gz
+#     - chrM.phastCons100way.wigFix.gz
+#   remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons100way/hg19.100way.phastCons/
+#   remote_files:
+#     - chr1.phastCons100way.wigFix.gz
+#     - chr2.phastCons100way.wigFix.gz
+#     - chr3.phastCons100way.wigFix.gz
+#     - chr4.phastCons100way.wigFix.gz
+#     - chr5.phastCons100way.wigFix.gz
+#     - chr6.phastCons100way.wigFix.gz
+#     - chr7.phastCons100way.wigFix.gz
+#     - chr8.phastCons100way.wigFix.gz
+#     - chr9.phastCons100way.wigFix.gz
+#     - chr10.phastCons100way.wigFix.gz
+#     - chr11.phastCons100way.wigFix.gz
+#     - chr12.phastCons100way.wigFix.gz
+#     - chr13.phastCons100way.wigFix.gz
+#     - chr14.phastCons100way.wigFix.gz
+#     - chr15.phastCons100way.wigFix.gz
+#     - chr16.phastCons100way.wigFix.gz
+#     - chr17.phastCons100way.wigFix.gz
+#     - chr18.phastCons100way.wigFix.gz
+#     - chr19.phastCons100way.wigFix.gz
+#     - chr20.phastCons100way.wigFix.gz
+#     - chr21.phastCons100way.wigFix.gz
+#     - chr22.phastCons100way.wigFix.gz
+#     - chrX.phastCons100way.wigFix.gz
+#     - chrY.phastCons100way.wigFix.gz
+#     - chrM.phastCons100way.wigFix.gz
 - name: refGene
   type: gene
   features:

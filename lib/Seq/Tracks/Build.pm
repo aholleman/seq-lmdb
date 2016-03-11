@@ -62,12 +62,6 @@ around BUILDARGS => sub {
   $class->$orig($href);
 };
 
-sub BUILD {
-  my $self = shift;
-
-  $self->read_only(0); #default is read_only = 1
-}
-
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
 #retrieves data

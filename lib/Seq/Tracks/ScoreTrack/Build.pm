@@ -37,7 +37,8 @@ extends 'Seq::Tracks::Build';
 #they're extremely similar
 #extends 'Seq::Tracks::Reference::Build';
 with 'Seq::Tracks::Build::Interface';
-my $pm = Parallel::ForkManager->new(6);
+
+my $pm = Parallel::ForkManager->new(8);
 sub buildTrack{
   my $self = shift;
 
@@ -45,7 +46,7 @@ sub buildTrack{
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  $self->tee_logger('info', "starting to build score track $self->name" );
+  $self->tee_logger('info', "starting to build " . $self->name );
 
   my $fStep = 'fixedStep';
   my $vStep = 'variableStep';
@@ -63,87 +64,105 @@ sub buildTrack{
     #important, because we'll probably get slower writes due to locks otherwise
     #unless we pass the slurped file to the fork, it doesn't seem to actually
     $pm->start and next; 
-      my $tfile = $file;
       #say "entering fork with $file";
       #my @lines = $self->get_file_lines($file);
       my $fh = $self->get_read_fh($file);
+
       my %data = ();
-      my $wantedChr;
-      my $chr;
-      my $chrPosition; # absolute by default, 0 index
       my $count = 0;
+
+      my $wantedChr;
+      my $chrPosition; # absolute by default, 0 index
+      
       my $step;
       my $stepType;
 
       FH_LOOP: while ( <$fh> ) {
-        #already chomped chomp $_;
+        chomp $_;
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
         #could do check here for cadd default format
         #for now, let's assume that we put the CADD file into a wigfix format
-        if ( $_ =~ m/$headerRegex/ ) { #we found a wigfix
-          #say "read $_";
-          $stepType = $1;
-          $chr = $2;
-          my $start = $3;
-          $step = $4;
+        if ( $_ =~ m/$headerRegex/ ) { #we found a wig header
+          my $chr = $2;
 
+          $step = $4;
+          $stepType = $1;
+
+          my $start = $3;
+          
           if(!$chr && $step && $start && $stepType) {
             $self->tee_logger('error', 'Require chr, step, start, 
               and step type fields in wig header');
           }
-          #this will work better if the wigfix file is sorted by chr
-          #not sure what happens if two writers attempt 
-          #but I hope the 2nd would wait for the first to finish, instead of just dying
-          if(%data) {
-            if(!$wantedChr) {
-              %data = ();
-            } elsif($wantedChr ne $chr) {
-              #it's a new chr, so let's write whatever we have left
-              #in case the file has more than one chr
-              $self->dbPatchBulk($wantedChr, \%data );
-              #erase the chr, we'll check below if we want the new one
-              %data = ();
-              undef $wantedChr;
-              undef $chrPosition;
-            }
-          }
 
-          if ( $self->chrIsWanted($chr) ) {
-            $wantedChr = $chr;
-            #0 index positions
-            $chrPosition = $start - 1;
-          } else {
-            $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
-            
-            %data = ();
-            undef $wantedChr;
-            undef $chrPosition;
-
-            if ( $chrPerFile ) {
-              last FH_LOOP; 
-            }
-          }
-        } elsif ( $wantedChr ) {
           if($stepType eq $vStep) {
             $self->tee_logger('error', 'variable step not currently supported');
           }
 
-          $chrPosition += $step;
-          $data{$chrPosition} = $self->prepareData($_);
-
-          $count++;
-          if($count >= $self->commitEvery) {
-            $self->dbPatchBulk($wantedChr, \%data );
-            %data = ();
-            $count = 0;
-            #don't reset chrPosition, or wantedChr of course
+          $chrPosition = $start - 1;
+          if ($wantedChr && $wantedChr eq $chr) {
+            next;
           }
+
+          #ok, we found something new, so let's write whatever we have for the
+          #previous chr
+          if($wantedChr && $wantedChr ne $chr) {
+            $self->dbPatchBulk($wantedChr, \%data );
+          }
+
+          #since this is new, let's reset our data and count
+          #we've already updated the chrPosition above
+          %data = ();
+          $count = 0;
+          
+          #chr is new and wanted
+          if ( $self->chrIsWanted($chr) ) {
+            $wantedChr = $chr;
+            next;
+          }
+
+          # chr isn't wanted if we got here
+          $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
+
+          #so let's erase the remaining data associated with this chr
+          undef $wantedChr;
+          undef $chrPosition;
+
+          #if we're expecting one chr per file, no need to read through the
+          #rest of the file if we don't want the current header chr
+          if ( $chrPerFile ) {
+            last FH_LOOP; 
+          }
+        }
+
+        #don't die if no wanted chr; could be some harmless mistake
+        #like a blank line on the first, instead of a header
+        #but the user should know, because it portends other issues
+        if ( !$wantedChr ) {
+          $self->tee_logger('warn', "No wanted chr found, after first line " .
+            'could be malformed wig file');
+          next;
+        }
+        
+        $chrPosition += $step;
+        $data{$chrPosition} = $self->prepareData($_);
+
+        $count++;
+        if($count >= $self->commitEvery) {
+          $self->dbPatchBulk($wantedChr, \%data );
+          %data = ();
+          $count = 0;
+
+          #don't reset chrPosition, or wantedChr, because chrPosition is
+          #continuous from the previous position in a fixed step file
+          #and we haven't changed chromosomes
         }
       }
 
+      #we're done with the input file, and we could still have some data to write
       if( %data ) {
-        if(!($wantedChr && %data) ) { #sanity check
+        if(!$wantedChr) { #sanity check
           $self->tee_logger('error', 'at the end of the file
             wantedChr and/or data not found');
         }
@@ -153,12 +172,14 @@ sub buildTrack{
         #shouldn't be necesasry, just in case
         undef %data;
         undef $wantedChr; 
+        undef $chrPosition;
+        undef $count;
       }
     $pm->finish;
   }
   $pm->wait_all_children;
 
-  $self->tee_logger('info', 'finished building string genome');
+  $self->tee_logger('info', 'finished building score track: ' . $self->name);
 };
 
 #Because of linux copy-on-write, this is actually very memory efficient

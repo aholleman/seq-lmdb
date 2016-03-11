@@ -36,119 +36,155 @@ extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Build::Interface';
 
 # TODO: globally manage forks, so we don't get some crazy resource use
-my $pm = Parallel::ForkManager->new(4);
-sub buildTrack {
+with 'Seq::Tracks::Build::Interface';
+
+my $pm = Parallel::ForkManager->new(8);
+
+sub buildTrack{
   my $self = shift;
 
   #TODO: use cursor to read first and last position;
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  $self->tee_logger('info', 'starting to build string genome');
-  
-  $self->tee_logger('info', "building genome string");
+  $self->tee_logger('info', "starting to build " . $self->name );
 
-  #pre-make all databases
-  #done to avoid weird race condition issues from forking
-  # for my $chr ($self->allWantedChrs) {
-  #   $self->getDbi($chr);
-  # }
+  my $fStep = 'fixedStep';
+  my $vStep = 'variableStep';
+  my $headerRegex = qr/\A>([\w\d]+)/;
+  my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
-  my $re = qr/(\A[ATCGNatcgn]+)\z/xms;
+  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
     }
-    my $in_fh      = $self->get_read_fh($file);
-    my %seq_of_chr;
-    my $wanted_chr = 0;
-    my $chr;
-    my $chr_position = 0; # absolute by default, 0 index
-    my $count = 0;
+    #simple forking; could do something more involvd if we had guarantee
+    #that a single file would be in order of chr
+    #expects that if n+1 files, each file has a single chr (one writer per chr)
+    #important, because we'll probably get slower writes due to locks otherwise
+    #unless we pass the slurped file to the fork, it doesn't seem to actually
+    $pm->start and next; 
+      #say "entering fork with $file";
+      #my @lines = $self->get_file_lines($file);
+      my $fh = $self->get_read_fh($file);
 
-    while ( <$in_fh> ) {
-      chomp $_;
+      my %data = ();
+      my $count = 0;
 
-      $_ =~ s/\s+//g;
-      if ( $_ =~ m/\A>([\w\d]+)/ ) { #we found a fasta header
-        $chr = $1;
+      my $wantedChr;
 
-        if(!$seq_of_chr{chr} ) {
-          %seq_of_chr = ( chr => $chr, data => '' );
-        }
+      # we store the 0 indexed position
+      my $chrPosition = 0;
+      
+      FH_LOOP: while ( <$fh> ) {
+        chomp $_;
+        $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
-        if($seq_of_chr{chr} ne $chr) {
-          say "chr is new"; #TODO: remove
-          $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
-          %seq_of_chr = ( chr => $chr, data => '' );
-          $chr_position = 0;
-        }
+        #could do check here for cadd default format
+        #for now, let's assume that we put the CADD file into a wigfix format
+        if ( $_ =~ m/$headerRegex/ ) { #we found a wig header
+          my $chr = $1;
 
-        if ( $self->chrIsWanted($chr) ) {
-          $wanted_chr = 1;
-        } else {
+          if(!$chr) {
+            $self->tee_logger('error', 'Require chr in fasta file headers');
+          }
+
+          if ($wantedChr && $wantedChr eq $chr) {
+            next;
+          }
+
+          #ok, we found something new, so let's write whatever we have for the
+          #previous chr
+          if($wantedChr && $wantedChr ne $chr) {
+            say "chr $chr does not equal $wantedChr" if $self->debug;
+
+            $self->dbPatchBulk($wantedChr, \%data );
+          }
+
+          #since this is new, let's reset our data and count
+          #we've already updated the chrPosition above
+          %data = ();
+          $count = 0;
+          
+          #chr is new and wanted
+          #this allows us to use a single fasta file as well
+          #although in the current setup, using such a file will prevent
+          #forking use (since we read the file in the fork)
+          #we could always spawn a fork within the fork
+          if ( $self->chrIsWanted($chr) ) {
+            $wantedChr = $chr;
+            next;
+          }
+
+          # chr isn't wanted if we got here
           $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
-          $wanted_chr = 0;
+
+          #so let's erase the remaining data associated with this chr
+          #restart chrPosition count at 0, since we're storing 0 indexed pos
+          undef $wantedChr;
+          $chrPosition = 0;
+
+          #if we're expecting one chr per file, no need to read through the
+          #rest of the file if we don't want the current header chr
+          if ( $chrPerFile ) {
+            last FH_LOOP; 
+          }
         }
-      } elsif ( $wanted_chr && $_ =~ $re ) {
-        $seq_of_chr{data} .= $1;
-        #TODO:
-        #this is purely for debug, this should be removed as soon
-        #as _write works appropriately
-        # if($count > 100) {
-        #   $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
-        #   $seq_of_chr{data} = {};
-        #   $count = 0;
-        # }
-        # $count++;
+
+        #don't die if no wanted chr; could be some harmless mistake
+        #like a blank line on the first, instead of a header
+        #but the user should know, because it portends other issues
+        if ( !$wantedChr ) {
+          $self->tee_logger('warn', "No wanted chr found, after first line " .
+            'could be malformed wig file');
+          next;
+        }
+        
+        if( $_ =~ $dataRegex ) {
+          for my $char ( split '', $1 ) {
+            $chrPosition++;
+            $data{$chrPosition} = $self->prepareData($char);
+            $count++;
+
+            if($count >= $self->commitEvery) {
+              $self->dbPatchBulk($wantedChr, \%data );
+              %data = ();
+              $count = 0;
+
+              #don't reset chrPosition, or wantedChr, because chrPosition is
+              #continuous from the previous position in a fixed step file
+              #and we haven't changed chromosomes
+            }
+          }
+
+        }
       }
 
-      # warn if a file does not appear to have a vaild chromosome - concern
-      #   that it's not in fasta format
-      if ( $. == 2 and !$wanted_chr ) {
-        my $err_msg = sprintf(
-          "WARNING: Found %s in %s but '%s' is not a valid chromsome for %s.
-          You might want to ensure %s is a valid fasta file.", $chr, $file, $self->name, $file
-        );
-        $err_msg =~ s/[\s\n]+/ /xms;
-        $self->tee_logger('info', $err_msg);
-      }
-    }
+      #we're done with the input file, and we could still have some data to write
+      if( %data ) {
+        if(!$wantedChr) { #sanity check
+          $self->tee_logger('error', 'at the end of the file
+            wantedChr and/or data not found');
+        }
 
-    if( $seq_of_chr{data} ) {
-      $self->_write($seq_of_chr{chr}, $seq_of_chr{data});
-      %seq_of_chr = ();
-    }
+        $self->dbPatchBulk($wantedChr, \%data );
+
+        #shouldn't be necesasry, just in case
+        undef %data;
+        undef $wantedChr; 
+        undef $chrPosition;
+        undef $count;
+      }
+    $pm->finish;
   }
   $pm->wait_all_children;
 
-  $self->tee_logger('info', 'finished building string genome');
-}
+  $self->tee_logger('info', 'finished building score track: ' . $self->name);
+};
 
-sub _write {
-  my $self = shift;
-  $pm->start and return; #$self->tee_logger('warn', "couldn't write $_[0] Reference track");
-    my ($chr, $dataStr) = @_;
-    say "entering fork" if $self->debug; #TODO: remove
 
-    my %out;
-    my $pos = 0;
-    my $cnt = 0;
-    for my $char (split(//, $dataStr) ) {
-      $out{$pos} = $char;
-      $pos++;
-      $cnt++;
-      if($cnt > $self->commitEvery) {
-        $cnt = 0;
-        $self->writeAllData( $chr, \%out );
-        %out = ();
-      }
-    }
-    $self->writeAllData( $chr, \%out);
-    %out = ();
-  
-    $pm->finish;
-}
 __PACKAGE__->meta->make_immutable;
 
 1;

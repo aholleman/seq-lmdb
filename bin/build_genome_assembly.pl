@@ -18,21 +18,22 @@ use DDP;
 use Seq::Build;
 
 my (
-  $yaml_config, $build_type,        $verbose,
-  $no_bdb,      $help,              $wanted_chr,        
+  $yaml_config, $wantedType,        $wantedName,        $verbose,
+  $help,        $wantedChr,        
   $debug,       $overwrite
 );
-$wanted_chr = 0;
+
 $debug = 0;
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
-  't|type=s'     => \$build_type,
+  't|type=s'     => \$wantedType,
+  'n|name=s'     => \$wantedName,
   'v|verbose'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite'  => \$overwrite,
-  'wanted_chr=s' => \$wanted_chr,
+  'chr|wantedChr=s' => \$wantedChr,
 );
 
 if ($help) {
@@ -47,29 +48,27 @@ unless ($yaml_config) {
 # read config file to determine genome name for log and check validity
 my $config_href = LoadFile($yaml_config);
 
-p $config_href;
-
 # get absolute path for YAML file and db_location
 $yaml_config = path($yaml_config)->absolute->stringify;
 
 my $builder_options_href = {
   configfile    => $yaml_config,
-  wanted_chr    => $wanted_chr,
-  wanted_type   => $build_type,
+  wantedChr    => $wantedChr,
+  wantedType   => $wantedType,
+  wantedName   => $wantedName,
   overwrite     => $overwrite,
   debug         => $debug,
 };
   
-p $config_href;
   # set log file
-my $log_name = join '.', 'build', $config_href->{genome_name}, $build_type,
-  $wanted_chr, 'log';
+my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || $wantedName,
+  $wantedChr || '', 'log';
 my $log_file = path(".")->child($log_name)->absolute->stringify;
 Log::Any::Adapter->set( 'File', $log_file );
 
 my $builder = Seq::Build->new_with_config($builder_options_href);
 
-say "done: $build_type";
+say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
 
 
 __END__

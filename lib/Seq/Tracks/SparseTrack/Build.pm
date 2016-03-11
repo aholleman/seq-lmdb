@@ -33,6 +33,7 @@ use Moose 2;
 use Carp qw/ croak /;
 use namespace::autoclean;
 use List::Util::XS qw/none first/;
+use List::MoreUtils::XS qw/firstidx/;
 use Parallel::ForkManager;
 
 extends 'Seq::Tracks::Build';
@@ -75,7 +76,7 @@ sub _buildRequiredFields {
 #   return 1;
 # }
 
-my $pm = Parallel::Forkmanager->new(8);
+my $pm = Parallel::ForkManager->new(8);
 sub buildTrack {
   my ($self) = @_;
 
@@ -96,7 +97,7 @@ sub buildTrack {
 
       if($. == 1) {
         for my $field ($self->allRequiredFields) {
-          my $idx = first {$_ eq $field} @fields;
+          my $idx = firstidx {$_ eq $field} @fields;
           if($idx) {
             $iFieldIdx{$idx} = $field;
             next;

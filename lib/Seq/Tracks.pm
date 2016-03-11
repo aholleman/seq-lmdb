@@ -167,6 +167,7 @@ sub BUILD {
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
 }
+
 sub _buildDataTracks {
   my $self = shift;
 

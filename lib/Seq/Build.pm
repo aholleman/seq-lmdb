@@ -58,54 +58,48 @@ has genome_chrs => (
 # );
 
 # comes from Seq::Tracks, which is extended by Seq::Assembly
-has wanted_type => (
+has wantedType => (
   is => 'ro',
   isa => 'Maybe[TrackType]',
 );
 
-has force => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 0,
-);
-
-# around BUILDARGS => sub {
-#   my $orig  = shift;
-#   my $class = shift;
-#   my $href = shift;
-
-#   say "building tracks" if $href->{debug};
-
-#   #avoid needing to know Seq::Tracks::Build implementation details
-#   #$href->{trackBuilders} = Seq::Tracks->new($href);
-
-#   say "built tracks" if $href->{debug};
-#   $class->$orig($href);
-# };
+# has wantedName => (
+#   is => 'ro',
+#   isa => 'Maybe[Str]',
+# );
 
 sub BUILD {
   my $self = shift;
 
   #$self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
-  say "building reference track" if $self->debug;
+  # not working yet
+  # if($self->wantedType && $self->wantedName) {
+  #   $self->tee_logger('error', "can't specify both wantedType and wantedName,
+  #     it's ambiguous");
+  # }
 
-  my @builders = $self->getBuilders($self->wanted_type);
-
-  if($self->wanted_type) {
-    for my $builder (@{$self->getBuilders($self->wanted_type) } ) {
-      # say "builder is";
-      # p $builder;
-      $builder->buildTrack();
-      say "finished building $builder->{name} track" if $self->debug;
-    }
+  my @builders;
+  if($self->wantedType) {
+    @builders = $self->getBuilders($self->wantedType);
   } else {
-    for my $builder ($self->getAllBuilders) {
+    @builders = $self->getAllBuilders();
+  }
+
+  if($self->debug) {
+    say "requested builders are";
+    p @builders;
+  }
+  
+  for my $bTypeAref (@builders) {
+    for my $builder (@$bTypeAref) {
       $builder->buildTrack();
+      $self->tee_logger('info', "finished building " . $builder->{name} );
     }
   }
 
-  say "finished building all tracks" if $self->debug;
+  $self->tee_logger('info', "finished building all requested " 
+    . join(', ', @builders) . ' tracks');
 }
 
 # TODO
