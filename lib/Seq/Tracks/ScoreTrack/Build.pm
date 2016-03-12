@@ -38,6 +38,10 @@ extends 'Seq::Tracks::Build';
 #extends 'Seq::Tracks::Reference::Build';
 with 'Seq::Tracks::Build::Interface';
 
+has '+based' => (
+  default => 1,
+);
+
 my $pm = Parallel::ForkManager->new(8);
 sub buildTrack{
   my $self = shift;
@@ -54,6 +58,11 @@ sub buildTrack{
   
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
 
+  # score track could potentially be 0 based
+  # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
+  # if it is the BED format version of the WIG format.
+  # BED doesn't have a header line, and we don't currently support it, but want flex.
+  my $based = $self->based;
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
@@ -102,7 +111,7 @@ sub buildTrack{
 
           #set the chrPosition early, because otherwise we need to do 2x
           #and make this 0 index
-          $chrPosition = $start - 1;
+          $chrPosition = $start - $based;
 
           if ($wantedChr && $wantedChr eq $chr) {
             next;

@@ -56,6 +56,9 @@ sub buildTrack{
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
 
+  #likely 0 based, but let the user mess with this if they want
+  my $based = $self->based;
+
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
@@ -75,8 +78,10 @@ sub buildTrack{
 
       my $wantedChr;
 
-      # we store the 0 indexed position
-      my $chrPosition = 0;
+      # we store the 0 indexed position, or something else if the user
+      # specifies something else; to allow fasta-formatted data sources that
+      # aren't reference
+      my $chrPosition = $based;
       
       FH_LOOP: while ( <$fh> ) {
         chomp $_;
@@ -125,7 +130,7 @@ sub buildTrack{
           undef $wantedChr;
 
           #restart chrPosition count at 0, since we're storing 0 indexed pos
-          $chrPosition = 0;
+          $chrPosition = $based;
 
           #if we're expecting one chr per file, no need to read through the
           #rest of the file if we don't want the current header chr
@@ -153,7 +158,8 @@ sub buildTrack{
             #but this is a bit easier to understand for me:
             $data{$chrPosition} = $self->prepareData($char);
 
-            #must come after because 0th index
+            #must come after, to not be 1 off; 
+            #assumes fasta file is properly sorted, so contiguous 
             $chrPosition++; 
 
             $count++;

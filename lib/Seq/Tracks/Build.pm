@@ -30,7 +30,7 @@ has local_files => (
   lazy    => 1,
 );
 
-has remote_dir => ( is => 'ro', isa => 'Str', lazy => 1, default => '');
+has remote_dir => ( is => 'ro', isa => 'Str', default => '', lazy => 1,);
 has remote_files => (
   is      => 'ro',
   isa     => 'ArrayRef',
@@ -40,7 +40,11 @@ has remote_files => (
   lazy => 1,
 );
 
-has sql_statement => ( is => 'ro', isa => 'Str', default => '', lazy => 1,);
+has sql_statement => ( is => 'ro', isa => 'Str', default => '', lazy => 1, );
+
+#called based because that's what UCSC calls it
+#most things are 0 based, including anything in bed format from UCSC, fasta files
+has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 
 #local files are given as relative paths, relative to the files_dir
 around BUILDARGS => sub {

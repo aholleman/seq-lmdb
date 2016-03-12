@@ -24,7 +24,7 @@ use DDP;
 
 use Test::More;
 
-plan tests => 1;
+plan tests => 5;
 
 my $reader = MockAnnotationClass->new();
 
@@ -36,7 +36,6 @@ ok($dataAref->[0]{ref} eq 'A', 'ref track ok in ~middle of chr22');
 
 $dataAref = $reader->dbRead('chr22', [21e6-1] );
 
-p $dataAref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
 ok($dataAref->[0]{ref} eq 'T', 'ref track ok in ~middle of chr22');
