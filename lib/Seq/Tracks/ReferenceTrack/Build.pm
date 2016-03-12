@@ -144,9 +144,11 @@ sub buildTrack{
         }
         
         if( $_ =~ $dataRegex ) {
-          for my $char ( split '', $1 ) {
+          #store the uppercase versions; how UCSC does it, how people likely
+          #expect it, and remove the need to do it at annotation time
+          for my $char ( split '', uc($1) ) {
             #we always store on position
-            #it would make sense for prepareData to handle the key (chrPosition)
+            #it could als make sense for prepareData to handle the key (chrPosition)
             #since this needs to be uniform across most tracks
             #but this is a bit easier to understand for me:
             $data{$chrPosition} = $self->prepareData($char);
