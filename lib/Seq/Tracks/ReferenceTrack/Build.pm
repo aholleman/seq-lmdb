@@ -95,12 +95,12 @@ sub buildTrack{
             next;
           }
 
-          #ok, we found something new, so let's write whatever we have for the
-          #previous chr
+          #ok, we found something new, 
           if($wantedChr && $wantedChr ne $chr) {
-            say "chr $chr does not equal $wantedChr" if $self->debug;
-
+            #so let's write whatever we have for the previous chr
             $self->dbPatchBulk($wantedChr, \%data );
+
+            say "chr $chr does not equal $wantedChr" if $self->debug;
           }
 
           #since this is new, let's reset our data and count
@@ -122,8 +122,9 @@ sub buildTrack{
           $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
 
           #so let's erase the remaining data associated with this chr
-          #restart chrPosition count at 0, since we're storing 0 indexed pos
           undef $wantedChr;
+
+          #restart chrPosition count at 0, since we're storing 0 indexed pos
           $chrPosition = 0;
 
           #if we're expecting one chr per file, no need to read through the
@@ -144,12 +145,19 @@ sub buildTrack{
         
         if( $_ =~ $dataRegex ) {
           for my $char ( split '', $1 ) {
-            $chrPosition++;
+            #we always store on position
+            #it would make sense for prepareData to handle the key (chrPosition)
+            #since this needs to be uniform across most tracks
+            #but this is a bit easier to understand for me:
             $data{$chrPosition} = $self->prepareData($char);
-            $count++;
 
+            #must come after because 0th index
+            $chrPosition++; 
+
+            $count++;
             if($count >= $self->commitEvery) {
               $self->dbPatchBulk($wantedChr, \%data );
+              
               %data = ();
               $count = 0;
 
@@ -162,20 +170,16 @@ sub buildTrack{
         }
       }
 
-      #we're done with the input file, and we could still have some data to write
+      #we're done with the input file, 
       if( %data ) {
-        if(!$wantedChr) { #sanity check
-          $self->tee_logger('error', 'at the end of the file
-            wantedChr and/or data not found');
+        if(!$wantedChr) { #sanity check, 'error' log dies
+          $self->tee_logger('error', "@ end of $file, but no wantedChr and data");
         }
 
+        #and we could still have some data to write
         $self->dbPatchBulk($wantedChr, \%data );
 
-        #shouldn't be necesasry, just in case
-        undef %data;
-        undef $wantedChr; 
-        undef $chrPosition;
-        undef $count;
+        #now we're done with the process, so no need to undef memory
       }
     $pm->finish;
   }

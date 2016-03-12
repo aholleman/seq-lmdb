@@ -73,6 +73,10 @@ sub prepareData {
   return {
     $self->name => $data,
   }
+  #could also do this, but this seems more abstracted than necessary
+  # $targetHref->{$pos} = {
+  #   $self->name => $data,
+  # }
 }
 
 #@param $chr: this is a bit of a misnomer

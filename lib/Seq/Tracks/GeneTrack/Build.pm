@@ -46,21 +46,21 @@ state $requiredFields = \qw( chrom     strand    txStart   txEnd
   cdsStart  cdsEnd    exonCount exonStarts
   exonEnds  name );
 
-has '+requiredFields' => (
-  is      => 'ro',
-  isa     => 'ArrayRef',
-  init_arg => undef,
-  lazy => 1,
-  builder => '_buildRequiredFields',
-);
+# has '+requiredFields' => (
+#   is      => 'ro',
+#   isa     => 'ArrayRef',
+#   init_arg => undef,
+#   lazy => 1,
+#   builder => '_buildRequiredFields',
+# );
 
-sub _buildRequiredFields {
-  my $self = shift;
+# sub _buildRequiredFields {
+#   my $self = shift;
 
-  my @out;
-  push @out, @{$requiredFields}, @{$self->features};
-  return \@out;
-}
+#   my @out;
+#   push @out, @{$requiredFields}, @{$self->features};
+#   return \@out;
+# }
 
 sub _get_gene_data {
   #TODO

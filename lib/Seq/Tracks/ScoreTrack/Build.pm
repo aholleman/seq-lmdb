@@ -100,7 +100,10 @@ sub buildTrack{
             $self->tee_logger('error', 'variable step not currently supported');
           }
 
+          #set the chrPosition early, because otherwise we need to do 2x
+          #and make this 0 index
           $chrPosition = $start - 1;
+
           if ($wantedChr && $wantedChr eq $chr) {
             next;
           }
@@ -145,8 +148,10 @@ sub buildTrack{
           next;
         }
         
-        $chrPosition += $step;
         $data{$chrPosition} = $self->prepareData($_);
+
+        #this must come AFTER we store the position, since we have a starting pos
+        $chrPosition += $step;
 
         $count++;
         if($count >= $self->commitEvery) {
@@ -162,18 +167,13 @@ sub buildTrack{
 
       #we're done with the input file, and we could still have some data to write
       if( %data ) {
-        if(!$wantedChr) { #sanity check
-          $self->tee_logger('error', 'at the end of the file
-            wantedChr and/or data not found');
+        if(!$wantedChr) { #sanity check, 'error' will die
+          $self->tee_logger('error', "@ end of $file no wantedChr && data found");
         }
 
         $self->dbPatchBulk($wantedChr, \%data );
 
-        #shouldn't be necesasry, just in case
-        undef %data;
-        undef $wantedChr; 
-        undef $chrPosition;
-        undef $count;
+        #now we're done with the process, and memory gets freed
       }
     $pm->finish;
   }

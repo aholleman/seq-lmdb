@@ -38,97 +38,82 @@ use Parallel::ForkManager;
 
 extends 'Seq::Tracks::Build';
 
-#do we really need 'name'
-
-has requiredFields => (
-  is      => 'ro',
-  isa     => 'ArrayRef',
-  traits  => ['Array'],
-  init_arg => undef,
-  lazy => 1,
-  builder => '_buildRequiredFields',
-  handles => {
-    allRequiredFields => 'elements',
-  }
-);
-
 #TODO: allow people to map these names in YAML, via -blah: chrom -blah2: chromStart
 state $chrom = 'chrom';
 state $cStart = 'chromStart';
 state $cEnd   = 'chromEnd';
-sub _buildRequiredFields {
-  my $self = shift;
-  state $requiredFields;
-
-  if($requiredFields) {
-    return $requiredFields;
-  }
-
-  push @$requiredFields, ($chrom, $cStart, $cEnd), @{$self->features};
-  return $requiredFields;
-}
-
-# sub hasRequiredFields {
-#   my ( $self, $headerAref) = @_;
-
-#   #assumes trimmed headerStr;
-#   for my $f ($self->requiredFields) {
-#     if( none{ $f eq $_ } @$headerAref ) {
-#       return;
-#     }
-#   }
-#   return 1;
-# }
 
 my $pm = Parallel::ForkManager->new(8);
 sub buildTrack {
-  my ($self) = @_;
+  # my ($self) = @_;
 
-  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
-  for my $file ($self->all_local_files) {
-    $pm->start and next;
-      my $fh = $self->get_read_fh($file);
+  # my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+  # for my $file ($self->all_local_files) {
+  #   $pm->start and next;
+  #     my $fh = $self->get_read_fh($file);
 
-      my %out = ();
-      my $pos;
-      my $wantedChr;
+  #     my %data = ();
+  #     my $wantedChr;
       
-      my $chr;
-      my %iFieldIdx = ();
+  #     my $chr;
+  #     my %invFeatureIdx = ();
+  #     my %invBedIdx = ();
 
-      while (<$fh>) {
-        chomp $_;
-        $_ =~ s/^\s+|\s+$//g;
+  #     while (<$fh>) {
+  #       chomp $_;
+  #       $_ =~ s/^\s+|\s+$//g;
 
-        my @fields = split "/t", $_;
+  #       my @fields = split "/t", $_;
 
-        if($. == 1) {
-          for my $field ($self->allRequiredFields) {
-            my $idx = firstidx {$_ eq $field} @fields;
-            if($idx) {
-              $iFieldIdx{$field} = $idx;
-              next;
-            }
-            $self->tee_logger('error', 'Required fields missing in $file');
-          }
-        }
+  #       if($. == 1) {
+  #         for my $field ($self->allRequiredFields) {
+  #           my $idx = firstidx {$_ eq $field} @fields;
+  #           if($idx) {
+  #             $iFieldIdx{$field} = $idx;
+  #             next;
+  #           }
+  #           $self->tee_logger('error', 'Required fields missing in $file');
+  #         }
+  #       }
 
-        $chr = $fields[ $iFieldIdx{$chrom} ];
+  #       $chr = $fields[ $iFieldIdx{$chrom} ];
 
-        if( $fields[ $iFieldIdx{$cStart} ] == $fields[ $iFieldIdx{$cEnd} ] ) {
-          $pos = [ $fields[ $iFieldIdx{$cStart} ] ];
-        } else {
-          $pos = [ $fields[ $iFieldIdx{$cStart} ] .. $fields[ $iFieldIdx{$cEnd} ] ];
-        }
+  #       #this will not work well if chr are significantly out of order
+  #       #we could move to building a larger hash of {chr => { pos => data } }
+  #       #but would need to check commit limits then on a per-chr basis
+  #       #easier to just ask people to give sorted files?
+  #       #or could sort ourselves.
+  #       if($wantedChr ne $chr) {
+  #         $self->dbPatchBulk($wantedChr, \%data);
 
-        #TODO: remove
-        say "pos is $pos" if $self->debug;
+  #         %data = ();
+  #         undef $wantedChr;
+  #       }
 
-        if($self->chrIsWanted($chr) ) {
 
-        }
-      }
-  }
+  #       #could optimize this, skip the Moose method
+  #       if(!$self->chrIsWanted($chr) ) {
+  #         next;
+  #       }
+
+  #       my $pAref;
+  #       if( $fields[ $iFieldIdx{$cStart} ] == $fields[ $iFieldIdx{$cEnd} ] ) {
+  #         $pAref = [ $fields[ $iFieldIdx{$cStart} ] ];
+  #       } else {
+  #         $pAref = [ $fields[ $iFieldIdx{$cStart} ] .. $fields[ $iFieldIdx{$cEnd} ] ];
+  #       }
+
+  #       for my $pos (@$pAref) {
+  #         $data{$pos} = 
+  #       }
+
+  #       #TODO: remove
+  #       say "pos is $pos" if $self->debug;
+
+
+
+  #     }
+  # }
 }
 __PACKAGE__->meta->make_immutable;
 

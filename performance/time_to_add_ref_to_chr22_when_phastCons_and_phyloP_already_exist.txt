@@ -1,0 +1,6 @@
+hgcc:node03:[lmdb-seq] % time bin/build_genome_assembly.pl --config config/hg19.score_chr_files_chr22.yml -type ref
+ for $wantedChr
+
+real    27m49.615s
+user    25m35.757s
+sys     1m22.617s

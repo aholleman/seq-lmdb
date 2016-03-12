@@ -1,0 +1,149 @@
+---
+genome_chrs:
+- chrY
+genome_description: human
+genome_name: hg19 
+database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
+files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
+tracks:
+- name: ref
+  type: ref
+  local_files:
+    - chr1.fa.gz
+    - chr2.fa.gz
+    - chr3.fa.gz
+    - chr4.fa.gz
+    - chr5.fa.gz
+    - chr6.fa.gz
+    - chr7.fa.gz
+    - chr8.fa.gz
+    - chr9.fa.gz
+    - chr10.fa.gz
+    - chr11.fa.gz
+    - chr12.fa.gz
+    - chr13.fa.gz
+    - chr14.fa.gz
+    - chr15.fa.gz
+    - chr16.fa.gz
+    - chr17.fa.gz
+    - chr18.fa.gz
+    - chr19.fa.gz
+    - chr20.fa.gz
+    - chr21.fa.gz
+    - chr22.fa.gz
+    - chrM.fa.gz
+    - chrX.fa.gz
+    - chrY.fa.gz
+  remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/chromosomes/
+  remote_files:
+    - chr1.fa.gz
+    - chr2.fa.gz
+    - chr3.fa.gz
+    - chr4.fa.gz
+    - chr5.fa.gz
+    - chr6.fa.gz
+    - chr7.fa.gz
+    - chr8.fa.gz
+    - chr9.fa.gz
+    - chr10.fa.gz
+    - chr11.fa.gz
+    - chr12.fa.gz
+    - chr13.fa.gz
+    - chr14.fa.gz
+    - chr15.fa.gz
+    - chr16.fa.gz
+    - chr17.fa.gz
+    - chr18.fa.gz
+    - chr19.fa.gz
+    - chr20.fa.gz
+    - chr21.fa.gz
+    - chr22.fa.gz
+    - chrM.fa.gz
+    - chrX.fa.gz
+    - chrY.fa.gz
+- name: phastCons
+  type: score
+  local_files:
+    - chr1.phastCons100way.wigFix.gz
+    - chr2.phastCons100way.wigFix.gz
+    - chr3.phastCons100way.wigFix.gz
+    - chr4.phastCons100way.wigFix.gz
+    - chr5.phastCons100way.wigFix.gz
+    - chr6.phastCons100way.wigFix.gz
+    - chr7.phastCons100way.wigFix.gz
+    - chr8.phastCons100way.wigFix.gz
+    - chr9.phastCons100way.wigFix.gz
+    - chr10.phastCons100way.wigFix.gz
+    - chr11.phastCons100way.wigFix.gz
+    - chr12.phastCons100way.wigFix.gz
+    - chr13.phastCons100way.wigFix.gz
+    - chr14.phastCons100way.wigFix.gz
+    - chr15.phastCons100way.wigFix.gz
+    - chr16.phastCons100way.wigFix.gz
+    - chr17.phastCons100way.wigFix.gz
+    - chr18.phastCons100way.wigFix.gz
+    - chr19.phastCons100way.wigFix.gz
+    - chr20.phastCons100way.wigFix.gz
+    - chr21.phastCons100way.wigFix.gz
+    - chr22.phastCons100way.wigFix.gz
+    - chrX.phastCons100way.wigFix.gz
+    - chrY.phastCons100way.wigFix.gz
+    - chrM.phastCons100way.wigFix.gz
+  remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/phastCons100way/hg19.100way.phastCons/
+  remote_files:
+    - chr1.phastCons100way.wigFix.gz
+    - chr2.phastCons100way.wigFix.gz
+    - chr3.phastCons100way.wigFix.gz
+    - chr4.phastCons100way.wigFix.gz
+    - chr5.phastCons100way.wigFix.gz
+    - chr6.phastCons100way.wigFix.gz
+    - chr7.phastCons100way.wigFix.gz
+    - chr8.phastCons100way.wigFix.gz
+    - chr9.phastCons100way.wigFix.gz
+    - chr10.phastCons100way.wigFix.gz
+    - chr11.phastCons100way.wigFix.gz
+    - chr12.phastCons100way.wigFix.gz
+    - chr13.phastCons100way.wigFix.gz
+    - chr14.phastCons100way.wigFix.gz
+    - chr15.phastCons100way.wigFix.gz
+    - chr16.phastCons100way.wigFix.gz
+    - chr17.phastCons100way.wigFix.gz
+    - chr18.phastCons100way.wigFix.gz
+    - chr19.phastCons100way.wigFix.gz
+    - chr20.phastCons100way.wigFix.gz
+    - chr21.phastCons100way.wigFix.gz
+    - chr22.phastCons100way.wigFix.gz
+    - chrX.phastCons100way.wigFix.gz
+    - chrY.phastCons100way.wigFix.gz
+    - chrM.phastCons100way.wigFix.gz
+- name: refGene
+  type: gene
+  features:
+    - kgID
+    - mRNA
+    - spID
+    - spDisplayID
+    - geneSymbol
+    - refseq
+    - protAcc
+    - description
+    - rfamAcc
+  local_files:
+    - hg19.refGene.chr1.txt
+  sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
+    = hg19.refGene.name
+- name: snp142
+  type: snp
+  features:
+    - name
+    - strand
+    - refUCSC
+    - observed
+    - func
+    - alleleFreqCount
+    - alleles
+    - alleleNs
+    - alleleFreqs
+  local_files:
+    - hg19.snp142.chr1.txt
+  sql_statement: SELECT _snp_fields FROM hg19.snp142
