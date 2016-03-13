@@ -40,8 +40,7 @@ use Moose 2;
 
 use Carp qw/ croak /;
 use namespace::autoclean;
-use List::Util::XS qw/none first/;
-use List::MoreUtils::XS qw/firstidx/;
+use List::MoreUtils qw/firstidx/;
 use Parallel::ForkManager;
 use DDP;
 
@@ -82,6 +81,9 @@ sub buildTrack {
         my @fields = split "\t", $_; #$_ not nec. here, but this is less idiomatic
 
         if($. == 1) {
+          # say "fields are";
+          # p @fields;
+
           REQ_LOOP: for my $field (@$reqFields) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
             if(~$idx) { #bitwise complement, makes -1 0
@@ -92,6 +94,9 @@ sub buildTrack {
             $self->tee_logger('error', 'Required field $field missing in $file header');
           }
 
+          # say 'all features wanted are';
+          # p @{[$self->allFeatures]};
+          
           FEATURE_LOOP: for my $fname ($self->allFeatures) {
             my $idx = firstidx {$_ eq $fname} @fields;
             if(~$idx) { #only non-0 when non-negative, ~0 > 0
@@ -100,6 +105,10 @@ sub buildTrack {
             }
             $self->tee_logger('warn', "Feature $fname missing in $file header");
           }
+
+          # say "featureIdx is";
+          # p %featureIdx;
+          #exit;
         }
 
         $chr = $fields[ $reqIdx{$chrom} ];
@@ -114,7 +123,7 @@ sub buildTrack {
           #save a few cycles by not reassigning $wantedChr for every pos
           #if we changed chromosomes, lets write the previous chr's data
           if($wantedChr ne $chr) {
-            #TODO: re-enable $self->dbPatchBulk($wantedChr, \%data);
+            $self->dbPatchBulk($wantedChr, \%data);
 
             %data = ();
             $count = 0;
@@ -135,7 +144,7 @@ sub buildTrack {
         #be a bit conservative with the count, since what happens below
         #could bring us all the way to segfault
         if($count >= $self->commitEvery) {
-          #TODO: re-enable $self->dbPatchBulk($wantedChr, \%data);
+          $self->dbPatchBulk($wantedChr, \%data);
 
           %data = ();
           $count = 0;
@@ -147,23 +156,32 @@ sub buildTrack {
         #they could override our default 0 value, and we can still get back
         #a 0 indexed array of positions
         my $pAref;
-        if( $fields[ $reqIdx{$cStart} ] == $fields[ $reqIdx{$cEnd} ] ) {
-          $pAref = [ $fields[ $reqIdx{$cStart} - $based ] ];
-        } else {
-          $pAref = [ $fields[ $reqIdx{$cStart} ] - $based .. $fields[ $reqIdx{$cEnd} ] - $based ];
+
+        #chromStart - chromEnd is a half closed range; i.e 0 1 means feature
+        #exists only at position 0
+        #this makes a 1 member array if both values are identical
+        if($fields[ $reqIdx{$cStart} ] == $fields[ $reqIdx{$cEnd} ] ) {
+          $self->tee_logger('warn', "In bed format, chromStart should never equal
+            chromEnd, bceause it's a half closed range");
         }
+        $pAref = [ $fields[ $reqIdx{$cStart} ] - $based .. $fields[ $reqIdx{$cEnd} ] - $based - 1 ];
 
         #now we collect all of the feature data
         my $fDataHref;
         for my $name (keys %featureIdx) {
+          #Originally was going to split into an array, but I suppose we don't care
+          #all that much. We could substr all commas for ;
           #bitwise ~ ; will only be 0 if starting # is negative
-          if ( ~index(",", $fields[ $featureIdx{$name} ] ) ) {
-            $fDataHref->{$name} = split( ",", $fields[ $featureIdx{$name} ] );
-          }
+          #~index(",", $fields[ $featureIdx{$name} ] ) is NOT right, which is inconsistent with split, WHY
+          # if ( ~index( $fields[ $featureIdx{$name} ], "," ) ) {
+          #   $fDataHref->{$name} = split( ",", $fields[ $featureIdx{$name} ] );
+          #   next;
+          # }
+          $fDataHref->{$name} = $fields[ $featureIdx{$name} ];
         }
         
-        say "feature is";
-        p $fDataHref;
+        # say "feature is";
+        # p $fDataHref;
 
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);
@@ -173,8 +191,8 @@ sub buildTrack {
           $count++;
         }
 
-        say "matching positions are";
-        p $pAref;
+        # say "matching positions are";
+        # p $pAref;
       }
 
       #we're done with the file, and stuff is left over;
@@ -183,7 +201,7 @@ sub buildTrack {
           $self->('tee_error', 'After file read, data left, but no wantecChr');
         }
         #let's write that stuff
-        #TODO: re-enable $self->dbPatchBulk($wantedChr, \%data);
+        $self->dbPatchBulk($wantedChr, \%data);
       }
 
     $pm->finish;

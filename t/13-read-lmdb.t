@@ -24,7 +24,7 @@ use DDP;
 
 use Test::More;
 
-plan tests => 16;
+plan tests => 25;
 
 my $reader = MockAnnotationClass->new();
 
@@ -182,3 +182,36 @@ p $dataAref;
 $dataAref = $reader->dbRead('chr22', [51239213 + 22 -1] );
 ok($dataAref->[0]{phyloP} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
 p $dataAref;
+
+
+#now testing sparse track (with snp142)
+$dataAref = $reader->dbRead('chr22', [51239213 + 22 -1] );
+ok($dataAref->[0]{phyloP} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
+p $dataAref;
+
+$dataAref = $reader->dbRead('chr22', [16050074] );
+ok($dataAref->[0]{snp}{name} eq 'rs587697622', "snp142 sparse track ok at chr22:16050074");
+p $dataAref;
+
+$dataAref = $reader->dbRead('chr22', [16112390] );
+ok($dataAref->[0]{snp}{name} eq 'rs2844929', "snp142 sparse track ok at chr22:16050074");
+p $dataAref;
+
+#test an indel
+$dataAref = $reader->dbRead('chr22', [16140742 .. 16140746 - 1] );
+#4 long
+for my $data (@$dataAref) {
+  ok($data->{snp}{name} eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
+}
+
+p $dataAref;
+
+#end of snp142 file
+$dataAref = $reader->dbRead('chr22', [51244514] );
+ok($dataAref->[0]{snp}{name} eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
+p $dataAref;
+
+$dataAref = $reader->dbRead('chr22', [51244515] );
+ok(!exists $dataAref->[0]{snp}, "snp142 sparse track doesn't exist past at chr22:51244514");
+p $dataAref;
+

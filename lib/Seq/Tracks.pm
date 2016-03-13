@@ -17,7 +17,6 @@ use Seq::Tracks::ReferenceTrack::Build;
 use Seq::Tracks::GeneTrack::Build;
 use Seq::Tracks::ScoreTrack::Build;
 use Seq::Tracks::SparseTrack::Build;
-use Seq::Tracks::SnpTrack::Build;
 use Seq::Tracks::RegionTrack::Build;
 
 with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::DBManager',
@@ -52,7 +51,6 @@ sub _buildTrackMap {
     $self->geneType => 'Seq::Tracks::GeneTrack',
     $self->scoreType => 'Seq::Tracks::ScoreTrack',
     $self->sparseType => 'Seq::Tracks::SparseTrack',
-    $self->snpType => 'Seq::Tracks::SnpTrack',
     $self->regionType => 'Seq::Tracks::RegionTrack',
   }
 };
@@ -77,7 +75,6 @@ sub _buildTrackBuilderMap {
     $self->geneType => 'Seq::Tracks::GeneTrack::Build',
     $self->scoreType => 'Seq::Tracks::ScoreTrack::Build',
     $self->sparseType => 'Seq::Tracks::SparseTrack::Build',
-    $self->snpType => 'Seq::Tracks::SnpTrack::Build',
     $self->regionType => 'Seq::Tracks::RegionTrack::Build',
   }
 };
@@ -116,17 +113,13 @@ has dataTracks =>(
   }
 );
 
-#qw/allGeneTracks allSnpTracks allRegionTracks allScoreTracks
-#  allSparseTracks refTrack ngeneTrack/,
-# coming from config file
+# comes from config file
 # expects: {
-# typeName : {
-#  name: someName (optional),
-#  data: {
-#   feature1:   
-#}  
-#}
-#}
+  # typeName : {
+  #  name: someName (optional),
+  #  data: {
+  #   feature1:   
+#} } }
 has tracks => (
   is => 'ro',
   isa => 'ArrayRef[HashRef]',
@@ -228,11 +221,6 @@ sub allGeneTracksBuilders {
   return $self->trackBuilders->{$self->geneType};
 }
 
-sub allSnpTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->snpType};
-}
-
 sub allRegionTracksBuilders {
   my $self = shift;
   return $self->trackBuilders->{$self->regionType};
@@ -277,10 +265,6 @@ sub refTrackBuilder {
 
 #Not certain if this is needed yet; if it is we should keep track of types
 #all* returns array ref
-# sub allSnpTracks {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->snpType};
-# }
 
 # sub allRegionTracks {
 #   my $self = shift;
