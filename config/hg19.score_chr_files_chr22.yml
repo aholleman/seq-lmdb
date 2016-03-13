@@ -184,11 +184,11 @@ tracks:
     - description
     - rfamAcc
   local_files:
-    - hg19.refGene.chr1.txt
+    - hg19.refGene.chr22.txt
   sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
     = hg19.refGene.name
-- name: snp142
-  type: snp
+- name: snp
+  type: sparse
   features:
     - name
     - strand
@@ -200,7 +200,7 @@ tracks:
     - alleleNs
     - alleleFreqs
   local_files:
-    - hg19.snp142.chr1.txt
+    - hg19.snp142.chr22.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
 # - name: cadd
 #   type: score

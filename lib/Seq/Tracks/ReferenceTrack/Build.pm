@@ -193,7 +193,7 @@ sub buildTrack{
   }
   $pm->wait_all_children;
 
-  $self->tee_logger('info', 'finished building score track: ' . $self->name);
+  $self->tee_logger('info', 'finished building track: ' . $self->name);
 };
 
 
