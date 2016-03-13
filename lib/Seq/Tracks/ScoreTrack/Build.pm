@@ -42,7 +42,7 @@ has '+based' => (
   default => 1,
 );
 
-my $pm = Parallel::ForkManager->new(8);
+my $pm = Parallel::ForkManager->new(25);
 sub buildTrack{
   my $self = shift;
 

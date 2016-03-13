@@ -7,6 +7,11 @@ package Seq::Tracks::SparseTrack::Build;
 our $VERSION = '0.001';
 
 # ABSTRACT: Base class for sparse track building
+# For now there actually is nothing that extends this. SnpTrack has been
+# folded into this, because the only thing that it did differently
+# was split two fields on comma, and compute a maf
+# So I'm dropping maf and just reporting both allele frequencies, and 
+# always split on comma if one is found
 # VERSION
 
 =head1 DESCRIPTION
@@ -21,10 +26,7 @@ Used in:
 =for :list
 *
 
-Extended by:
-=for :list
-* Seq/Build/GeneTrack.pm
-* Seq/Build/TxTrack.pm
+Extended by: none
 
 =cut
 
@@ -38,12 +40,13 @@ use Parallel::ForkManager;
 
 extends 'Seq::Tracks::Build';
 
-#TODO: allow people to map these names in YAML, via -blah: chrom -blah2: chromStart
 state $chrom = 'chrom';
 state $cStart = 'chromStart';
 state $cEnd   = 'chromEnd';
+#TODO: allow people to map these names in YAML, via -blah: chrom -blah2: chromStart
+state $reqFields = [$chrom, $cStart, $cEnd];
 
-my $pm = Parallel::ForkManager->new(8);
+my $pm = Parallel::ForkManager->new(26); #1 more than chr, to allow parent process
 sub buildTrack {
   # my ($self) = @_;
 
@@ -57,7 +60,7 @@ sub buildTrack {
       
   #     my $chr;
   #     my %invFeatureIdx = ();
-  #     my %invBedIdx = ();
+  #     my %invReqIdx = ();
 
   #     while (<$fh>) {
   #       chomp $_;
@@ -66,17 +69,24 @@ sub buildTrack {
   #       my @fields = split "/t", $_;
 
   #       if($. == 1) {
-  #         for my $field ($self->allRequiredFields) {
+  #         for my $field (@$reqFields) {
   #           my $idx = firstidx {$_ eq $field} @fields;
-  #           if($idx) {
-  #             $iFieldIdx{$field} = $idx;
-  #             next;
+  #           if(!$idx) {
+  #             $self->tee_logger('error', 'Required fields missing in $file header');
   #           }
-  #           $self->tee_logger('error', 'Required fields missing in $file');
+  #           $invReqIdx{$field} = $idx;
+  #         }
+
+  #         for my $fname ($self->allFeatures) {
+  #           my $idx = firstidx {$_ eq $fname} @fields;
+  #           if(!$idx) {
+  #             $self->tee_logger('warn', "Feature $fname missing in $file header");
+  #           }
+  #           $invReqIdx{$fname} = $idx;
   #         }
   #       }
 
-  #       $chr = $fields[ $iFieldIdx{$chrom} ];
+  #       $chr = $fields[ $invReqIdx{$chrom} ];
 
   #       #this will not work well if chr are significantly out of order
   #       #we could move to building a larger hash of {chr => { pos => data } }
@@ -90,19 +100,23 @@ sub buildTrack {
   #         undef $wantedChr;
   #       }
 
-
   #       #could optimize this, skip the Moose method
   #       if(!$self->chrIsWanted($chr) ) {
   #         next;
   #       }
 
   #       my $pAref;
-  #       if( $fields[ $iFieldIdx{$cStart} ] == $fields[ $iFieldIdx{$cEnd} ] ) {
-  #         $pAref = [ $fields[ $iFieldIdx{$cStart} ] ];
+  #       if( $fields[ $invReqIdx{$cStart} ] == $fields[ $invReqIdx{$cEnd} ] ) {
+  #         $pAref = [ $fields[ $invReqIdx{$cStart} ] ];
   #       } else {
-  #         $pAref = [ $fields[ $iFieldIdx{$cStart} ] .. $fields[ $iFieldIdx{$cEnd} ] ];
+  #         $pAref = [ $fields[ $invReqIdx{$cStart} ] .. $fields[ $invReqIdx{$cEnd} ] ];
   #       }
 
+  #       my %featureData = ();
+  #       for my $name ($self->allFeatures) {
+  #         $featureData{$name} = $
+  #       }
+        
   #       for my $pos (@$pAref) {
   #         $data{$pos} = 
   #       }

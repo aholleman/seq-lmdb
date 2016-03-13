@@ -37,8 +37,23 @@ has features => (
   lazy => 1,
   traits   => ['Array'],
   default  => sub{[]},
-  handles  => { allFeatures => 'elements', noFeatures => 'is_empty' },
+  handles  => { 
+    allFeatures => 'elements', 
+    noFeatures => 'is_empty',
+  },
 );
+
+#thinking about including this;
+#it would allow people to not to have to rename their bed-like file
+#in tracks that allowed this , we could build our required fields using this
+#and always do a hash lookup
+# has required_map => (
+#   is => 'ro',
+#   isa => 'HashRef[Str]',
+#   lazy => 1,
+#   traits   => ['Hash'],
+#   default  => sub{ {} },
+# );
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
