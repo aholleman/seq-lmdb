@@ -34,18 +34,58 @@ use Moose 2;
 use File::Path qw/ make_path /;
 use File::Spec;
 use namespace::autoclean;
+use Parallel::ForkManager;
 
 use Seq::Tracks::GeneTrack::Build;
 
 use Data::Dump qw/dump/;
 
-extends 'Seq::Tracks::SparseTrack::Build';
 with 'Seq::Role::IO';
 
-state $requiredFields = \qw( chrom     strand    txStart   txEnd
+#unlike original GeneTrack, don't remap names
+#I think it's easier to refer to UCSC gene naming convention
+#Rather than implement our own.
+state $reqFields = \qw( chrom     strand    txStart   txEnd
   cdsStart  cdsEnd    exonCount exonStarts
   exonEnds  name );
 
+my $pm = Parallel::ForkManager->new(26);
+sub buildTrack {
+  my $self = shift;
+
+  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+
+  for my $file ($self->all_local_files) {
+    $pm->start and next;
+
+      my $fh = $self->get_read_fh($file);
+      my %reqIdx = ();
+
+      my %data = ();
+      my $wantedChr;
+      
+      while (<$fh>) {
+        chomp $_;
+        $_ =~ s/^\s+|\s+$//g;
+        my @fields = split "\t", $_;
+
+        if($. == 1) {
+          REQ_LOOP: for my $field (@$reqFields) {
+            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+            if(~$idx) { #bitwise complement, makes -1 0
+              $reqIdx{$field} = $idx;
+              next REQ_LOOP; #label for clarity
+            }
+            
+            $self->tee_logger('error', 'Required field $field missing in $file header');
+          }
+        }
+      }
+
+    $pm->finish;
+  }
+  $pm->wait_all_children;
+}
 # has '+requiredFields' => (
 #   is      => 'ro',
 #   isa     => 'ArrayRef',

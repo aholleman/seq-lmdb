@@ -36,7 +36,6 @@ use File::Spec;
 use namespace::autoclean;
 
 use Seq::Gene;
-use Seq::KCManager;
 
 use Data::Dump qw/dump/;
 
