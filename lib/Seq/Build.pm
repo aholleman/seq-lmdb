@@ -98,8 +98,8 @@ sub BUILD {
     }
   }
 
-  $self->tee_logger('info', "finished building all requested " 
-    . join(', ', @builders) . ' tracks');
+  $self->tee_logger('info', "finished building all requested tracks: " 
+    . join(@builders, ', ') );
 }
 
 # TODO

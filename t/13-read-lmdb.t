@@ -24,7 +24,7 @@ use DDP;
 
 use Test::More;
 
-plan tests => 25;
+plan tests => 32;
 
 my $reader = MockAnnotationClass->new();
 
@@ -206,7 +206,7 @@ for my $data (@$dataAref) {
 
 p $dataAref;
 
-#end of snp142 file
+#end of chr22 snp142 file
 $dataAref = $reader->dbRead('chr22', [51244514] );
 ok($dataAref->[0]{snp}{name} eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
 p $dataAref;
@@ -215,3 +215,32 @@ $dataAref = $reader->dbRead('chr22', [51244515] );
 ok(!exists $dataAref->[0]{snp}, "snp142 sparse track doesn't exist past at chr22:51244514");
 p $dataAref;
 
+#insertion in snp142 file, chromStart == chromEnd
+$dataAref = $reader->dbRead('chr22', [22452926] );
+ok($dataAref->[0]{snp}{name} eq 'rs148698006', "snp142 sparse track ok at chr22:22452926");
+p $dataAref;
+
+#testing snp142 track and chr1
+#it has 4477.000000,531.000000 alleleNs
+$dataAref = $reader->dbRead('chr1', [40370176] );
+ok($dataAref->[0]{snp}{name} eq 'rs564192510', "insertion snp142 sparse track rs# ok at chr1:22452926");
+
+my @values = split(",", $dataAref->[0]{snp}{alleleNs} );
+ok($values[0] + $values[1] == 4477.000000 + 531.000000,
+  "insertion snp142 sparse track has the right total allele count at chr1:22452926");
+ok($values[0] = 4477.000000, 
+  "insertion snp142 sparse track has the right minor allele count at chr1:22452926");
+ok($values[1] = 531.000000, 
+  "insertion snp142 sparse track has the right major allele count at chr1:22452926");
+p $dataAref;
+
+$dataAref = $reader->dbRead('chr1', [249240604] );
+ok($dataAref->[0]{snp}{name} eq 'rs368889620',
+  "insertion snp142 sparse track rs# ok at chr1:249240604-249240605 (0 indexed should be 249240604)");
+p $dataAref;
+
+$dataAref = $reader->dbRead('chr1', [249240605] );
+ok(!defined $dataAref->[0]{snp},
+  "no snp142 sparse track exists beyond the end of the snp142 input text file,
+    which ends at chr1:249240604-249240605");
+p $dataAref;

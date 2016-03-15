@@ -46,6 +46,18 @@ has sql_statement => ( is => 'ro', isa => 'Str', default => '', lazy => 1, );
 #most things are 0 based, including anything in bed format from UCSC, fasta files
 has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 
+#if a feature value is separated by this, it has multiple values
+#ex: a snp142 alleles field, separated by "," : A,T
+#the default is "," because this is what UCSC specifies in the bed format
+#and we only accept bed or wigfix formats
+#wigfix files don't have any features, and therefore this is meaningless to them
+#We could think about removing this from BUILD and making a BedTrack.pm base
+#to avoid option overload
+#could also make this private, and not allow it to change, but I don't like
+#the lack of flexibility, since the goal is to help people avoid having to
+#modify their input files
+has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
+
 #local files are given as relative paths, relative to the files_dir
 around BUILDARGS => sub {
   my $orig = shift;
@@ -69,13 +81,15 @@ around BUILDARGS => sub {
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
 #retrieves data
+#use $_[0] for $self,$_[1] for $data to avoid assignemnt, 
+#since this is called a ton
 sub prepareData {
-  my ($self, $data) = @_;
+  #my ($self, $data) = @_;
 
   #Seq::Tracks::Base should know to retrieve data this way
   #this is our schema
   return {
-    $self->name => $data,
+    $_[0]->name => $_[1],
   }
   #could also do this, but this seems more abstracted than necessary
   # $targetHref->{$pos} = {
@@ -83,118 +97,40 @@ sub prepareData {
   # }
 }
 
-#@param $chr: this is a bit of a misnomer
-#it is really the name of the database
-#for region databases it will be the name of track (name: )
-#The role of this func is NOT to decide how to model $data;
-#that's the job of the individual builder methods
-# sub writeData {
-#   my ($self, $chr, $pos, $data) = @_;
+#type conversion; try to limit performance impact by avoiding unnec assignments
+#@params {String} $_[1] : feature the user wants to check
+#@params {String} $_[2] : data for that feature
+#@returns {String} : coerced type
+sub coerceFeatureType {
+  # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
+  # my ($self, $dataStr) = @_;
 
-#   #Seq::Tracks::Base should know to retrieve data this way
-#   #this is our schema
-#   $self->dbPatch($chr, $pos, {$self->name => $data} );
-# }
+  if($_[0]->noFeatureTypes) {
+    return $_[2];
+  }
 
-#@param $posHref : {positionKey : data}
-#the positionKey doesn't have to be numerical;
-#for instance a gene track may use its gene name
+  my $type = $_[0]->getFeatureType( $_[1] );
 
-#NOT safe for the input data
-# sub writeAllData {
-#   #overwrite not currently used
-#   my ($self, $chr, $posHref, $overwrite) = @_;
+  if(!$type) {
+    return $_[2];
+  }
 
-#   if(ref $posHref eq 'ARRAY') {
-#     goto &writeAllDataArray;
-#   }
+  my @parts;
+  if( ~index( $_[2], $_[0]->multi_delim ) ) { #bitwise compliment, return 0 only for -N
+    my @vals = split( $_[0]->multi_delim, $_[2] );
 
-#  # save memory, mutate
-#   for my $pos (%$posHref) {
-#     $posHref->{$pos} = {
-#       $self->name => $posHref->{$pos}
-#     };
-#     # say "had we been writing, we would have written a record at $chr : $pos that looks like";
-#     # p $posHref->{$pos};
-#   }
-  
-#   $self->dbPatchBulk($chr, $posHref);
-# }
+    #http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
+    #modifying the value here actually modifies the value in the array
+    for my $val (@vals) {
+      $val = $_[0]->convert($val, $type);
+    }
+    #so annoying that the delims are flipped from split
+    return join($_[0]->multi_delim, @vals);
+  } 
 
-# #not safe for the input data
-# #expects that every position in a database has a corresponding
-# #idx in posAref
-# sub writeAllDataArray {
-#   my ($self, $chr, $posAref) = @_;
-
-#   # save memory, mutate
-#   my $idx = 0;
-#   for my $data (@$posAref) {
-#     $posAref->[$idx] = {
-#       $self->name => $data,
-#     };
-#     $idx++;
-#   }
-
-#   $self->dbPatchBulkArray($chr, $posAref);
-# }
-
-
-# sub prepareAllData {
-#   #overwrite not currently used
-#   my ($self, $chr, $posHref) = @_;
-
-#   if(ref $posHref eq 'ARRAY') {
-#     goto &prepareAllDataArray;
-#   }
-
-#  # save memory, mutate
-#   for my $pos (keys %$posHref) {
-#     $posHref->{$pos} = {
-#       $self->name => {
-#         $self->typeKey => $self->type,
-#         $self->dataKey => $posHref->{$pos},
-#       }
-#     };
-#     # say "had we been writing, we would have written a record at $chr : $pos that looks like";
-#     # p $posHref->{$pos};
-#   }
-# }
-
-# sub prepareAllDataArray {
-#   #overwrite not currently used
-#   my ($self, $chr, $posAref) = @_;
-
-#   if(ref $posHref eq 'HASH') {
-#     goto &prepareAllData;
-#   }
-
-#   my $idx = 0;
-#   for my $data (@$posAref) {
-#     $posAref->[$idx] = {
-#       $self->name => {
-#         $self->typeKey => $self->type,
-#         $self->dataKey => $data,
-#       }
-#     };
-#     $idx++;
-#   }
-# }
+  return $_[0]->convert($_[2], $type);
+}
 
 __PACKAGE__->meta->make_immutable;
 
 1;
-
-# sub updateAllFeaturesData {
-#   #overwrite not currently used
-#   my ($self, $chr, $pos, $dataHref, $overwrite) = @_;
-
-#   if(!defined $dataHref->{$self->name} 
-#   || $dataHref->{$self->name}{type} eq $self->type ) {
-#     $self->tee_logger('warn', 'updateAllFeaturesData requires 
-#       data of the same type as the calling track object');
-#     return;
-#   }
-
-#   goto &writeAllFeaturesData;
-# }

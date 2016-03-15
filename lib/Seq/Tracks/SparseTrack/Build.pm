@@ -109,6 +109,7 @@ sub buildTrack {
           # say "featureIdx is";
           # p %featureIdx;
           #exit;
+          next FH_LOOP;
         }
 
         $chr = $fields[ $reqIdx{$chrom} ];
@@ -160,24 +161,23 @@ sub buildTrack {
         #chromStart - chromEnd is a half closed range; i.e 0 1 means feature
         #exists only at position 0
         #this makes a 1 member array if both values are identical
+        
+        #this is an insertion; the only case when start should == stop
+        #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
+        #logging currently is synchronous, and very, very slow compared to CPU speed
         if($fields[ $reqIdx{$cStart} ] == $fields[ $reqIdx{$cEnd} ] ) {
-          $self->tee_logger('warn', "In bed format, chromStart should never equal
-            chromEnd, bceause it's a half closed range");
+          $pAref = [ $fields[ $reqIdx{$cStart} ] - $based ];
+        } else { #it's a normal change, or a deletion
+          #BED is a half-closed format
+          $pAref = [ $fields[ $reqIdx{$cStart} ] - $based .. $fields[ $reqIdx{$cEnd} ] - $based - 1];
         }
-        $pAref = [ $fields[ $reqIdx{$cStart} ] - $based .. $fields[ $reqIdx{$cEnd} ] - $based - 1 ];
-
+      
         #now we collect all of the feature data
+        #coerceFeatureType will return if no type specified for feature
+        #otherwise will try to coerce the field into the type specified for $name
         my $fDataHref;
         for my $name (keys %featureIdx) {
-          #Originally was going to split into an array, but I suppose we don't care
-          #all that much. We could substr all commas for ;
-          #bitwise ~ ; will only be 0 if starting # is negative
-          #~index(",", $fields[ $featureIdx{$name} ] ) is NOT right, which is inconsistent with split, WHY
-          # if ( ~index( $fields[ $featureIdx{$name} ], "," ) ) {
-          #   $fDataHref->{$name} = split( ",", $fields[ $featureIdx{$name} ] );
-          #   next;
-          # }
-          $fDataHref->{$name} = $fields[ $featureIdx{$name} ];
+          $fDataHref->{$name} = $self->coerceFeatureType( $name, $fields[ $featureIdx{$name} ] );
         }
         
         # say "feature is";
@@ -198,7 +198,7 @@ sub buildTrack {
       #we're done with the file, and stuff is left over;
       if(%data) {
         if(!$wantedChr) {
-          $self->('tee_error', 'After file read, data left, but no wantecChr');
+          $self->tee_logger('error', 'After file read, data left, but no wantecChr');
         }
         #let's write that stuff
         $self->dbPatchBulk($wantedChr, \%data);
@@ -209,6 +209,7 @@ sub buildTrack {
   $pm->wait_all_children;
   $self->tee_logger('info', 'finished building track: ' . $self->name);
 }
+
 __PACKAGE__->meta->make_immutable;
 
 1;

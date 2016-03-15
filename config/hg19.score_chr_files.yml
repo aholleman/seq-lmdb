@@ -221,10 +221,34 @@ tracks:
     - func
     - alleleFreqCount
     - alleles
-    - alleleNs
+    - alleleNs : int
     - alleleFreqs
   local_files:
     - hg19.snp142.chr1.txt
+    - hg19.snp142.chr2.txt
+    - hg19.snp142.chr3.txt
+    - hg19.snp142.chr4.txt
+    - hg19.snp142.chr5.txt
+    - hg19.snp142.chr6.txt
+    - hg19.snp142.chr7.txt
+    - hg19.snp142.chr8.txt
+    - hg19.snp142.chr9.txt
+    - hg19.snp142.chr10.txt
+    - hg19.snp142.chr11.txt
+    - hg19.snp142.chr12.txt
+    - hg19.snp142.chr13.txt
+    - hg19.snp142.chr14.txt
+    - hg19.snp142.chr15.txt
+    - hg19.snp142.chr16.txt
+    - hg19.snp142.chr17.txt
+    - hg19.snp142.chr18.txt
+    - hg19.snp142.chr19.txt
+    - hg19.snp142.chr20.txt
+    - hg19.snp142.chr21.txt
+    - hg19.snp142.chr22.txt
+    - hg19.snp142.chrM.txt
+    - hg19.snp142.chrX.txt
+    - hg19.snp142.chrY.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
 # - name: cadd
 #   type: score

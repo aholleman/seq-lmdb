@@ -1,0 +1,220 @@
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 2.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 8.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 10.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 5.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 3.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 3.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 4.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 52.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 2.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 2.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 7.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 8.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 75.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 4.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 53.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 2.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 5.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 9.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 17.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 4.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 106.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 46.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 148.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+In bed format, chromStart should never equal
+            chromEnd, because it's a half closed range
+ at lib/Seq/Role/Message.pm line 130, <GEN2> line 150.
+	Seq::Role::Message::tee_logger(Seq::Tracks::SparseTrack::Build=HASH(0x40af710), "error", "In bed format, chromStart should never equal\x{a}            chro"...) called at lib/Seq/Tracks/SparseTrack/Build.pm line 165
+	Seq::Tracks::SparseTrack::Build::buildTrack(Seq::Tracks::SparseTrack::Build=HASH(0x40af710)) called at lib/Seq/Build.pm line 96
+	Seq::Build::BUILD(Seq::Build=HASH(0x31d95a8), HASH(0x4046740)) called at constructor Seq::Build::new (defined at lib/Seq/Build.pm line 468) line 224
+	Seq::Build::new("Seq::Build", HASH(0x2918ba0)) called at lib/Seq/Role/ConfigFromFile.pm line 73
+	Seq::Role::ConfigFromFile::new_with_config("Seq::Build", HASH(0x1204dd8)) called at bin/build_genome_assembly.pl line 69
+
+real	0m2.602s
+user	0m2.769s
+sys	0m1.471s

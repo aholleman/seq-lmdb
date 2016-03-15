@@ -9,6 +9,7 @@ our $VERSION = '0.001';
 use Moose 2;
 with 'Seq::Role::DBManager', 'Seq::Tracks::Definition', 'Seq::Role::Message';
 use List::Util::XS; #qw/first/ doesn't work
+use DDP;
 
 has debug => (
   is => 'ro',
@@ -30,30 +31,65 @@ has genome_chrs => (
   lazy_build => 1,
 );
 
-#only required for building;
+
+#the "noFeatures", "noDataTypes" is really ugly; unfortunately
+#moose doesn't allow traits + Maybe or Undef types
+#could defined data types here,
+#but then getting feature names is more awkward
+#ArrayRef[Str | Maybe[HashRef[DataType] ] ]
 has features => (
   is => 'ro',
-  isa => 'ArrayRef[Str|HashRef]',
+  isa => 'ArrayRef[Str]',
   lazy => 1,
   traits   => ['Array'],
   default  => sub{[]},
   handles  => { 
-    allFeatures => 'elements', 
-    noFeatures => 'is_empty',
+    allFeatures => 'elements',
+    noFeatures  => 'is_empty',
   },
 );
 
-#thinking about including this;
-#it would allow people to not to have to rename their bed-like file
-#in tracks that allowed this , we could build our required fields using this
-#and always do a hash lookup
-# has required_map => (
-#   is => 'ro',
-#   isa => 'HashRef[Str]',
-#   lazy => 1,
-#   traits   => ['Hash'],
-#   default  => sub{ {} },
-# );
+#users can specify a data type, if found it must by one of
+#DataType, defined in Seq::Tracks::Definition
+#this is not meant to be set in YAML
+#however, if I use init_arg undef, the my around BUILDARGS won't be able to set it
+has _featureDataTypes => (
+  is => 'ro',
+  isa => 'HashRef[DataType]',
+  lazy => 1,
+  traits   => ['Hash'],
+  default  => sub{{}},
+  handles  => { 
+    getFeatureType => 'get', 
+    noFeatureTypes => 'is_empty',
+  },
+);
+
+#we could explicitly check for whether a hash was passed
+#but not doing so just means the program will crash and burn if they don't
+#note that by not shifting we're implying that the user is submitting an href
+#if they don't required attributes won't be found
+#so the messages won't be any uglier
+around BUILDARGS => sub {
+  my ($orig, $class, $data) = @_;
+
+  if(!$data->{features} ) {
+    return $class->$orig($data);
+  }
+
+  my $idx = 0;
+
+  for my $feature (@{$data->{features} } ) {
+    if (ref $feature eq 'HASH') {
+      my ($name, $type) = %$feature; #Thomas Wingo method
+      $data->{_featureDataTypes}{$name} = $type;
+      $data->{features}[$idx] = $name;
+    }
+    $idx++;
+  }
+
+  $class->$orig($data);
+};
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
@@ -77,7 +113,7 @@ sub getData {
     return;
   }
 
-  if($self->noFeatures) {
+  if(!$self->features) {
     return $data;
   }
 

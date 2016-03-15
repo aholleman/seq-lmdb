@@ -197,7 +197,7 @@ tracks:
     - func
     - alleleFreqCount
     - alleles
-    - alleleNs
+    - alleleNs : int
     - alleleFreqs
   local_files:
     - hg19.snp142.chr22.txt
