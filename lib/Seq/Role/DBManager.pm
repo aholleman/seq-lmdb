@@ -25,10 +25,8 @@ Used in:
 
 use Moose::Role;
 
-use Carp;
 use Cpanel::JSON::XS qw/encode_json decode_json/;
 use LMDB_File qw(:all);
-use Hash::Merge::Simple qw/ merge /;
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 with 'Seq::Role::Message';
 
