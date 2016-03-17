@@ -25,7 +25,7 @@ Used in:
 
 use Moose::Role;
 
-use Cpanel::JSON::XS qw/encode_json decode_json/;
+use Data::MessagePack;
 use LMDB_File qw(:all);
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 with 'Seq::Role::Message';
@@ -181,7 +181,7 @@ sub dbRead {
       }
       next;
     }
-    push @out, decode_json($json);
+    push @out, Data::MessagePack->unpack($json);
   }
   $txn->commit();
 
@@ -215,7 +215,7 @@ sub dbPatchBulk {
     if($json) {
       my ($featureID) = %{$posHref->{$pos} };
       #can't modify $json, read-only value, from memory map
-      $href = decode_json($json);
+      $href = Data::MessagePack->unpack($json);
 
       # say "previous href was";
       # p $previous_href;
@@ -279,7 +279,7 @@ sub dbPutBulk {
       next;
     }
 
-    $txn->put($dbi, $pos, encode_json($posHref->{$pos} ) );
+    $txn->put($dbi, $pos, Data::MessagePack->pack( $posHref->{$pos} ) );
 
     #should move logging to async
     #have the MDB_NOTFOUND thing becaues this could follow a get operation
@@ -301,197 +301,3 @@ sub dbPutBulk {
 no Moose::Role;
 
 1;
-
-
-# backup
-
-# I had wanted to use low-level transactions, but these seem to have
-# rationale - hashes cannot really have duplicate keys; so, to circumvent this
-# issue we'll check to see if there's data there at they key first, unpack it
-# and add our new data to it and then store the merged data
-# sub dbPut {
-#   my ( $self, $chr, $pos, $href ) = @_;
-
-#   my $dbi = $self->getDbi($chr);
-#   my $txn = $dbi->{env}->BeginTxn();
-
-#   $txn->put($dbi->{dbi}, $pos, encode_json($href) ); #overwrites existing values
-
-#   $txn->commit();
-# }
-
-# # @param [HashRef[HashRef] ] $kvAref ; $key => {}, $key2 => {}
-# sub dbPutBulk {
-#   my ( $self, $chr, $posHref ) = @_;
-
-#   my $dbi = $self->getDbi($chr);
-#   my $txn = $dbi->{env}->BeginTxn();
-
-#   my $cnt = 0;
-#   for my $pos (keys %{$posHref} ) {
-#     $txn->put($dbi->{dbi}, $pos, encode_json($posHref->{$pos} ) ); #overwrites existing values
-#     $cnt++;
-#     if($cnt > $self->commitEvery) {
-#       $cnt = 0;
-#       $txn->commit();
-#       $txn = $dbi->{env}->BeginTxn();
-#     }
-#   }
-  
-#   $txn->commit();
-# }
-
-# sub dbPatch {
-#   my ( $self, $chr, $pos, $newHref, $noOverwrite) = @_;
-
-#   my $dbi = $self->getDbi($chr);
-#   my $txn = $dbi->{env}->BeginTxn();
-#   my $response;
-
-#   my $previousJSON;
-#   my $previousHref;
-
-#   $txn->get($dbi->{dbi}, $pos, $previousJSON);
-#   if($response) {
-#     if($response == MDB_NOTFOUND) {
-#       #nothing found
-#     }
-#   } else {
-#     $self->tee_logger('warn', "DBI error: $response");
-#   }
-
-#   if($previousJSON) {
-#     my ($featureID) = %$newHref;
-#     $previousHref = decode_json($previousJSON);
-
-
-#     if(!$self->overwrite) {
-#       if(defined $previousHref->{$featureID} ) {
-#         $txn->commit();
-#         return;
-#       }
-#     }
-#     $previousHref->{$featureID} = $newHref->{$featureID};
-#     #much more robust, but I'm worried about performance, so trying alternative
-#     #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
-#   } else {
-#     $previousHref = $newHref;
-#   }
-
-#   $txn->put($dbi->{dbi}, $pos, encode_json($previousHref) );
-
-#   $txn->commit();
-# }
-
-#TODO: we should allow an array ref, more memory efficient
-
-# sub dbPatchBulk {
-#   my ( $self, $chr, $posHref ) = @_;
-
-#   my $db = $self->getDbi($chr);
-#   my $dbi = $db->{dbi};
-#   my $txn = $db->{env}->BeginTxn();
-
-#   my $cnt = 0;
-#   for my $pos (sort { $a <=> $b } keys %{$posHref} ) { #want sequential
-#     my $json; #zero-copy
-#     my $href;
-#     my $response;
-#     # say "pos is $pos";
-#     # my $response = $txn->get($dbi, $pos, $json);
-#     # if($response) {
-#     #   if($response == MDB_NOTFOUND) {
-#     #     #nothing found
-#     #   }
-#     # } else {
-#     #   $self->tee_logger('warn', "DBI error: $response");
-#     # }
-
-#    # say "Last error is " . $LMDB_File::last_err;
-#     if($json) {
-#       my ($featureID) = %{$posHref->{$pos} };
-#       #can't modify $json, read-only value, from memory map
-#       $href = decode_json($json);
-
-#       # say "previous href was";
-#       # p $previous_href;
-#       if(!$self->overwrite) {
-#         if(defined $href->{$featureID} ) {
-#           #say "defined $featureID, skipping";
-#           next;
-#         }
-#       }
-#       $href->{$featureID} = $posHref->{$pos}{$featureID};
-#       #much more robust, but I'm worried about performance, so trying alternative
-#       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
-#     } else {
-#       $href = $posHref->{$pos};
-#     }
-#     #say "about to put in $chr $pos";
-#     #p $href;
-#     $response = $txn->put($dbi, $pos, encode_json($href) );
-#     #say "response was";
-#     #p $response;
-#     $cnt++;
-#     if($cnt > $self->commitEvery) {
-#       $cnt = 0;
-#       $txn->commit();
-#       $txn = $db->{env}->BeginTxn();
-#     }
-#   }
-
-#   $txn->commit();
-# }
-
-#Not currently in use
-# we could use a cursor here, to allow non-whole chr insertion
-# sub dbPatchBulkArray {
-#   my ( $self, $chr, $posAref ) = @_;
-
-#   my $dbi = $self->getDbi($chr);
-#   my $txn = $dbi->{env}->BeginTxn();
-#   my $cnt = 0;
-#   #Expects 0 to end position (abs pos)
-#   my $pos = 0; #so maybe cursor would be faster, not certain, is this still sequential?
-#   my $cntFound = 0;
-
-#   my $response;
-#   for my $href (@$posAref) {
-#     my $previous_href;
-#     $LMDB_File::last_err = 0;
-    
-#     $response = $txn->get($dbi->{dbi}, $pos, $previous_href);
-#     if($response) {
-#       if($response == MDB_NOTFOUND) {
-#         #nothing found
-#       }
-#     } else {
-#       $self->tee_logger('warn', "DBI error: $response");
-#     }
-
-#    # say "Last error is " . $LMDB_File::last_err;
-#     if($previous_href) {
-#       $href = merge decode_json($previous_href), $href; #righthand merge
-#     }
-
-#     $txn->put($dbi->{dbi}, $pos, encode_json($href) );
-#     $cnt++;
-#     if($cnt > $self->commitEvery) {
-#       $cnt = 0;
-#       $txn->commit();
-#       $txn = $dbi->{env}->BeginTxn();
-#       if($self->debug) {
-#         say "number entered : $pos";
-#       }
-#     }
-#     $pos++;
-#   }
-
-#   if($self->debug) {
-#     say "number items in aref: " . scalar @$posAref;
-#     say "number found : $cntFound";
-#     say "number entered : $pos";
-#   }
- 
-#   $txn->commit();
-# }
