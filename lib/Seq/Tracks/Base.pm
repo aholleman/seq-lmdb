@@ -39,12 +39,14 @@ has genome_chrs => (
 #ArrayRef[Str | Maybe[HashRef[DataType] ] ]
 has features => (
   is => 'ro',
-  isa => 'ArrayRef[Str]',
+  isa => 'HashRef[Str]',
   lazy => 1,
-  traits   => ['Array'],
-  default  => sub{[]},
+  traits   => ['Hash'],
+  default  => sub{ {} },
   handles  => { 
-    allFeatures => 'elements',
+    allFeatures => 'keys',
+    getFeatureLabel => 'get',
+    allFeatureNamesLabels => 'kv',
     noFeatures  => 'is_empty',
   },
 );
@@ -53,6 +55,8 @@ has features => (
 #DataType, defined in Seq::Tracks::Definition
 #this is not meant to be set in YAML
 #however, if I use init_arg undef, the my around BUILDARGS won't be able to set it
+#Advantage of storing here instead of inside features hash, is we can coerce
+#more Moosey
 has _featureDataTypes => (
   is => 'ro',
   isa => 'HashRef[DataType]',
@@ -62,19 +66,6 @@ has _featureDataTypes => (
   handles  => { 
     getFeatureType => 'get', 
     noFeatureTypes => 'is_empty',
-  },
-);
-
-#if users are worried about space, they can store the names as something short
-has _featureStoreNames => (
-  is => 'ro',
-  isa => 'HashRef[Str]',
-  lazy => 1,
-  traits   => ['Hash'],
-  default  => sub{{}},
-  handles  => { 
-    getFeatureStoreName => 'get', 
-    noFeatureStoreNames => 'is_empty',
   },
 );
 
@@ -90,8 +81,11 @@ around BUILDARGS => sub {
     return $class->$orig($data);
   }
 
-  #my $idx = 0;
-
+  #we convert the features into a hashRef
+  # {
+  #  featureNameAsAppearsInHeader => <Str> (what we store it as)
+  #}
+  my %featureLabels;
   for my $feature (@{$data->{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
@@ -103,19 +97,21 @@ around BUILDARGS => sub {
           # - store : b
       if(ref $type eq 'HASH') {
         if($type->{store}) {
-          $data->{_featureStoreNames}{$name} = $type->{store};
+          $featureLabels{$name} = $type->{store};
         }
         if( $type->{type} ) {
           $data->{_featureDataTypes}{$name} = $type->{type};
         }
+        next;
       } else {
         $data->{_featureDataTypes}{$name} = $type;
       }
       
-      $feature = $name;
+      $featureLabels{$name} = $name;
     }
-    #$idx++;
   }
+  $data->{features} = \%featureLabels;
+
   say "data is";
   p $data;
   exit;

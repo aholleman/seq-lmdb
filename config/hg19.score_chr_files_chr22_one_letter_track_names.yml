@@ -6,7 +6,8 @@ genome_name: hg19
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:
-- name: r
+- name: 
+    reference: r
   type: ref
   local_files:
     - chr1.fa.gz
@@ -187,20 +188,30 @@ tracks:
     - hg19.refGene.chr22.txt
   sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
     = hg19.refGene.name
-- name: s
+- name: 
+    snp: s
   type: sparse
   features:
     - name:
         store: n
         type: str
-    - strand
-    - refUCSC
-    - observed
-    - func
-    - alleleFreqCount
-    - alleles
-    - alleleNs : int
-    - alleleFreqs
+    - strand:
+        store: s
+    - refUCSC:
+        store: r
+    - observed:
+        store: o
+    - func:
+        store: f
+    - alleleFreqCount:
+        store: q
+    - alleles:
+        store: a
+    - alleleNs:
+        type: int
+        store: N
+    - alleleFreqs:
+        store: Q
   local_files:
     - hg19.snp142.chr22.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
