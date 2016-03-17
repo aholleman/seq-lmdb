@@ -104,11 +104,12 @@ around BUILDARGS => sub {
     $href->{local_files} = \@localFiles;
   }
 
-  #this will implicitly be skipped if array is empty; could also check
-  if (!$href->{required_fields} ) {
-    return $class->$orig($href);
+  if(ref $href->{name} eq 'HASH') {
+    say "href name";
+    p $href->{name};
+    (undef, $href->{name}) = %{ $href->{name} }; #get the value, this is what to store as
   }
-  
+
   for my $field (@{$href->{required_fields} } ) {
     if( ref $field ne 'HASH' ) {
       next;

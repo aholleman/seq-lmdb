@@ -42,12 +42,12 @@ has genome_chrs => (
 #ArrayRef[Str | Maybe[HashRef[DataType] ] ]
 has features => (
   is => 'ro',
-  isa => 'ArrayRef[Str]',
+  isa => 'HashRef[Str]',
   lazy => 1,
-  traits   => ['Array'],
-  default  => sub{ [] },
   handles  => { 
-    allFeatures => 'elements',
+    allFeatures => 'keys',
+    getFeatureLabel => 'get',
+    allFeatureNamesLabels => 'kv',
     noFeatures  => 'is_empty',
   },
 );
@@ -56,6 +56,8 @@ has features => (
 #DataType, defined in Seq::Tracks::Definition
 #this is not meant to be set in YAML
 #however, if I use init_arg undef, the my around BUILDARGS won't be able to set it
+#Advantage of storing here instead of inside features hash, is we can coerce
+#more Moosey
 has _featureDataTypes => (
   is => 'ro',
   isa => 'HashRef[DataType]',
@@ -82,20 +84,41 @@ around BUILDARGS => sub {
   if(!$data->{features} ) {
     return $class->$orig($data);
   }
-
+  
+  #we convert the features into a hashRef
+  # {
+  #  featureNameAsAppearsInHeader => <Str> (what we store it as)
+  #}
+  my %featureLabels;
   for my $feature (@{$data->{features} } ) {
-    if (ref $feature ne 'HASH') {
-      next;
+    if (ref $feature eq 'HASH') {
+      my ($name, $type) = %$feature; #Thomas Wingo method
+
+      #users can explicilty tell us what they want
+      #-features:
+        # blah:
+          # - type : int
+          # - store : b
+      if(ref $type eq 'HASH') {
+        if($type->{store}) {
+          $featureLabels{$name} = $type->{store};
+        }
+        if( $type->{type} ) {
+          $data->{_featureDataTypes}{$name} = $type->{type};
+        }
+        next;
+      } else {
+        $data->{_featureDataTypes}{$name} = $type;
+      }
+      
+      $featureLabels{$name} = $name;
     }
-    
-    my ($name, $type) = %$feature; #Thomas Wingo method
-    $data->{_featureDataTypes}{$name} = $type;
-
-    #perl is tricky: $field is a dereferenced element in the array
-    #so this modifies the element in the array
-    $feature = $name;
   }
+  $data->{features} = \%featureLabels;
 
+  say "data is";
+  p $data;
+  exit;
   $class->$orig($data);
 };
 
