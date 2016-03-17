@@ -65,6 +65,19 @@ has _featureDataTypes => (
   },
 );
 
+#if users are worried about space, they can store the names as something short
+has _featureStoreNames => (
+  is => 'ro',
+  isa => 'HashRef[Str]',
+  lazy => 1,
+  traits   => ['Hash'],
+  default  => sub{{}},
+  handles  => { 
+    getFeatureStoreName => 'get', 
+    noFeatureStoreNames => 'is_empty',
+  },
+);
+
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
 #note that by not shifting we're implying that the user is submitting an href
@@ -77,17 +90,35 @@ around BUILDARGS => sub {
     return $class->$orig($data);
   }
 
-  my $idx = 0;
+  #my $idx = 0;
 
   for my $feature (@{$data->{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
-      $data->{_featureDataTypes}{$name} = $type;
-      $data->{features}[$idx] = $name;
-    }
-    $idx++;
-  }
 
+      #users can explicilty tell us what they want
+      #-features:
+        # blah:
+          # - type : int
+          # - store : b
+      if(ref $type eq 'HASH') {
+        if($type->{store}) {
+          $data->{_featureStoreNames}{$name} = $type->{store};
+        }
+        if( $type->{type} ) {
+          $data->{_featureDataTypes}{$name} = $type->{type};
+        }
+      } else {
+        $data->{_featureDataTypes}{$name} = $type;
+      }
+      
+      $feature = $name;
+    }
+    #$idx++;
+  }
+  say "data is";
+  p $data;
+  exit;
   $class->$orig($data);
 };
 
