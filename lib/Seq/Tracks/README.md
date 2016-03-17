@@ -38,7 +38,6 @@ These are special cases of the above tracks #1 and 2
 2. Gene
   - Stores a UCSC gene track. Ex: KnownGene, RefSeq Gene
   - It's just a region track, but one that downloads its data as UCSC .sql files (and then queries those)
-3. Snp
-  - A USCSC snp track (like dbSNP)
-  - It's just a sparse track, but we have a few custom actions attached
 
+### TODO: 
+1. We really don't need to expose separate Reference and Score Tracks. The data is stored and processed in the same way, once we take into account the different expected file formats. 

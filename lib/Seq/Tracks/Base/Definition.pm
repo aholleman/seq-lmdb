@@ -6,40 +6,14 @@ package Seq::Tracks::Definition;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A base class for track classes
+# ABSTRACT: Defines general track information: valid track "types", 
+# track casting (data) types
 # VERSION
 
 use Moose::Role;
 use Moose::Util::TypeConstraints; 
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
-# use Seq::Tracks::ReferenceTrack;
-# use Seq::Tracks::GeneTrack;
-# use Seq::Tracks::ScoreTrack;
-# use Seq::Tracks::SparseTrack;
-# use Seq::Tracks::SnpTrack;
-# use Seq::Tracks::RegionTrack;
-
-# use Seq::Tracks::ReferenceTrack::Build;
-# use Seq::Tracks::GeneTrack::Build;
-# use Seq::Tracks::ScoreTrack::Build;
-# use Seq::Tracks::SparseTrack::Build;
-# use Seq::Tracks::SnpTrack::Build;
-# use Seq::Tracks::RegionTrack::Build;
-
-use DDP;
-# use Seq::Tracks::ReferenceTrack::Build;
-# use Seq::Tracks::GeneTrack;
-=property @public @required {Str} name
-
-  The track name. This is defined directly in the input config file.
-
-  @example:
-  =for :list
-  * gene
-  * snp
-
-=cut
 
 state $typeKey = 't';
 has typeKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$typeKey});
@@ -101,6 +75,13 @@ sub int {
   }
   return sprintf( '%d', $_[1] );
 }
+
+#moved away from this; the base build class shouldn't need to know 
+#what types are allowed, that info is kep in the various track modules
+#this is a simple-minded way to enforce a bed-only format
+#this should not be used for things with single-field headers
+#like wig or multi-fasta (or fasta)
+# enum BedFieldType => ['chrom', 'chromStart', 'chromEnd'];
 
 no Moose::Role;
 1;

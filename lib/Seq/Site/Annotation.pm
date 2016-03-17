@@ -2,9 +2,15 @@ use 5.10.0;
 use strict;
 use warnings;
 
+# Changes: We pre-calculate everything all possible changes in our database
+# So this class doesn't have much to do
+
 package Seq::Site::Annotation;
 
 our $VERSION = '0.001';
+
+# This should be a part of GeneTrack.
+# All annotation should happen during building.
 
 # ABSTRACT: Class for seralizing annotation sites
 # VERSION

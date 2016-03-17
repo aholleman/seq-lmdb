@@ -17,7 +17,9 @@ use DDP;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO';
-#anything with an underscore comes from the config format
+#anything with an underscore is expected to potentially be specified in the YAML config
+#used to configure Seq
+
 #this only is used by Build
 has local_files => (
   is      => 'ro',
@@ -58,6 +60,33 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 #modify their input files
 has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 
+#some tracks, like reference & score won't have this, so we lazy initialize
+#(and memoize as a result)
+has required_fields => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  lazy => 1,
+  default => sub{ [] },
+  handles => {
+    allRequiredFields => 'elements',
+    noRequiredFields  => 'is_empty',
+  }
+);
+
+#we could abstract this further, maybe include only in a subset of tracks
+has _requiredFieldTypes => (
+  is => 'ro',
+  isa => 'HashRef[Str]',
+  traits => ['Hash'],
+  lazy => 1,
+  default => sub{ {} },
+  handles => {
+    getRequiredFieldType => 'get',
+    noRequiredFieldTypes => 'is_empty',
+  }
+);
+
 #local files are given as relative paths, relative to the files_dir
 around BUILDARGS => sub {
   my $orig = shift;
@@ -73,6 +102,24 @@ around BUILDARGS => sub {
 
   if(@localFiles) {
     $href->{local_files} = \@localFiles;
+  }
+
+  #this will implicitly be skipped if array is empty; could also check
+  if (!$href->{required_fields} ) {
+    return $class->$orig($href);
+  }
+  
+  for my $field (@{$href->{required_fields} } ) {
+    if( ref $field ne 'HASH' ) {
+      next;
+    }
+
+    my ($name, $val) = %$field; #list assignment yield (key1,val1,key2,val2,etc)
+    $href->{_requiredFieldMap}{$name} = $val;
+
+    #perl is tricky: $field is a dereferenced element in the array
+    #so this modifies the element in the array
+    $field = $name;
   }
 
   $class->$orig($href);
@@ -129,6 +176,17 @@ sub coerceFeatureType {
   } 
 
   return $_[0]->convert($_[2], $type);
+}
+
+#takes a potentially non-0 based thing, makes it 0 based
+#called via $self->toZeroBased;
+#@param $_[1] == the base  . This is the only argument: $self->zeroBased($base) 
+#@param $_[0] == $self : class instance;
+#this can be called billions of times, so trying to reduce performance overhead
+#of assignment
+sub zeroBased {
+  if ( $_[0]->based == 0 ) { return $_[1]; }
+  return $_[1] - $_[0]->based;
 }
 
 __PACKAGE__->meta->make_immutable;

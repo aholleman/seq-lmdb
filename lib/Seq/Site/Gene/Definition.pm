@@ -1,5 +1,8 @@
 package Seq::Site::Gene::Definition;
 
+#This is now used to pre-calculate all potential changes
+#For rapid lookup.
+
 our $VERSION = '0.001';
 
 # ABSTRACT: A class for storing defintions and codon table

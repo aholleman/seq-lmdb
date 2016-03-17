@@ -56,8 +56,8 @@ sub buildTrack{
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
 
-  #likely 0 based, but let the user mess with this if they want
-  my $based = $self->based;
+  #TODO: let the user mess with this if they want
+  my $based = 0; #$self->based;
 
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
@@ -84,7 +84,7 @@ sub buildTrack{
       my $chrPosition = $based;
       
       FH_LOOP: while ( <$fh> ) {
-        chomp $_;
+        #super chomp; also helps us avoid weird characters in the fasta data string
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
         #could do check here for cadd default format

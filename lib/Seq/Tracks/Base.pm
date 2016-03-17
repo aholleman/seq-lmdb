@@ -3,6 +3,9 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Base;
+#Every track class extends this. The attributes detailed within are used
+#regardless of whether we're building or annotating
+#and nothing else ends up here (for instance, required_fields goes to Tracks::Build) 
 
 our $VERSION = '0.001';
 
@@ -42,7 +45,7 @@ has features => (
   isa => 'ArrayRef[Str]',
   lazy => 1,
   traits   => ['Array'],
-  default  => sub{[]},
+  default  => sub{ [] },
   handles  => { 
     allFeatures => 'elements',
     noFeatures  => 'is_empty',
@@ -65,6 +68,9 @@ has _featureDataTypes => (
   },
 );
 
+#The mapping of featureDataTypes needs to happne here, becaues if
+#the feature is - name :type , that's a hash ref, and features expects 
+#ArrayRef[Str].
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
 #note that by not shifting we're implying that the user is submitting an href
@@ -77,15 +83,17 @@ around BUILDARGS => sub {
     return $class->$orig($data);
   }
 
-  my $idx = 0;
-
   for my $feature (@{$data->{features} } ) {
-    if (ref $feature eq 'HASH') {
-      my ($name, $type) = %$feature; #Thomas Wingo method
-      $data->{_featureDataTypes}{$name} = $type;
-      $data->{features}[$idx] = $name;
+    if (ref $feature ne 'HASH') {
+      next;
     }
-    $idx++;
+    
+    my ($name, $type) = %$feature; #Thomas Wingo method
+    $data->{_featureDataTypes}{$name} = $type;
+
+    #perl is tricky: $field is a dereferenced element in the array
+    #so this modifies the element in the array
+    $feature = $name;
   }
 
   $class->$orig($data);

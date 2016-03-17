@@ -1,43 +1,20 @@
 package Seq::Role::Message;
+use 5.10.0;
+use strict;
+use warnings;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A class for communicating
+# ABSTRACT: A class for communicating to log and to some plugged in messaging service
 # VERSION
 
-# vars that are not initialized at construction
-
-use 5.10.0;
 use Moose::Role;
 use Redis::hiredis;
-use strict;
-use warnings;
+
 use namespace::autoclean;
 with 'MooX::Role::Logger';
-use Carp 'croak';
 
 use Cpanel::JSON::XS;
-use DDP;
-
-# my $singleton;
-
-# sub instance {
-#   return $singleton //= Seq::Role::Message->new();
-# }
-
-# # to protect against people using new() instead of instance()
-# around 'new' => sub {
-#     my $orig = shift;
-#     my $self = shift;
-#     return $singleton //= $self->$orig(@_);
-# };
-
-# sub initialize {
-#     defined $singleton
-#       and croak __PACKAGE__ . ' singleton has already been instanciated';
-#     shift;
-#     return __PACKAGE__->new(@_);
-# }
 
 #note: not using native traits because they don't support Maybe attrs
 # state @publisherAddress;

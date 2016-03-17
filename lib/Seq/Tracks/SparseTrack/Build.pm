@@ -45,20 +45,16 @@ use Parallel::ForkManager;
 use DDP;
 
 extends 'Seq::Tracks::Build';
-
-state $chrom = 'chrom';
-state $cStart = 'chromStart';
-state $cEnd   = 'chromEnd';
-#TODO: allow people to map these names in YAML, via -blah: chrom -blah2: chromStart
-state $reqFields = [$chrom, $cStart, $cEnd];
+with 'Seq::Tracks::Build::MapFieldToIndex', 'Seq::Tracks::SparseTrack::Definition';
 
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.
 my $pm = Parallel::ForkManager->new(26); 
 sub buildTrack {
-  my ($self) = @_;
+  my $self = shift;
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+
   for my $file ($self->all_local_files) {
     $pm->start and next;
       my $fh = $self->get_read_fh($file);
@@ -67,52 +63,33 @@ sub buildTrack {
       my $wantedChr;
       
       my $chr;
-      my %featureIdx = ();
-      my %reqIdx = ();
+      my $featureIdxHref;
+      my $reqIdxHref;
 
       my $count = 0;
-
-      my $based = $self->based; #1, 0 or something weirder;
-
       FH_LOOP: while (<$fh>) {
-        chomp $_;
-        $_ =~ s/^\s+|\s+$//g;
+        chomp $_; #$_ not nec. , but more cross-language understandable
+        #this may be too aggressive, like a super chomp, that hits 
+        #leading whitespace as well; wouldn't give us undef fields
+        #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
 
-        my @fields = split "\t", $_; #$_ not nec. here, but this is less idiomatic
+         #$_ not nec. here, but this is less idiomatic, more cross-language
+        my @fields = split("\t", $_);
 
         if($. == 1) {
-          # say "fields are";
-          # p @fields;
-
-          REQ_LOOP: for my $field (@$reqFields) {
-            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
-            if(~$idx) { #bitwise complement, makes -1 0
-              $reqIdx{$field} = $idx;
-              next REQ_LOOP; #label for clarity
-            }
-            
-            $self->tee_logger('error', 'Required field $field missing in $file header');
+          my ($reqIdxHref, $err) = $self->mapRequiredFields(\@fields);
+          if($err) {
+            $self->tee_logger('error', $err);
           }
 
-          # say 'all features wanted are';
-          # p @{[$self->allFeatures]};
-          
-          FEATURE_LOOP: for my $fname ($self->allFeatures) {
-            my $idx = firstidx {$_ eq $fname} @fields;
-            if(~$idx) { #only non-0 when non-negative, ~0 > 0
-              $featureIdx{$fname} = $idx;
-              next FEATURE_LOOP;
-            }
-            $self->tee_logger('warn', "Feature $fname missing in $file header");
-          }
-
+          my $featureIdxHref = $self->mapFeatureFields(\@fields);
           # say "featureIdx is";
           # p %featureIdx;
           #exit;
           next FH_LOOP;
         }
 
-        $chr = $fields[ $reqIdx{$chrom} ];
+        $chr = $fields[ $reqIdxHref->{$chrom} ];
 
         #this will not work well if chr are significantly out of order
         #because we won't be able to benefit from sequential read/write
@@ -165,19 +142,21 @@ sub buildTrack {
         #this is an insertion; the only case when start should == stop
         #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
         #logging currently is synchronous, and very, very slow compared to CPU speed
-        if($fields[ $reqIdx{$cStart} ] == $fields[ $reqIdx{$cEnd} ] ) {
-          $pAref = [ $fields[ $reqIdx{$cStart} ] - $based ];
+        if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
+          $pAref = [ $self->zeroBased( $fields[ $reqIdxHref->{$cStart} ] ) ];
         } else { #it's a normal change, or a deletion
-          #BED is a half-closed format
-          $pAref = [ $fields[ $reqIdx{$cStart} ] - $based .. $fields[ $reqIdx{$cEnd} ] - $based - 1];
+          #BED is a half-closed format, so subtract 1 from end
+          $pAref = [ $self->zeroBased( $fields[ $reqIdxHref->{$cStart} ] ) 
+            .. $self->zeroBased( $fields[ $reqIdxHref->{$cEnd} ] ) - 1 ];
         }
       
         #now we collect all of the feature data
         #coerceFeatureType will return if no type specified for feature
         #otherwise will try to coerce the field into the type specified for $name
         my $fDataHref;
-        for my $name (keys %featureIdx) {
-          $fDataHref->{$name} = $self->coerceFeatureType( $name, $fields[ $featureIdx{$name} ] );
+        for my $name (keys %$featureIdxHref) {
+          $fDataHref->{$name} = 
+            $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
         }
         
         # say "feature is";
@@ -213,3 +192,31 @@ sub buildTrack {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+###moved field -> index map to seperate function, since shared with region tracks
+###old code for if ($. == 1) {
+   # say "fields are";
+          # p @fields;
+
+#           REQ_LOOP: for my $field (@$reqFields) {
+#             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+#             if(~$idx) { #bitwise complement, makes -1 0
+#               $reqIdx{$field} = $idx;
+#               next REQ_LOOP; #label for clarity
+#             }
+            
+#             $self->tee_logger('error', 'Required field $field missing in $file header');
+#           }
+
+#           # say 'all features wanted are';
+#           # p @{[$self->allFeatures]};
+          
+#           FEATURE_LOOP: for my $fname ($self->allFeatures) {
+#             my $idx = firstidx {$_ eq $fname} @fields;
+#             if(~$idx) { #only non-0 when non-negative, ~0 > 0
+#               $featureIdx{$fname} = $idx;
+#               next FEATURE_LOOP;
+#             }
+#             $self->tee_logger('warn', "Feature $fname missing in $file header");
+#           }
+# }

@@ -62,7 +62,9 @@ sub buildTrack{
   # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
   # if it is the BED format version of the WIG format.
   # BED doesn't have a header line, and we don't currently support it, but want flex.
-  my $based = $self->based;
+  #however, while subtracting this number may be faster than a function call
+  #I worry about maintainability
+  #my $based = $self->based;
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
       $self->tee_logger('error', "ERROR: cannot find $file");
@@ -87,7 +89,8 @@ sub buildTrack{
       my $stepType;
 
       FH_LOOP: while ( <$fh> ) {
-        chomp $_;
+        #super chomp; helps us avoid unexpected whitespace on either side
+        #of the data; since we expect one field per column, this should be safe
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
         #could do check here for cadd default format
@@ -111,7 +114,7 @@ sub buildTrack{
 
           #set the chrPosition early, because otherwise we need to do 2x
           #and make this 0 index
-          $chrPosition = $start - $based;
+          $chrPosition = $self->zeroBased($start);
 
           if ($wantedChr && $wantedChr eq $chr) {
             next;

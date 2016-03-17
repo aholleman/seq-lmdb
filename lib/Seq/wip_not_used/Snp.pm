@@ -2,6 +2,8 @@ use 5.10.0;
 use strict;
 use warnings;
 
+# This package is no longer needed. Sparse tracks will just return 
+# Whatever data is stored  in the Sparse Track
 package Seq::Site::Snp;
 
 our $VERSION = '0.001';
