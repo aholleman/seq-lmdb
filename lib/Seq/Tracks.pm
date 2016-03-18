@@ -14,7 +14,6 @@ use DDP;
 use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
 use Seq::Tracks::ReferenceTrack::Build;
-use Seq::Tracks::GeneTrack::Build;
 use Seq::Tracks::ScoreTrack::Build;
 use Seq::Tracks::SparseTrack::Build;
 use Seq::Tracks::RegionTrack::Build;
@@ -48,7 +47,6 @@ sub _buildTrackMap {
 
   return {
     $self->refType => 'Seq::Tracks::ReferenceTrack',
-    $self->geneType => 'Seq::Tracks::GeneTrack',
     $self->scoreType => 'Seq::Tracks::ScoreTrack',
     $self->sparseType => 'Seq::Tracks::SparseTrack',
     $self->regionType => 'Seq::Tracks::RegionTrack',
@@ -72,7 +70,6 @@ sub _buildTrackBuilderMap {
 
   return {
     $self->refType => 'Seq::Tracks::ReferenceTrack::Build',
-    $self->geneType => 'Seq::Tracks::GeneTrack::Build',
     $self->scoreType => 'Seq::Tracks::ScoreTrack::Build',
     $self->sparseType => 'Seq::Tracks::SparseTrack::Build',
     $self->regionType => 'Seq::Tracks::RegionTrack::Build',
@@ -213,13 +210,6 @@ sub _buildTrackBuilders {
 #   data: {
 #     feature1: featureVal1, feature2: featureVal2, ...
 #} } } }
-
-#all* returns array ref
-#we coupled ngene to gene tracks, to allow this
-sub allGeneTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->geneType};
-}
 
 sub allRegionTracksBuilders {
   my $self = shift;

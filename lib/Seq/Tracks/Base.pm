@@ -34,7 +34,6 @@ has genome_chrs => (
   lazy_build => 1,
 );
 
-
 #the "noFeatures", "noDataTypes" is really ugly; unfortunately
 #moose doesn't allow traits + Maybe or Undef types
 #could defined data types here,
@@ -45,9 +44,9 @@ has features => (
   isa => 'HashRef[Str]',
   lazy => 1,
   handles  => { 
-    allFeatures => 'keys',
-    getFeatureLabel => 'get',
-    allFeatureNamesLabels => 'kv',
+    allFeatureNames => 'keys',
+    allFeatureNamesDbNames => 'kv',
+    getFeatureDbName => 'get',
     noFeatures  => 'is_empty',
   },
 );
@@ -70,7 +69,12 @@ has _featureDataTypes => (
   },
 );
 
-#The mapping of featureDataTypes needs to happne here, becaues if
+has name => ( is => 'ro', isa => 'Str', required => 1);
+
+has type => ( is => 'ro', isa => 'Str', required => 1);
+
+
+#The mapping of featureDataTypes needs to happens here, becaues if
 #the feature is - name :type , that's a hash ref, and features expects 
 #ArrayRef[Str].
 #we could explicitly check for whether a hash was passed
@@ -103,28 +107,22 @@ around BUILDARGS => sub {
         if($type->{store}) {
           $featureLabels{$name} = $type->{store};
         }
+
         if( $type->{type} ) {
           $data->{_featureDataTypes}{$name} = $type->{type};
         }
+
         next;
-      } else {
-        $data->{_featureDataTypes}{$name} = $type;
       }
       
+      $data->{_featureDataTypes}{$name} = $type;
       $featureLabels{$name} = $name;
     }
   }
   $data->{features} = \%featureLabels;
 
-  say "data is";
-  p $data;
-  exit;
   $class->$orig($data);
 };
-
-has name => ( is => 'ro', isa => 'Str', required => 1);
-
-has type => ( is => 'ro', isa => 'Str', required => 1);
 
 sub chrIsWanted {
   my ($self, $chr) = @_;
@@ -132,54 +130,6 @@ sub chrIsWanted {
   #using internal methods, public API for public use (regarding wantedChrs)
   return List::Util::first { $_ eq $chr } @{$self->genome_chrs };
 }
-
-sub getData {
-  my ($self, $href) = @_;
-
-  my $data = $href->{$self->name};
-
-  if(!defined $data) {
-    $self->tee_logger('warn', "getAllFeaturesData passed hash ref that didn't
-      contain data for the $self->name track");
-    return;
-  }
-
-  if(!$self->features) {
-    return $data;
-  }
-
-  my %out;
-  if(ref $data ne 'HASH') {
-    $self->tee_logger('warn', "Expected data to be HASH reference, got " 
-      . ref $data);
-  }
-  #may be simpler in a map
-  #Goal here is to  return only what the user cares about
-  for my $feature ($self->allFeatures) {
-    my $val = $data->($feature);
-    if ($val) {
-      $out{$feature} = $val;
-    }
-  }
-  return \%out;
-}
-
-#
-
-#all the data we wish to include for this type
-#expects { feature1 : {stuff} | stuff , feature2 : {stuff} | stuff }
-# has data => (
-#   is => 'rw',
-#   isa => 'HashRef',
-#   lazy => 1,
-#   traits => ['Hash'],
-#   handles => {
-#     'getFeatureData' => 'get', #accepts a featureName
-#     'setFeatureData' => 'set', #accepts a featureName
-#   },
-#   default => {},
-# );
-
 
 __PACKAGE__->meta->make_immutable;
 

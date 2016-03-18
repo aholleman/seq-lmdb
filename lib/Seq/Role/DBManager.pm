@@ -141,6 +141,11 @@ sub _openDB {
   return $DB;
 }
 
+#In the below methods I call the db name argument "$chr"
+#Passing a chromosome is just the typical use case
+#Something like a region track may opt to pass a relative path
+#The point is just to tell us which environment to open or return if previously
+
 #Since we are using transactions, and have sync on commit enabled
 #we know that if the feature name ($tokPkey) is found
 #that the data is present
@@ -298,6 +303,14 @@ sub dbPutBulk {
   $LMDB_File::last_err = 0;
 }
 
+#TODO: check if this works
+sub getDbLength {
+  my ( $self, $chr ) = @_;
+
+  my $db = $self->getDbi($chr);
+
+  return $db->{env}->stat->{entries};
+}
 no Moose::Role;
 
 1;

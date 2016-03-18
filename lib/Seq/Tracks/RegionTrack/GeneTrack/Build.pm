@@ -49,36 +49,27 @@ use List::MoreUtils::XS qw(firstidx);
 use DDP;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO', 'Seq::Tracks::Build::MapFieldToIndex',
-'Seq::Tracks::GeneTrack::Definition' => {
-  #required_fields , since it uses an underscore, we know it can be 
-  #set in YAML config.
-  -alias => { required_fields => 'requiredGeneTrackFields'},
-  -exclude => 'requiredGeneTrackFields',
-};
+with 'Seq::Role::IO', 'Seq::Tracks::Build::MapFieldToIndex';
 
-#unlike original GeneTrack, don't remap names
-#I think it's easier to refer to UCSC gene naming convention
-#Rather than implement our own.
-
-#do we want exonCount?
-
+#all of our required position-related fields are here;
+with 'Seq::Tracks::GeneTrack::Definition';
 
 #what goes into the region track
 #in a normal region track this would be set via -feature : 1 \n 2 \n 3 YAML
 state $features = ['name'];
 
-has '+required_fields' => (
-  default => sub{$reqFields},
-);
+#unlike original GeneTrack, don't remap names
+#I think it's easier to refer to UCSC gene naming convention
+#Rather than implement our own.
 
 # this should be called after Seq::Tracks::Build around BUILDARGS
 #http://search.cpan.org/dist/Moose/lib/Moose/Manual/Construction.pod
 #TODO: check that this works
+#We're adding the above specified hardcoded features to whatever the user provided
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
-  for my $name (@$features) {
+  for my $name ( @$features ) {
     #bitwise or, returns 0 for -Number only
     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
       next;
@@ -146,7 +137,7 @@ sub buildTrack {
         #also, we try to avoid assignment operations when not onerous
         #but here not as much of an issue; we expect only say 20k genes
         #and only hundreds of thousands to low millions of transcripts
-        my $chr = $fields[ $reqIdxHref->{$chr} ];
+        my $chr = $fields[ $reqIdxHref->{$self->chrKey} ];
 
         #if we have a wanted chr
         if( $wantedChr ) {

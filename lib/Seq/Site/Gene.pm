@@ -65,6 +65,8 @@ use namespace::autoclean;
 extends 'Seq::Site';
 with 'Seq::Site::Gene::Definition';
 
+#We no longer need these things;
+
 has transcript_id => (
   is        => 'ro',
   isa       => 'Str',

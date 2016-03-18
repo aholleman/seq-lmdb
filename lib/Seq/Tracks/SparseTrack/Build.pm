@@ -45,7 +45,15 @@ use Parallel::ForkManager;
 use DDP;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Tracks::Build::MapFieldToIndex', 'Seq::Tracks::SparseTrack::Definition';
+with 'Seq::Tracks::Build::MapFieldToIndex';
+
+state $chrom = 'chrom';
+state $cStart = 'chromStart';
+state $cEnd   = 'chromEnd';
+
+has '+required_fields' => (
+  default => sub{ [$chrom, $cStart, $cEnd] },
+);
 
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.

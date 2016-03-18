@@ -29,8 +29,9 @@ has dataKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$dataKe
 state $refType = 'ref';
 has refType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$refType});
 
-state $geneType = 'gene';
-has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneType});
+# This is subsumed by region tracks
+# state $geneType = 'gene';
+# has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneType});
 
 state $scoreType = 'score';
 has scoreType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$scoreType});
@@ -41,8 +42,7 @@ has sparseType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$spa
 state $regionType = 'region';
 has regionType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$regionType});
 
-enum TrackType => [$refType, $geneType, 
-  $scoreType, $sparseType, $regionType];
+enum TrackType => [$refType, $scoreType, $sparseType, $regionType];
 
 #Convert types; Could move the conversion code elsewehre,
 #but I wanted types definition close to implementation

@@ -16,8 +16,11 @@ with 'Seq::Role::Message';
 # I'm purposely not using the all methods, because that seems totally unwieldy
 # since I need both the reference and the dereferenced versions
 requires 'required_fields';
-requires 'features';
 requires 'getRequiredFieldType';
+
+requires 'allFeatureNames';
+requires 'getFeatureDbName';
+
 #@returns (<String> errorIfAny, <HashRef> required map, <HashRef> optional map)
 #has error-last "callbacks" strategy, used by golang
 #the consuming module defines the fields it requires
@@ -78,11 +81,14 @@ sub mapFeatureFields {
   # We don't let the user store required fields in the track they're building
   # because it's probably not want they want to do
   # explanation: give me everything unique to the features array (the 2nd array ref)
-  for my $fName ( _featureDiff(2, $self->required_fields, $self->features) ) {
+  # allFeatureNames returns a list of names, cast as array ref using []
+  for my $fName ( _featureDiff( 2, $self->required_fields, [$self->allFeatureNames] ) ) {
     my $idx = firstidx { $_ eq $fName } @$fieldsAref;
    
-    if( ~$idx ) { #only non-0 when non-negative, ~0 > 0
-      $featureIdx{$fName} = $idx;
+    if( ~$idx ) {
+      #store the value mapped to the feature name key, this is the 
+      #database name. This is what allows us to have really short feature names in the db
+      $featureIdx{ $self->getFeatureDbName($fName) } = $idx;
       next;
     }
 

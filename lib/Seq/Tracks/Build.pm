@@ -62,14 +62,32 @@ has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 
 #some tracks, like reference & score won't have this, so we lazy initialize
 #(and memoize as a result)
+
+#TODO: we should allow casting of required_fields.
+#we'll expect that modules will constrain the hash ref values
+#to what they require
+#ex: 
+# http://search.cpan.org/~ether/Moose-2.1605/lib/Moose/Util/TypeConstraints.pm
+  # type 'HashOfArrayOfObjects',
+  #     where {
+  #         IsHashRef(
+  #             -keys   => HasLength,
+  #             -values => IsArrayRef(IsObject)
+  #         )->(@_);
+  #     };
+# This is consistent with the Base class' handling of mapping to a db name
+# It's basically, as always label : type
+# Label is expected (for features, and required_fields) to map exactly to
+# what the user has in their db
 has required_fields => (
   is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
+  isa => 'HashRef',
+  traits => ['Hash'],
   lazy => 1,
-  default => sub{ [] },
+  default => sub{ {} },
   handles => {
-    allRequiredFields => 'elements',
+    allRequiredFields => 'keys',
+    getRequiredFieldDbName => 'get', 
     noRequiredFields  => 'is_empty',
   }
 );
