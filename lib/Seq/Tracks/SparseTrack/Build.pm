@@ -1,7 +1,7 @@
 use 5.10.0;
 use strict;
 use warnings;
-
+#TODO: update sparse track to use getFeatureDbName
 package Seq::Tracks::SparseTrack::Build;
 
 our $VERSION = '0.001';

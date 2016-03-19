@@ -6,6 +6,7 @@ use warnings;
 use Moose::Role 2;
 use Moose::Util::TypeConstraints;
 use namespace::autoclean;
+use Declare::Constraints::Simple-All;
 
 # Gene Tracks are a bit like cadd score tracks in that we need to match
 # on allele
@@ -35,14 +36,24 @@ has exonEndKey => (is => 'ro', lazy => 1, default => sub{$exonEnd} );
 
 #everythin that a gene track needs to build all of Dr. Wingo's prefab
 #annotation goodness; such as whether we're in an exon, intron, intergenci, etc
+state $positionalKeys = [$chr, $chrStart, $chrEnd, $strand, $cdsStart,
+ $cdsEnd, $exonStart, $exonEnd];
+
 has geneTrackPositionalKeys => (
   is => 'ro',
   lazy => 1,
   isa => ['ArrayRef'],
-  default => sub { [$chr, $chrStart, $chrEnd, $strand, $cdsStart,
- $cdsEnd, $exonStart, $exonEnd] },
+  default => sub { $positionalKeys; },
 );
 
+type 'GeneTrackPositionalKeys',
+      where {
+          IsHashRef(
+              -keys   => HasLength,
+              -values => $positionalKeys
+          )->(@_);
+      };
+enum GeneTrackPositionalKeys => $positionalKeys;
 #old annotation_type
 #has annotationType => 
 

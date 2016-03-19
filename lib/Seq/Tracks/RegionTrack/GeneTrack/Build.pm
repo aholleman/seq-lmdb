@@ -56,7 +56,16 @@ with 'Seq::Tracks::GeneTrack::Definition';
 
 #what goes into the region track
 #in a normal region track this would be set via -feature : 1 \n 2 \n 3 YAML
-state $features = ['name'];
+state $features = [{txStart => 'int'}, {txEnd => 'int'}, 'name', 'kgID', 'mRNA', 'spID', 
+'spDisplayID', 'geneSymbol', 'refSeq', 'protAcc', 'description', 'rfamAcc'];
+
+has "+required_fields" => {
+  default => sub {
+    my $self = shift; #could optimize away to shift->geneT... :)
+    return $self->geneTrackPositionalKeys;
+  },
+  #TODO: add this; constrain hash key values isa => 
+};
 
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
@@ -70,6 +79,7 @@ around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
   for my $name ( @$features ) {
+    #skip anything we've defined, because specify types
     #bitwise or, returns 0 for -Number only
     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
       next;
@@ -105,11 +115,8 @@ sub buildTrack {
 
       my $featIdxHref; # a map <HashRef> { featureName => columnIndexInFile}
       my $reqIdxHref; # a map <HashRef> { requiredFieldName => columnIndexInFile}
-
-      #start with 0, we use the same array index method as with the main db
-      my $geneNumber = 0;
-
-      #keep a count of geneNumbers, and reset if > $self->commitEvery;
+      
+      my $regionIdx = 0; # this is what our key will be in the region track
       my $count = 0;
       FH_LOOP: while (<$fh>) {
         chomp $_;
@@ -178,22 +185,18 @@ sub buildTrack {
           $count = 0;
           %regionData = (); #just breaks the reference to allData
         }
-
-        if(!exists $genes{ $fields[ $featIdxHref->{name} ] } ) {
-          my $geneName = $fields[ $featIdxHref->{name} ]; #for clarity
-
-          #For now we only store the name
-          #Later we can store other stuff
-          $regionData{$geneNumber}{name} = $self->prepareData($geneName);
-          $geneNumber++;
-          $count++; #this only tracks regionData
+      
+        my %fToWrite;
+        for my $f (keys %$featIdxHref) {
+          $fToWrite{ $self->getFeatureDbName($f) } =
+            $self->prepareData( $featIdxHref->{$f} );
         }
 
+        $regionData{$regionIdx} = \%fToWrite;
+        $allData{$regionIdx} = \%fToWrite;
 
-        $allData{$geneNumber} = $self->prepareData({
-
-        });
-
+        $count++; #track for commitEvery
+        $regionIdx++; #give each transcript a new entry in the region db
       }
 
       if(%regionData) {
