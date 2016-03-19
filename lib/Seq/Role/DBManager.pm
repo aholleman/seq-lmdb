@@ -165,20 +165,30 @@ $mp->prefer_integer(); #treat "1" as an integer, save more space
 # this mutates posHref
 # accepts single position, or array reference of positions
 # not completely safe, people could pass garbage, but we expect better
+#by default sort, but, sometimes we may not want to do that by default
+#To save time, I just re-assign $posAref
+#API should state: modifies the aref in place
 sub dbRead {
-  my ($self, $chr, $posAref) = @_;
+  my ($self, $chr, $posAref, $noSort) = @_;
 
   my $db = $self->getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  #carries less than a .2s penalty for sorting 1M records (for already in order records)
-  my $sortedPos = ref $posAref eq 'ARRAY' ? xsort($posAref) : [$posAref];
-
+  if(!ref $posAref) {
+    $posAref = [$posAref];
+  } else {
+    if (!$noSort) {
+      #carries less than a .2s penalty for sorting 1M records (for already in order records)
+      $posAref = xsort($posAref);
+    } else {
+      $posAref = $posAref;
+    }
+  }
   #say "sorted pos length is " . scalar @$sortedPos;
   
-  my @out;
-  for my $pos (@$sortedPos) {
+    #we'll re-use the $toGetArray
+  for my $pos (@$posAref ) {
     my $json;
     $txn->get($dbi, $pos, $json);
     if(!$json) {
@@ -187,14 +197,16 @@ sub dbRead {
       }
       next;
     }
-    push @out, $mp->unpack($json);
+    #perl always gives us a reference to the item in the array
+    #so we can just re-assign it
+    $pos = $mp->unpack($json);
   }
   $txn->commit();
 
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  return \@out;
+  return $posAref;
 }
 
 #expects one track per call ; each posHref should have {pos => {trackName => trackData} }
