@@ -65,7 +65,7 @@ sub setDbPath {
 has commitEvery => (
   is => 'ro',
   init_arg => undef,
-  default => 1e6,
+  default => 1e4,
   lazy => 1,
 );
 
@@ -109,7 +109,7 @@ sub getDbi {
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
-      flags => MDB_NOTLS | MDB_NOMETASYNC,
+      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC,
       maxreaders => 1000,
       maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
@@ -140,6 +140,12 @@ sub _openDB {
 
   return $DB;
 }
+
+#We could use the static method; not sure which is faster
+#But goal is to make sure we treat strings that look like integers as integers
+#Avoid weird dynamic typing issues that impact space
+my $mp = Data::MessagePack->new();
+$mp->prefer_integer(); #treat "1" as an integer, save more space
 
 #Since we are using transactions, and have sync on commit enabled
 #we know that if the feature name ($tokPkey) is found
@@ -181,7 +187,7 @@ sub dbRead {
       }
       next;
     }
-    push @out, Data::MessagePack->unpack($json);
+    push @out, $mp->unpack($json);
   }
   $txn->commit();
 
@@ -197,7 +203,7 @@ sub dbPatchBulk {
 
   my $db = $self->getDbi($chr);
   my $dbi = $db->{dbi};
-
+  
   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -215,7 +221,7 @@ sub dbPatchBulk {
     if($json) {
       my ($featureID) = %{$posHref->{$pos} };
       #can't modify $json, read-only value, from memory map
-      $href = Data::MessagePack->unpack($json);
+      $href = $mp->unpack($json);
 
       # say "previous href was";
       # p $previous_href;
@@ -279,7 +285,7 @@ sub dbPutBulk {
       next;
     }
 
-    $txn->put($dbi, $pos, Data::MessagePack->pack( $posHref->{$pos} ) );
+    $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
     #should move logging to async
     #have the MDB_NOTFOUND thing becaues this could follow a get operation

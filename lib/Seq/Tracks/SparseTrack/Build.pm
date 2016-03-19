@@ -100,15 +100,12 @@ sub buildTrack {
           FEATURE_LOOP: for my $fname ($self->allFeatures) {
             my $idx = firstidx {$_ eq $fname} @fields;
             if(~$idx) { #only non-0 when non-negative, ~0 > 0
-              $featureIdx{$fname} = $idx;
+              $featureIdx{ $self->getFeatureLabel($fname) } = $idx;
               next FEATURE_LOOP;
             }
             $self->tee_logger('warn', "Feature $fname missing in $file header");
           }
 
-          # say "featureIdx is";
-          # p %featureIdx;
-          #exit;
           next FH_LOOP;
         }
 
@@ -179,9 +176,6 @@ sub buildTrack {
         for my $name (keys %featureIdx) {
           $fDataHref->{$name} = $self->coerceFeatureType( $name, $fields[ $featureIdx{$name} ] );
         }
-        
-        # say "feature is";
-        # p $fDataHref;
 
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);

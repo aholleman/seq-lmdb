@@ -96,25 +96,26 @@ around BUILDARGS => sub {
           # - type : int
           # - store : b
       if(ref $type eq 'HASH') {
-        if($type->{store}) {
+        #must use defined to allow 0 values
+        if( defined $type->{store} ) {
           $featureLabels{$name} = $type->{store};
         }
-        if( $type->{type} ) {
-          $data->{_featureDataTypes}{$name} = $type->{type};
+        #must use defined to allow 0 values (not as nec. here, because 0 type is weird)
+        if( defined $type->{type} ) {
+          #need to use the label, because that is the name that we use
+          #internally
+          $data->{_featureDataTypes}{$featureLabels{$name} } = $type->{type};
         }
+
         next;
-      } else {
-        $data->{_featureDataTypes}{$name} = $type;
       }
-      
+
       $featureLabels{$name} = $name;
+      $data->{_featureDataTypes}{$name} = $type;
     }
   }
   $data->{features} = \%featureLabels;
 
-  say "data is";
-  p $data;
-  exit;
   $class->$orig($data);
 };
 

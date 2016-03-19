@@ -93,7 +93,6 @@ sub BUILD {
   
   for my $bTypeAref (@builders) {
     for my $builder (@$bTypeAref) {
-      exit;
       $builder->buildTrack();
       $self->tee_logger('info', "finished building " . $builder->{name} );
     }

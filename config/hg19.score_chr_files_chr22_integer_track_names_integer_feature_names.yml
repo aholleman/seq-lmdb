@@ -7,7 +7,7 @@ database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:
 - name: 
-    reference: r
+    reference: 0
   type: ref
   local_files:
     - chr1.fa.gz
@@ -62,7 +62,7 @@ tracks:
     - chrM.fa.gz
     - chrX.fa.gz
     - chrY.fa.gz
-- name: C
+- name: 1
   type: score
   local_files:
     - chr1.phastCons100way.wigFix.gz
@@ -117,7 +117,7 @@ tracks:
     - chrX.phastCons100way.wigFix.gz
     - chrY.phastCons100way.wigFix.gz
     - chrM.phastCons100way.wigFix.gz
-- name: P
+- name: 2
   type: score
   local_files:
     - chr1.phyloP100way.wigFix.gz
@@ -172,7 +172,7 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name: r
+- name: 3
   type: gene
   features:
     - kgID
@@ -189,28 +189,30 @@ tracks:
   sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
     = hg19.refGene.name
 - name: 
-    snp: s
+    snp: 4
   type: sparse
   features:
     - name:
-        store: n
+        store: 0
     - strand:
-        store: s
+        store: 1
     - refUCSC:
-        store: r
+        store: 2
     - observed:
-        store: o
+        store: 3
     - func:
-        store: f
+        store: 4
     - alleleFreqCount:
-        store: q
+        type: int
+        store: 5
     - alleles:
-        store: a
+        store: 6
     - alleleNs:
         type: int
-        store: N
+        store: 7
     - alleleFreqs:
-        store: Q
+        type: float
+        store: 8
   local_files:
     - hg19.snp142.chr22.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142

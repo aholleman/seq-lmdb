@@ -1,13 +1,37 @@
 ---
 genome_chrs:
+- chr1
+- chr2
+- chr3
+- chr4
+- chr5
+- chr6
+- chr7
+- chr8
+- chr9
+- chr10
+- chr11
+- chr12
+- chr13
+- chr14
+- chr15
+- chr16
+- chr17
+- chr18
+- chr19
+- chr20
+- chr21
 - chr22
+- chrM
+- chrX
+- chrY
 genome_description: human
 genome_name: hg19 
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:
 - name: 
-    reference: r
+    reference: 0
   type: ref
   local_files:
     - chr1.fa.gz
@@ -62,7 +86,8 @@ tracks:
     - chrM.fa.gz
     - chrX.fa.gz
     - chrY.fa.gz
-- name: C
+- name: 
+    phastCons: 1
   type: score
   local_files:
     - chr1.phastCons100way.wigFix.gz
@@ -117,7 +142,8 @@ tracks:
     - chrX.phastCons100way.wigFix.gz
     - chrY.phastCons100way.wigFix.gz
     - chrM.phastCons100way.wigFix.gz
-- name: P
+- name:
+    phyloP: 2
   type: score
   local_files:
     - chr1.phyloP100way.wigFix.gz
@@ -172,7 +198,8 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name: r
+- name:
+    refSeq: 3
   type: gene
   features:
     - kgID
@@ -189,30 +216,56 @@ tracks:
   sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
     = hg19.refGene.name
 - name: 
-    snp: s
+    snp: 4
   type: sparse
   features:
     - name:
-        store: n
+        store: 0
     - strand:
-        store: s
+        store: 1
     - refUCSC:
-        store: r
+        store: 2
     - observed:
-        store: o
+        store: 3
     - func:
-        store: f
+        store: 4
     - alleleFreqCount:
-        store: q
+        type: int
+        store: 5
     - alleles:
-        store: a
+        store: 6
     - alleleNs:
         type: int
-        store: N
+        store: 7
     - alleleFreqs:
-        store: Q
+        store: 8
+        type: float
   local_files:
+    - hg19.snp142.chr1.txt
+    - hg19.snp142.chr2.txt
+    - hg19.snp142.chr3.txt
+    - hg19.snp142.chr4.txt
+    - hg19.snp142.chr5.txt
+    - hg19.snp142.chr6.txt
+    - hg19.snp142.chr7.txt
+    - hg19.snp142.chr8.txt
+    - hg19.snp142.chr9.txt
+    - hg19.snp142.chr10.txt
+    - hg19.snp142.chr11.txt
+    - hg19.snp142.chr12.txt
+    - hg19.snp142.chr13.txt
+    - hg19.snp142.chr14.txt
+    - hg19.snp142.chr15.txt
+    - hg19.snp142.chr16.txt
+    - hg19.snp142.chr17.txt
+    - hg19.snp142.chr18.txt
+    - hg19.snp142.chr19.txt
+    - hg19.snp142.chr20.txt
+    - hg19.snp142.chr21.txt
     - hg19.snp142.chr22.txt
+    - hg19.snp142.chrX.txt
+    - hg19.snp142.chrM.txt
+    - hg19.snp142.chrY.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
 # - name: cadd
 #   type: score

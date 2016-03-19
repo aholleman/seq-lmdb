@@ -17,6 +17,7 @@ use DDP;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO';
+
 #anything with an underscore comes from the config format
 #this only is used by Build
 has local_files => (
@@ -76,8 +77,6 @@ around BUILDARGS => sub {
   }
 
   if(ref $href->{name} eq 'HASH') {
-    say "href name";
-    p $href->{name};
     (undef, $href->{name}) = %{ $href->{name} }; #get the value, this is what to store as
   }
 
@@ -107,32 +106,41 @@ sub prepareData {
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
 #@returns {String} : coerced type
+
+#We always return an array for anything split by multi-delim; arrays are implied by those
+#arrays are also more space efficient in msgpack
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   # my ($self, $dataStr) = @_;
 
-  if($_[0]->noFeatureTypes) {
-    return $_[2];
-  }
+  my $type = $_[0]->noFeatureTypes ? undef : $_[0]->getFeatureType( $_[1] );
 
-  my $type = $_[0]->getFeatureType( $_[1] );
-
-  if(!$type) {
-    return $_[2];
-  }
-
+  #even if we don't have a type, let's coerce anything that is split by a 
+  #delimiter into an array; it's more efficient to store, and array is implied by the delim
   my @parts;
   if( ~index( $_[2], $_[0]->multi_delim ) ) { #bitwise compliment, return 0 only for -N
     my @vals = split( $_[0]->multi_delim, $_[2] );
+
+    #use defined to allow 0 values as types; that is a remote possibility
+    #though more applicable for the name we store the thing as
+    if(!defined $type) { 
+      return \@vals;
+    }
 
     #http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
     #modifying the value here actually modifies the value in the array
     for my $val (@vals) {
       $val = $_[0]->convert($val, $type);
     }
-    #so annoying that the delims are flipped from split
-    return join($_[0]->multi_delim, @vals);
-  } 
+
+    #In order to save space in the db, and since may need to use the values
+    #anything that has a comma is just returned as an array ref
+    return \@vals;
+  }
+
+  if(!defined $type) {
+    return $_[2];
+  }
 
   return $_[0]->convert($_[2], $type);
 }
