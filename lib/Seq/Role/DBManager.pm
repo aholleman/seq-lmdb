@@ -65,7 +65,7 @@ sub setDbPath {
 has commitEvery => (
   is => 'ro',
   init_arg => undef,
-  default => 1e6,
+  default => 1e4,
   lazy => 1,
 );
 
@@ -109,7 +109,7 @@ sub getDbi {
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
-      flags => MDB_NOTLS | MDB_NOMETASYNC,
+      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC,
       maxreaders => 1000,
       maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
@@ -141,10 +141,11 @@ sub _openDB {
   return $DB;
 }
 
-#In the below methods I call the db name argument "$chr"
-#Passing a chromosome is just the typical use case
-#Something like a region track may opt to pass a relative path
-#The point is just to tell us which environment to open or return if previously
+#We could use the static method; not sure which is faster
+#But goal is to make sure we treat strings that look like integers as integers
+#Avoid weird dynamic typing issues that impact space
+my $mp = Data::MessagePack->new();
+$mp->prefer_integer(); #treat "1" as an integer, save more space
 
 #Since we are using transactions, and have sync on commit enabled
 #we know that if the feature name ($tokPkey) is found
@@ -164,36 +165,50 @@ sub _openDB {
 # this mutates posHref
 # accepts single position, or array reference of positions
 # not completely safe, people could pass garbage, but we expect better
+#by default sort, but, sometimes we may not want to do that by default
+#To save time, I just re-assign $posAref
+#However that proved annoying in practice
 sub dbRead {
-  my ($self, $chr, $posAref) = @_;
+  my ($self, $chr, $posAref, $noSort) = @_;
 
   my $db = $self->getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  #carries less than a .2s penalty for sorting 1M records (for already in order records)
-  my $sortedPos = ref $posAref eq 'ARRAY' ? xsort($posAref) : [$posAref];
+  my $oAref;
+  if(!ref $posAref) {
+     $oAref = [$posAref];
+  } else {
+    if (!$noSort) {
+      #carries less than a .2s penalty for sorting 1M records (for already in order records)
+      $oAref = xsort($posAref);
+    } else {
+      #don't modify the original reference
+      #this doesn't work: \@$posAref;
+      $oAref = [@$posAref];
+    }
+  }
 
-  #say "sorted pos length is " . scalar @$sortedPos;
-  
-  my @out;
-  for my $pos (@$sortedPos) {
+  #modify $oAref in place, to save one array assignment;
+  for my $pos (@$oAref ) {
     my $json;
     $txn->get($dbi, $pos, $json);
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-        $self->tee_logger('warn', "LMDB get error" . $LMDB_File::last_err);
+        $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
       }
       next;
     }
-    push @out, Data::MessagePack->unpack($json);
+    #perl always gives us a reference to the item in the array
+    #so we can just re-assign it
+    $pos = $mp->unpack($json);
   }
   $txn->commit();
 
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  return \@out;
+  return $oAref;
 }
 
 #expects one track per call ; each posHref should have {pos => {trackName => trackData} }
@@ -202,7 +217,7 @@ sub dbPatchBulk {
 
   my $db = $self->getDbi($chr);
   my $dbi = $db->{dbi};
-
+  
   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -220,7 +235,7 @@ sub dbPatchBulk {
     if($json) {
       my ($featureID) = %{$posHref->{$pos} };
       #can't modify $json, read-only value, from memory map
-      $href = Data::MessagePack->unpack($json);
+      $href = $mp->unpack($json);
 
       # say "previous href was";
       # p $previous_href;
@@ -244,7 +259,7 @@ sub dbPatchBulk {
     #trigger this only if json isn't found, save on many if calls
     #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->tee_logger('warn', "LMDB get error" . $LMDB_File::last_err);
+      $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
     }
     #if nothing exists; then we still want to pass it on to
     #the writer, even if !overwrite is true
@@ -284,7 +299,7 @@ sub dbPutBulk {
       next;
     }
 
-    $txn->put($dbi, $pos, Data::MessagePack->pack( $posHref->{$pos} ) );
+    $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
     #should move logging to async
     #have the MDB_NOTFOUND thing becaues this could follow a get operation
@@ -293,7 +308,7 @@ sub dbPutBulk {
     #a bulk get
     #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->tee_logger('warn', 'LMDB PUT ERROR: ' . $LMDB_File::last_err);
+      $self->log('warn', 'LMDB PUT ERROR: ' . $LMDB_File::last_err);
     }
   }
 

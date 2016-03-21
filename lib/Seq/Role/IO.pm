@@ -63,20 +63,19 @@ sub get_read_fh {
   }
 
   my $filePath = $file->stringify;
-  
-  $self->tee_logger('error',
-    'file does not exist for reading: '. $filePath
-  ) if !$file->is_file;
-  
+
+  if (!$file->is_file) {
+    return $self->log('error', 'file does not exist for reading: '. $filePath);
+  }
   #duck type compressed files
   try {
     $fh = IO::Uncompress::AnyUncompress->new($filePath);
   } catch {
-    $self->tee_logger('debug', "$filePath probably isn't an archive");
+    $self->log('debug', "$filePath probably isn't an archive");
   };
-  
+    
   $fh = IO::File->new($filePath, 'r') unless $fh;
-  $self->tee_logger('error', "Unable to open file $filePath") unless $fh;
+  return $self->log('error', "Unable to open file $filePath") unless $fh;
 
   return $fh;
 }

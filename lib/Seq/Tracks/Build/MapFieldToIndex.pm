@@ -13,10 +13,8 @@ use List::MoreUtils::XS qw(firstidx);
 use POSIX;
 with 'Seq::Role::Message';
 
-# I'm purposely not using the all methods, because that seems totally unwieldy
-# since I need both the reference and the dereferenced versions
-requires 'required_fields';
-requires 'getRequiredFieldType';
+requires 'allRequiredFields';
+requires 'getReqFieldDbName';
 
 requires 'allFeatureNames';
 requires 'getFeatureDbName';
@@ -25,42 +23,19 @@ requires 'getFeatureDbName';
 #has error-last "callbacks" strategy, used by golang
 #the consuming module defines the fields it requires
 sub mapRequiredFields {
-  my $self = shift;
-
-  # the fields from some input file
-  my $fieldsAref = shift;
-
-  #sometimes we may want to not allow mapped names
-  #for instance when deciding whether we have one type of file, or another
-  my $allowAlternativeName = shift; 
+  my ($self, $fieldsAref) = @_;
 
   my %reqIdx;
 
-  for my $rName ( @{$self->required_fields} ) {
-    my $idx = firstidx {$_ eq $rName} @$fieldsAref; #returns -1 if not found
+  for my $field ($self->allRequiredFields) {
+    my $idx = firstidx { $_ eq $field } @$fieldsAref; #returns -1 if not found
     #bitwise complement, makes -1 0
     if( ~$idx ) {
-      $reqIdx{$rName} = $idx;
+      $reqIdx{ $self->getReqFieldDbName($field) } = $idx;
       next;  
     }
 
-    if( !$allowAlternativeName ) {
-      return (undef, "Required field $rName missing in header,
-        and allowAlternativeName flag falsy in mapRequiredFields");
-    }
-
-    #two href get should be cheaper but this may be easier to read
-    my $trueName = $self->getRequiredFieldType($rName);
-    if( $trueName ) {
-      $idx = firstidx { $_ eq $trueName } @$fieldsAref;
-    }
-    
-    if ( ~$idx ) {
-      $reqIdx{$trueName} = $idx;
-      next;
-    }
-
-    return (undef, "Required field $rName missing in header");
+    return (undef, "Required field $field missing in header");
   }
 
   return \%reqIdx;
@@ -73,7 +48,7 @@ sub mapFeatureFields {
   my ($self, $fieldsAref) = @_;
 
   if( !$fieldsAref ) {
-    $self->tee_logger('error', 'mapFeatureFields requires array ref as first arg');
+    $self->log('error', 'mapFeatureFields requires array ref as first arg');
   }
 
   my %featureIdx;
@@ -82,28 +57,29 @@ sub mapFeatureFields {
   # because it's probably not want they want to do
   # explanation: give me everything unique to the features array (the 2nd array ref)
   # allFeatureNames returns a list of names, cast as array ref using []
-  for my $fName ( _featureDiff( 2, $self->required_fields, [$self->allFeatureNames] ) ) {
-    my $idx = firstidx { $_ eq $fName } @$fieldsAref;
+  for my $field (_diff( 2, [$self->allRequiredFields], [$self->allFeatureNames] ) ) {
+    my $idx = firstidx { $_ eq $field } @$fieldsAref;
    
     if( ~$idx ) {
       #store the value mapped to the feature name key, this is the 
       #database name. This is what allows us to have really short feature names in the db
-      $featureIdx{ $self->getFeatureDbName($fName) } = $idx;
+      $featureIdx{ $self->getFeatureDbName($field) } = $idx;
       next;
     }
 
-    $self->tee_logger('warn', "Feature $fName missing in header");
+    $self->log('warn', "Feature $field missing in header");
   }
 
   return \%featureIdx;
 }
 
 # accepts which array you want the exclusive diff off, and some number of array refs
-# ex: _featureDiff(2, $aRef1, $aRef2, $aRef3)
+# ex: _diff(2, $aRef1, $aRef2, $aRef3)
 # will return the items that were only found in $aRef2
 # http://www.perlmonks.org/?node_id=919422
-# Test: https://ideone.com/3ITgd6 (adding to test suite as well)
-sub _featureDiff {
+# Test: https://ideone.com/vxzmPv (adding to test suite as well)
+#my @stuff = _diff(3, [0,1,2], [2,3,4], [4,5,6] );
+sub _diff {
   my $which = shift;
   my $b = 1;
   my %presence;
@@ -115,8 +91,10 @@ sub _featureDiff {
   } continue {
       $b *= 2;
   }
-  $which = POSIX::floor($which == 1 ? $which : $which * 2);
+
+  $which = POSIX::floor($which == 1 ? $which : $which * $which/2 );
   return grep{ $presence{$_} == $which } keys %presence;
 }
+
 no Moose::Role;
 1;

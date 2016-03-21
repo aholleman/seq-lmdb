@@ -104,7 +104,7 @@ sub record {
 
     $aCount = $self->isHomo($geno) ? 2 : 1; #assumes diploid
     if ( !$aCount ) {
-      $self->tee_logger( 'warn', 'No allele count found for genotype $geno' );
+      $self->log( 'warn', 'No allele count found for genotype $geno' );
       next;
     }
 

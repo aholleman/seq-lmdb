@@ -1,7 +1,7 @@
 use 5.10.0;
 use strict;
 use warnings;
-#TODO: update sparse track to use getFeatureDbName
+#TODO: TEST to make sure this (and all other fields are still working)
 package Seq::Tracks::SparseTrack::Build;
 
 our $VERSION = '0.001';
@@ -51,6 +51,8 @@ state $chrom = 'chrom';
 state $cStart = 'chromStart';
 state $cEnd   = 'chromEnd';
 
+#TODO: add types here, so that we can check at build time whether 
+#the right stuff has been passed
 has '+required_fields' => (
   default => sub{ [$chrom, $cStart, $cEnd] },
 );
@@ -75,6 +77,11 @@ sub buildTrack {
       my $reqIdxHref;
 
       my $count = 0;
+
+      # sparse track should be 1 based
+      # we have a method ->zeroBased, but in practice I find it more confusing to use
+      my $based = $self->based;
+
       FH_LOOP: while (<$fh>) {
         chomp $_; #$_ not nec. , but more cross-language understandable
         #this may be too aggressive, like a super chomp, that hits 
@@ -87,13 +94,14 @@ sub buildTrack {
         if($. == 1) {
           my ($reqIdxHref, $err) = $self->mapRequiredFields(\@fields);
           if($err) {
-            $self->tee_logger('error', $err);
+            return $self->log('error', $err);
           }
 
           my $featureIdxHref = $self->mapFeatureFields(\@fields);
           # say "featureIdx is";
           # p %featureIdx;
           #exit;
+
           next FH_LOOP;
         }
 
@@ -151,11 +159,11 @@ sub buildTrack {
         #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
         #logging currently is synchronous, and very, very slow compared to CPU speed
         if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
-          $pAref = [ $self->zeroBased( $fields[ $reqIdxHref->{$cStart} ] ) ];
+          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
         } else { #it's a normal change, or a deletion
           #BED is a half-closed format, so subtract 1 from end
-          $pAref = [ $self->zeroBased( $fields[ $reqIdxHref->{$cStart} ] ) 
-            .. $self->zeroBased( $fields[ $reqIdxHref->{$cEnd} ] ) - 1 ];
+          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
+            .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
         }
       
         #now we collect all of the feature data
@@ -166,9 +174,6 @@ sub buildTrack {
           $fDataHref->{$name} = 
             $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
         }
-        
-        # say "feature is";
-        # p $fDataHref;
 
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);
@@ -185,7 +190,7 @@ sub buildTrack {
       #we're done with the file, and stuff is left over;
       if(%data) {
         if(!$wantedChr) {
-          $self->tee_logger('error', 'After file read, data left, but no wantecChr');
+          return $self->log('error', 'After file read, data left, but no wantecChr');
         }
         #let's write that stuff
         $self->dbPatchBulk($wantedChr, \%data);
@@ -194,7 +199,7 @@ sub buildTrack {
     $pm->finish;
   }
   $pm->wait_all_children;
-  $self->tee_logger('info', 'finished building track: ' . $self->name);
+  $self->log('info', 'finished building: ' . $self->name);
 }
 
 __PACKAGE__->meta->make_immutable;
@@ -213,7 +218,7 @@ __PACKAGE__->meta->make_immutable;
 #               next REQ_LOOP; #label for clarity
 #             }
             
-#             $self->tee_logger('error', 'Required field $field missing in $file header');
+#             $self->log('error', 'Required field $field missing in $file header');
 #           }
 
 #           # say 'all features wanted are';
@@ -225,6 +230,6 @@ __PACKAGE__->meta->make_immutable;
 #               $featureIdx{$fname} = $idx;
 #               next FEATURE_LOOP;
 #             }
-#             $self->tee_logger('warn', "Feature $fname missing in $file header");
+#             $self->log('warn', "Feature $fname missing in $file header");
 #           }
 # }

@@ -17,9 +17,8 @@ use DDP;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO';
-#anything with an underscore is expected to potentially be specified in the YAML config
-#used to configure Seq
 
+#anything with an underscore comes from the config format
 #this only is used by Build
 has local_files => (
   is      => 'ro',
@@ -87,59 +86,42 @@ has required_fields => (
   default => sub{ {} },
   handles => {
     allRequiredFields => 'keys',
-    getRequiredFieldDbName => 'get', 
+    getReqFieldDbName => 'get', 
     noRequiredFields  => 'is_empty',
-  }
-);
-
-#we could abstract this further, maybe include only in a subset of tracks
-has _requiredFieldTypes => (
-  is => 'ro',
-  isa => 'HashRef[Str]',
-  traits => ['Hash'],
-  lazy => 1,
-  default => sub{ {} },
-  handles => {
-    getRequiredFieldType => 'get',
-    noRequiredFieldTypes => 'is_empty',
   }
 );
 
 #local files are given as relative paths, relative to the files_dir
 around BUILDARGS => sub {
-  my $orig = shift;
-  my $class = shift;
-  my $href = shift;
+  my ($orig, $class, $href) = @_;
 
   my @localFiles;
   my $fileDir = $href->{files_dir};
 
   for my $localFile (@{$href->{local_files} } ) {
-    push @localFiles, path($fileDir)->child($href->{type} )->child($localFile)->absolute->stringify;
+    push @{ $href->{local_files} }, path($fileDir)->child($href->{type} )
+      ->child($localFile)->absolute->stringify;
   }
 
-  if(@localFiles) {
-    $href->{local_files} = \@localFiles;
+  #this takes the user-supplied names, and if they gave
+  #name : chrom , store it as such, 
+  #else there really isn't a need for them to pass anything
+  #and since we expect a hashref, anything else they supply will fail
+  
+  if( !@{$href->{required_fields} } ) {
+    return $class->$orig($href);
   }
 
-  if(ref $href->{name} eq 'HASH') {
-    say "href name";
-    p $href->{name};
-    (undef, $href->{name}) = %{ $href->{name} }; #get the value, this is what to store as
-  }
-
-  for my $field (@{$href->{required_fields} } ) {
-    if( ref $field ne 'HASH' ) {
-      next;
+  my %reqFieldMap;
+  for my $field ( @{ $href->{required_fields} } ) {
+    if (ref $field eq 'HASH') {
+      my ($name, $reqName) = %$field; #Thomas Wingo method
+      
+      $reqFieldMap{$name} = $reqName;
     }
-
-    my ($name, $val) = %$field; #list assignment yield (key1,val1,key2,val2,etc)
-    $href->{_requiredFieldMap}{$name} = $val;
-
-    #perl is tricky: $field is a dereferenced element in the array
-    #so this modifies the element in the array
-    $field = $name;
   }
+
+  $href->{required_fields} = \%reqFieldMap;
 
   $class->$orig($href);
 };
@@ -151,11 +133,14 @@ around BUILDARGS => sub {
 #since this is called a ton
 sub prepareData {
   #my ($self, $data) = @_;
+  #so $_[0] is $self, $_[0] is $data
 
   #Seq::Tracks::Base should know to retrieve data this way
   #this is our schema
+  #the dbName is an internally generated integer, that we use instead of 
+  #the feature name specified by the user, to save space
   return {
-    $_[0]->name => $_[1],
+    $_[0]->dbName => $_[1],
   }
   #could also do this, but this seems more abstracted than necessary
   # $targetHref->{$pos} = {
@@ -167,46 +152,57 @@ sub prepareData {
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
 #@returns {String} : coerced type
+
+#We always return an array for anything split by multi-delim; arrays are implied by those
+#arrays are also more space efficient in msgpack
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   # my ($self, $dataStr) = @_;
 
-  if($_[0]->noFeatureTypes) {
-    return $_[2];
-  }
+  my $type = $_[0]->noFeatureTypes ? undef : $_[0]->getFeatureType( $_[1] );
 
-  my $type = $_[0]->getFeatureType( $_[1] );
-
-  if(!$type) {
-    return $_[2];
-  }
-
+  #even if we don't have a type, let's coerce anything that is split by a 
+  #delimiter into an array; it's more efficient to store, and array is implied by the delim
   my @parts;
   if( ~index( $_[2], $_[0]->multi_delim ) ) { #bitwise compliment, return 0 only for -N
     my @vals = split( $_[0]->multi_delim, $_[2] );
+
+    #use defined to allow 0 values as types; that is a remote possibility
+    #though more applicable for the name we store the thing as
+    if(!defined $type) { 
+      return \@vals;
+    }
 
     #http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
     #modifying the value here actually modifies the value in the array
     for my $val (@vals) {
       $val = $_[0]->convert($val, $type);
     }
-    #so annoying that the delims are flipped from split
-    return join($_[0]->multi_delim, @vals);
-  } 
+
+    #In order to save space in the db, and since may need to use the values
+    #anything that has a comma is just returned as an array ref
+    return \@vals;
+  }
+
+  if(!defined $type) {
+    return $_[2];
+  }
 
   return $_[0]->convert($_[2], $type);
 }
 
+#Not currently used; I find it simpler to read to just subtract $self->based
+#where that is needed, and that also saves sub call overhead
 #takes a potentially non-0 based thing, makes it 0 based
 #called via $self->toZeroBased;
 #@param $_[1] == the base  . This is the only argument: $self->zeroBased($base) 
 #@param $_[0] == $self : class instance;
 #this can be called billions of times, so trying to reduce performance overhead
 #of assignment
-sub zeroBased {
-  if ( $_[0]->based == 0 ) { return $_[1]; }
-  return $_[1] - $_[0]->based;
-}
+# sub zeroBased {
+#   if ( $_[0]->based == 0 ) { return $_[1]; }
+#   return $_[1] - $_[0]->based;
+# }
 
 __PACKAGE__->meta->make_immutable;
 

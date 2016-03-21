@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Definition;
+package Seq::Tracks::Base::Definition;
 
 our $VERSION = '0.001';
 
@@ -14,6 +14,8 @@ use Moose::Role;
 use Moose::Util::TypeConstraints; 
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
+
+coerce 'HashRef', from 'ArrayRef', via { $_ => $_ };
 
 state $typeKey = 't';
 has typeKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$typeKey});
@@ -84,4 +86,5 @@ sub int {
 # enum BedFieldType => ['chrom', 'chromStart', 'chromEnd'];
 
 no Moose::Role;
+no Moose::Util::TypeConstraints;
 1;

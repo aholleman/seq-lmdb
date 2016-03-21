@@ -88,7 +88,7 @@ sub _annotateSugar {
   my ( $self, $dataAref, $allele, $cb ) = @_;
 
   if ( !( $dataAref && @$dataAref && $allele ) ) {
-    $self->tee_logger( 'warn', '_annotateSugar requires dataAref and allele' );
+    $self->log( 'warn', '_annotateSugar requires dataAref and allele' );
     return;
   }
 
@@ -103,19 +103,15 @@ sub _annotateSugar {
 
   for my $geneRecordAref (@$dataAref) {
     if ( !$geneRecordAref ) {
-      $self->tee_logger(
-        'warn', 'Database may be malformed,
-            returned empty geneRecordAref, _annotateSugar'
-      );
+      $self->log( 'warn', 'Database may be malformed, 
+        returned empty geneRecordAref, _annotateSugar' );
       next;
     }
 
     for my $transcriptHref (@$geneRecordAref) {
       if ( !$transcriptHref ) {
-        $self->tee_logger(
-          'warn', 'Database may be malformed,
-                returned empty transcriptHref, _annotateSugar'
-        );
+        $self->log('warn', 'Database may be malformed, 
+          returned empty transcriptHref, _annotateSugar' );
         next;
       }
 

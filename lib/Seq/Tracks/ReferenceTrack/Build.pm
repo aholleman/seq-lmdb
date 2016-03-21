@@ -47,7 +47,7 @@ sub buildTrack{
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  $self->tee_logger('info', "starting to build " . $self->name );
+  $self->log('info', "starting to build " . $self->name );
 
   my $fStep = 'fixedStep';
   my $vStep = 'variableStep';
@@ -56,12 +56,13 @@ sub buildTrack{
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
 
-  #TODO: let the user mess with this if they want
+  #don't let the users change this (at least for now)
+  #we should only allow them to tell us how to get their custom tracks to 0 based
   my $based = 0; #$self->based;
 
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
-      $self->tee_logger('error', "ERROR: cannot find $file");
+      return $self->log('error', "ERROR: cannot find $file");
     }
     #simple forking; could do something more involvd if we had guarantee
     #that a single file would be in order of chr
@@ -93,7 +94,8 @@ sub buildTrack{
           my $chr = $1;
 
           if(!$chr) {
-            $self->tee_logger('error', 'Require chr in fasta file headers');
+            #should die after error, return is just to indicate intention
+            return $self->log('error', 'Require chr in fasta file headers');
           }
 
           if ($wantedChr && $wantedChr eq $chr) {
@@ -124,7 +126,7 @@ sub buildTrack{
           }
 
           # chr isn't wanted if we got here
-          $self->tee_logger('warn', "skipping unrecognized chromsome: $chr");
+          $self->log('warn', "skipping unrecognized chromsome: $chr");
 
           #so let's erase the remaining data associated with this chr
           undef $wantedChr;
@@ -143,7 +145,7 @@ sub buildTrack{
         #like a blank line on the first, instead of a header
         #but the user should know, because it portends other issues
         if ( !$wantedChr ) {
-          $self->tee_logger('warn', "No wanted chr found, after first line " .
+          $self->log('warn', "No wanted chr after first line " .
             'could be malformed wig file');
           next;
         }
@@ -181,7 +183,7 @@ sub buildTrack{
       #we're done with the input file, 
       if( %data ) {
         if(!$wantedChr) { #sanity check, 'error' log dies
-          $self->tee_logger('error', "@ end of $file, but no wantedChr and data");
+         return $self->log('error', "@ end of $file, but no wantedChr and data");
         }
 
         #and we could still have some data to write
@@ -193,7 +195,7 @@ sub buildTrack{
   }
   $pm->wait_all_children;
 
-  $self->tee_logger('info', 'finished building track: ' . $self->name);
+  $self->log('debug', 'finished building track: ' . $self->name);
 };
 
 

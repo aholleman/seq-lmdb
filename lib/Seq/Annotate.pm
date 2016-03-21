@@ -86,18 +86,6 @@ with 'Seq::Role::IO', 'Seq::Role::DBManager';
 
 @see @class Seq::GenomeBin
 =cut
-
-# has messangerHref => (
-#   is => 'ro',
-#   required => 1,
-# );
-# has logger => (
-#   is => 'ro',
-#   isa => 'Seq::Message',
-#   handles => ['tee_logger','publishMessage'],
-#   required => 1,
-# );
-
 has statisticsCalculator => (
   is      => 'ro',
   isa     => 'Seq::Statistics',
@@ -240,7 +228,7 @@ sub _var_alleles {
         if($subs eq '-' || $subs eq '+') {
           push @indelAlleles, $allele;
         } else {
-          $self->tee_logger('warn', "Allele $allele is unknown");
+          $self->log('warn', "Allele $allele is unknown");
         }
       }
     }

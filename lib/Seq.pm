@@ -142,7 +142,7 @@ sub annotate_snpfile {
     }
   );
 
-  $self->tee_logger( 'info', 'Loading annotation data' );
+  $self->log( 'info', 'Loading annotation data' );
 
   # cache import hashes that are otherwise obtained via method calls
   #   - does this speed things up?
@@ -157,14 +157,14 @@ sub annotate_snpfile {
   # add header information to Seq class
   $self->add_header_attr(@header);
 
-  $self->tee_logger( 'info', "Loaded assembly " . $annotator->genome_name );
+  $self->log( 'info', "Loaded assembly " . $annotator->genome_name );
 
   #a file slurper that is compression-aware
-  $self->tee_logger( 'info', "Reading input file" );
+  $self->log( 'info', "Reading input file" );
   
   my $fileLines = $self->get_file_lines( $self->snpfile_path );
   
-  $self->tee_logger( 'info',
+  $self->log( 'info',
     sprintf("Finished reading input file, found %s lines", scalar @$fileLines)
   );
 
@@ -239,7 +239,7 @@ sub annotate_snpfile {
     # if we allow plow through, don't write log, to avoid performance hit
     if(! exists $chr_len_href->{$chr} ) {
       next if $self->ignore_unknown_chr;
-      $self->tee_logger( 'error', 
+      return $self->log( 'error', 
         sprintf( "Error: unrecognized chromosome: '%s', pos: %d", $chr, $pos )
       );
     }
@@ -261,7 +261,7 @@ sub annotate_snpfile {
 
       # check that we set the needed variables for determining position
       unless ( defined $chr_offset and defined $chr_index ) {
-        $self->tee_logger( 'error',
+       return $self->log( 'error',
           "Error: Couldn't set 'chr_offset' or 'chr_index' for: $chr"
         );
       }
@@ -271,7 +271,7 @@ sub annotate_snpfile {
     if ( $abs_pos > $next_chr_offset ) {
       my $msg = "Error: $chr:$pos is beyond the end of $chr $next_chr_offset\n
         Did you choose the right reference assembly?";
-      $self->tee_logger( 'error', $msg );
+      return $self->log( 'error', $msg );
     }
 
     # save the current chr for next iteration of the loop
@@ -312,13 +312,13 @@ sub annotate_snpfile {
         $writeProg->incProgressCounter;
       }
     } elsif ( index($var_type, 'MESS') == -1 && index($var_type,'LOW') == -1 ) {  
-      $self->tee_logger( 'warn', "Unrecognized variant type: $var_type" );
+      $self->log( 'warn', "Unrecognized variant type: $var_type" );
     }
   }
 
   # finished printing the final snp annotations
   if (@snp_annotations) {
-    $self->tee_logger('info', 
+    $self->log('info', 
       sprintf('Writing remaining %s lines to disk', $writeProg->progressCounter)
     );
 
@@ -326,7 +326,7 @@ sub annotate_snpfile {
     @snp_annotations = ();
   }
 
-  $self->tee_logger('info', 'Summarizing statistics');
+  $self->log('info', 'Summarizing statistics');
   $annotator->summarizeStats;
 
   if ( $self->debug ) {
@@ -339,7 +339,7 @@ sub annotate_snpfile {
   # TODO: decide on the final return value, at a minimum we need the sample-level summary
   #       we may want to consider returning the full experiment hash, in case we do
   #       interesting things.
-  $self->tee_logger( 'info',
+  $self->log( 'info',
     sprintf('We found %s discordant_bases', $annotator->discordant_bases )
   ) if $annotator->discordant_bases;
 
@@ -370,7 +370,7 @@ sub _minor_allele_carriers {
       $hom_ids_str .= "$id;";
     }
     else {
-      $self->tee_logger( 'warn', "$id_geno was not recognized, skipping" );
+      $self->log( 'warn', "$id_geno was not recognized, skipping" );
     }
     $id_genos_href{$id} = $id_geno;
   }

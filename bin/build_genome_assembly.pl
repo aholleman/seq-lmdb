@@ -51,24 +51,29 @@ my $config_href = LoadFile($yaml_config);
 # get absolute path for YAML file and db_location
 $yaml_config = path($yaml_config)->absolute->stringify;
 
+#   # set log file
+my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || $wantedName,
+  $wantedChr || 'all', 'log';
+
+my $logPath = path(".")->child($log_name)->mkpath->absolute->stringify;
+
 my $builder_options_href = {
-  configfile    => $yaml_config,
+  configfile   => $yaml_config,
   wantedChr    => $wantedChr,
   wantedType   => $wantedType,
   wantedName   => $wantedName,
-  overwrite     => $overwrite,
-  debug         => $debug,
+  overwrite    => $overwrite,
+  debug        => $debug,
+  logPath      => $logPath,
 };
   
-  # set log file
-my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || $wantedName,
-  $wantedChr || '', 'log';
-my $log_file = path(".")->child($log_name)->absolute->stringify;
-Log::Any::Adapter->set( 'File', $log_file );
+
+# my $log_file = path(".")->child($log_name)->absolute->stringify;
+# Log::Any::Adapter->set( 'File', $log_file );
 
 my $builder = Seq::Build->new_with_config($builder_options_href);
 
-say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
+#say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
 
 
 __END__

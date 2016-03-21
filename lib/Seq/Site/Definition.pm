@@ -1,16 +1,53 @@
-package Seq::Site::Gene::Definition;
+use 5.10.0;
+use strict;
+use warnings;
 
-#This is now used to pre-calculate all potential changes
-#For rapid lookup.
+package Seq::Site::Definition;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A class for storing defintions and codon table
+# ABSTRACT: Base class for seralizing all sites.
 # VERSION
 
-use Moose::Role;
-use 5.10.0;
+=head1 DESCRIPTION
+
+  @class B<Seq::Site>
+  #TODO: Check description
+
+  @example
+
+Used in: None
+
+Extended in:
+=for :list
+* Seq::Site::Gene
+* Seq::Site::Snp
+
+=cut
+
+use Moose::Role 2;
 use Moose::Util::TypeConstraints;
+
+use namespace::autoclean;
+
+enum reference_base_types => [qw( A C G T N )];
+
+has refBase => (
+  is       => 'ro',
+  isa      => 'reference_base_types',
+  required => 1,
+);
+
+# type 'GeneTrackPositionalKeys',
+#       where {
+#           IsHashRef(
+#               -keys   => HasLength,
+#               -values => $positionalKeys
+#           )->(@_);
+#       };
+# enum GeneTrackPositionalKeys => $positionalKeys;
+#old annotation_type
+#has annotationType => 
 
 #<<< No perltidy
 state $Eu_codon_2_aa = {
@@ -42,10 +79,22 @@ sub codon_2_aa {
   }
 }
 
+state $codingSite = 'Coding';
+has codingSiteType => (is=> 'ro', lazy => 1, default => sub{$codingSite} );
+state $fivePrimeSite = '5UTR';
+has fivePrimeSiteType => (is=> 'ro', lazy => 1, default => sub{$fivePrimeSite} );
+state $threePrimeSite = '3UTR';
+has threePrimeSiteType => (is=> 'ro', lazy => 1, default => sub{$threePrimeSite} );
+state $spliceAcSite = 'Splice Acceptor';
+has spliceAcSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceAcSite} );
+state $spliceDoSite = 'Splice Donor';
+has spliceDoSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceDoSite} );
+state $ncRNAsite = 'non-coding RNA';
+has ncRNAsiteType => (is=> 'ro', lazy => 1, default => sub{$ncRNAsite} );
 #private
 #for API: Coding type always first; order of interest
-state $siteTypes = ['Coding', '5UTR', '3UTR',
-'Splice Acceptor', 'Splice Donor', 'non-coding RNA'];
+state $siteTypes = [$codingSite, $fivePrimeSite, $threePrimeSite,
+$spliceAcSite, $spliceDoSite, $ncRNAsite];
 
 #public
 has siteTypes => (
@@ -65,22 +114,12 @@ has siteTypes => (
 
 enum SiteTypes => ['SNP', 'MULTIALLELIC', 'DEL', 'INS'];
 
-
-
-
-
-
 =type {Str} GeneSiteType
 
 =cut
 
 #public
 enum GeneSiteType => $siteTypes;
-
-
-
-
-
 
 =type {Str} StrandType
 
@@ -90,7 +129,6 @@ enum StrandType   => [ '+', '-' ];
 
 subtype 'GeneSites'=> as 'ArrayRef[GeneSiteType]';
 
-#>>>
+__PACKAGE__->meta->make_immutable;
 
-no Moose::Role;
 1;

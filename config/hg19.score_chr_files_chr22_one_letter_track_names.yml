@@ -194,7 +194,6 @@ tracks:
   features:
     - name:
         store: n
-        type: str
     - strand:
         store: s
     - refUCSC:

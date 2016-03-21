@@ -129,26 +129,6 @@ has ignore_unknown_chr => (
 
 ##################Not set in command line######################
 
-has _logPath => (
-  metaclass => 'NoGetopt',  # do not attempt to capture this param
-  is => 'rw',
-  isa => 'Str',
-  required => 0,
-  init_arg => undef,
-  lazy => 1,
-  builder => '_buildLogPath',
-);
-
-sub _buildLogPath {
-  my $self = shift;
-
-  my $config_href = LoadFile($self->configfilePath)
-    || die "ERROR: Cannot read YAML file at " . $self->configfilePath . ": $!\n";
-  
-  return join '.', $self->output_path, 
-    'annotation', $self->assembly, 'log';
-}
-
 #@public, but not passed by commandl ine
 has assembly => (
   is => 'ro',
@@ -160,13 +140,30 @@ has assembly => (
   metaclass => 'NoGetopt',  # do not attempt to capture this param
 );
 
+has logPath => (
+  metaclass => 'NoGetopt',     # do not attempt to capture this param
+  is        => 'rw',
+  isa       => 'Str',
+  required  => 0,
+  init_arg  => undef,
+  lazy      => 1,
+  builder   => '_buildLogPath',
+);
+
+sub _buildLogPath {
+  my $self = shift;
+
+  my $config_href = LoadFile( $self->configfilePath )
+    || die "ERROR: Cannot read YAML file at " . $self->configfilePath . ": $!\n";
+
+  return join '.', $self->output_path, 'annotation', $self->assembly, 'log';
+}
+
 with 'Interface::Validator';
 
 sub BUILD {
   my $self = shift;
   my $args = shift;
-  
-  $self->createLog;
 
   #exit if errors found via this Validator.pm method
   $self->validateState;
@@ -186,16 +183,10 @@ sub _buildAnnotatorArguments {
   return \%args;
 }
 
-sub createLog {
-  my $self = shift;
-
-  Log::Any::Adapter->set( 'File', $self->_logPath );
-}
-
 sub _buildAssembly {
   my $self = shift;
 
-  my $config_href = LoadFile($self->configfilePath) || $self->tee_logger('error',
+  my $config_href = LoadFile($self->configfilePath) || $self->log('error',
     sprintf("ERROR: Cannot read YAML file at %s", $self->configfilePath) 
   );
   

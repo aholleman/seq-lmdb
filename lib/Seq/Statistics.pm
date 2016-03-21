@@ -105,7 +105,7 @@ sub summarize {
       p $self->statsRecord;
     }
 
-    $self->tee_logger( 'info', 'Finished calculating statistics' );
+    $self->log( 'info', 'Finished calculating statistics' );
   }
 }
 __PACKAGE__->meta->make_immutable;

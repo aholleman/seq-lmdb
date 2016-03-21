@@ -36,12 +36,9 @@ Extended in: None
 =cut
 
 use Moose 2;
-
-use File::Spec;
 use namespace::autoclean;
 
-extends 'Seq::Assembly';
-with 'Seq::Role::IO';
+extends 'Seq::Base';
 
 has genome_chrs => (
   is       => 'ro',
@@ -71,11 +68,11 @@ has wantedType => (
 sub BUILD {
   my $self = shift;
 
-  #$self->tee_logger('info', "wanted_chr: " . $self->wanted_chr || 'all' );
+  #$self->log('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
   # not working yet
   # if($self->wantedType && $self->wantedName) {
-  #   $self->tee_logger('error', "can't specify both wantedType and wantedName,
+  #   $self->log('error', "can't specify both wantedType and wantedName,
   #     it's ambiguous");
   # }
 
@@ -93,13 +90,12 @@ sub BUILD {
   
   for my $bTypeAref (@builders) {
     for my $builder (@$bTypeAref) {
-      exit;
       $builder->buildTrack();
-      $self->tee_logger('info', "finished building " . $builder->{name} );
+      $self->log('debug', "finished building " . $builder->{name} );
     }
   }
 
-  $self->tee_logger('info', "finished building all requested tracks: " 
+  $self->log('debug', "finished building all requested tracks: " 
     . join(@builders, ', ') );
 }
 

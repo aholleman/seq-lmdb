@@ -1,16 +1,15 @@
-#!/usr/bin/env perl
-# http://www.perlmonks.org/?node_id=919422
-use 5.10.0;
-use strict;
-use warnings;
-
+#!/usr/bin/perl
+# your code goes here
 use POSIX;
+use Data::Dumper;
 
-my $aref1 = [0,1,2,3,4];
-my $aref2 = [3, 4, 5, 6];
-my $aref3 = [5,6,7,8];
+my @stuff = _diff(3, [0,1,2], [2,3,4], [4,5,6] );
 
-sub _featureDiff {
+print Dumper(\@stuff);
+
+print join(',', @$stuff);
+
+sub _diff {
   my $which = shift;
   my $b = 1;
   my %presence;
@@ -22,12 +21,7 @@ sub _featureDiff {
   } continue {
       $b *= 2;
   }
-  $which = POSIX::floor($which == 1 ? $which : $which * 2);
+  print Dumper(\%presence);
+  $which = POSIX::floor($which == 1 ? $which : $which * $which/2 );
   return grep{ $presence{$_} == $which } keys %presence;
 }
-
-print join( ',', _featureDiff(1, $aref1, $aref2, $aref3) );
-print "\n";
-print join( ',', _featureDiff(2, $aref1, $aref2, $aref3) );
-print "\n";
-print join( ',', _featureDiff(3, $aref1, $aref2, $aref3) );

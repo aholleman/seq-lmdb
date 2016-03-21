@@ -8,7 +8,6 @@ use Moose;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
 with 'Seq::Role::DBManager';
 
-
 has database_dir => (
   is => 'ro',
   default =>  '/ssd/seqant_db_build/hg19_snp142/index_lmdb',
@@ -20,9 +19,7 @@ has database_dir => (
 1;
 
 package TestRead;
-
+use DDP;
 my $reader = MockAnnotationClass->new();
 
-my $dataAref = $reader->dbRead('chr22_good_ref_score_with_one_letter_names_json_3_17_15', 
-  [20e6..21e6] );
-
+my $dataAref = $reader->dbRead('chr22', [30e6..31e6], 1);

@@ -32,22 +32,22 @@ my $dataAref = $reader->dbRead('chr22', [20e6-1] );
 
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
-ok($dataAref->[0]{ref} eq 'A', 'ref track ok in ~middle of chr22');
-
+ok($dataAref->[0]{0} eq 'A', 'ref track ok in ~middle of chr22');
+p $dataAref;
 $dataAref = $reader->dbRead('chr22', [21e6-1] );
-
+p $dataAref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
-ok($dataAref->[0]{ref} eq 'T', 'ref track ok in intron of chr22');
+ok($dataAref->[0]{0} eq 'T', 'ref track ok in intron of chr22');
 
 $dataAref = $reader->dbRead('chr22', [0] );
-ok($dataAref->[0]{ref} eq 'N', 'ref track ok at beginning of chr22');
+ok($dataAref->[0]{0} eq 'N', 'ref track ok at beginning of chr22');
 
 $dataAref = $reader->dbRead('chr22', [51304565] );
-ok($dataAref->[0]{ref} eq 'N', 'ref track ok at end of chr22');
+ok($dataAref->[0]{0} eq 'N', 'ref track ok at end of chr22');
 
 $dataAref = $reader->dbRead('chr22', [40100000-1] );
-ok($dataAref->[0]{ref} eq 'A', 'ref track ok at chr22:40100000');
+ok($dataAref->[0]{0} eq 'A', 'ref track ok at chr22:40100000');
 
 #phastCons testing
 #first header entry
@@ -63,10 +63,10 @@ ok($dataAref->[0]{ref} eq 'A', 'ref track ok at chr22:40100000');
 # 0.056
 # 0.055 # this should be 16050001 + 8, or +7 when 0 indexed = 16050008
 $dataAref = $reader->dbRead('chr22', [16050001-1] );
-ok($dataAref->[0]{phastCons} == 0.106, 'phastCons track ok at chr22:16050001');
+ok($dataAref->[0]{1} == 0.106, 'phastCons track ok at chr22:16050001');
 p $dataAref;
 $dataAref = $reader->dbRead('chr22', [16050001 + 8 -1] );
-ok($dataAref->[0]{phastCons} == 0.055, "phastCons track ok at chr22:@{[16050001 + 8]}");
+ok($dataAref->[0]{1} == 0.055, "phastCons track ok at chr22:@{[16050001 + 8]}");
 p $dataAref;
 
 #last header entry (tail -n 10000)
@@ -103,15 +103,15 @@ p $dataAref;
 # 0.116 #+29
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 0 -1] );
-ok($dataAref->[0]{phastCons} == 0.007, "phastCons track ok at chr22:@{[51239213 + 0]}");
+ok($dataAref->[0]{1} == 0.007, "phastCons track ok at chr22:@{[51239213 + 0]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 6 -1] );
-ok($dataAref->[0]{phastCons} == 0.042, "phastCons track ok at chr22:@{[51239213 + 6]}");
+ok($dataAref->[0]{1} == 0.042, "phastCons track ok at chr22:@{[51239213 + 6]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 29 -1] );
-ok($dataAref->[0]{phastCons} == 0.116, "phastCons track ok at chr22:@{[51239213 + 29]}");
+ok($dataAref->[0]{1} == 0.116, "phastCons track ok at chr22:@{[51239213 + 29]}");
 p $dataAref;
 
 
@@ -133,15 +133,15 @@ p $dataAref;
 
 #choose first, third and last
 $dataAref = $reader->dbRead('chr22', [16050001-1] );
-ok($dataAref->[0]{phyloP} == 0.132, 'phyloP track ok at chr22:16050001');
+ok($dataAref->[0]{2} == 0.132, 'phyloP track ok at chr22:16050001');
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [16050001 + 2 -1] );
-ok($dataAref->[0]{phyloP} == 0.114, "phyloP track ok at chr22:@{[16050001 + 2]}");
+ok($dataAref->[0]{2} == 0.114, "phyloP track ok at chr22:@{[16050001 + 2]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [16050001 + 11 -1] );
-ok($dataAref->[0]{phyloP} == -1.691, "phyloP track ok at chr22:@{[16050001 + 11]}");
+ok($dataAref->[0]{2} == -1.691, "phyloP track ok at chr22:@{[16050001 + 11]}");
 p $dataAref;
 
 
@@ -172,60 +172,61 @@ p $dataAref;
 # -1.937
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 0 -1] );
-ok($dataAref->[0]{phyloP} == 0.065, "phyloP track ok at chr22:@{[51239213 + 0]}");
+ok($dataAref->[0]{2} == 0.065, "phyloP track ok at chr22:@{[51239213 + 0]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 7 -1] );
-ok($dataAref->[0]{phyloP} == 0.064, "phyloP track ok at chr22:@{[51239213 + 7]}");
+ok($dataAref->[0]{2} == 0.064, "phyloP track ok at chr22:@{[51239213 + 7]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [51239213 + 22 -1] );
-ok($dataAref->[0]{phyloP} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
+ok($dataAref->[0]{2} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
 p $dataAref;
 
 
 #now testing sparse track (with snp142)
 $dataAref = $reader->dbRead('chr22', [51239213 + 22 -1] );
-ok($dataAref->[0]{phyloP} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
+ok($dataAref->[0]{2} == -1.937, "phyloP track ok at chr22:@{[51239213 + 22]}");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [16050074] );
-ok($dataAref->[0]{snp}{name} eq 'rs587697622', "snp142 sparse track ok at chr22:16050074");
+ok($dataAref->[0]{4}{0} eq 'rs587697622', "snp142 sparse track ok at chr22:16050074");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [16112390] );
-ok($dataAref->[0]{snp}{name} eq 'rs2844929', "snp142 sparse track ok at chr22:16050074");
+ok($dataAref->[0]{4}{0} eq 'rs2844929', "snp142 sparse track ok at chr22:16050074");
 p $dataAref;
 
 #test an indel
 $dataAref = $reader->dbRead('chr22', [16140742 .. 16140746 - 1] );
 #4 long
 for my $data (@$dataAref) {
-  ok($data->{snp}{name} eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
+  ok($data->{4}{0} eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
 }
 
 p $dataAref;
 
 #end of chr22 snp142 file
 $dataAref = $reader->dbRead('chr22', [51244514] );
-ok($dataAref->[0]{snp}{name} eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
+ok($dataAref->[0]{4}{0} eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr22', [51244515] );
-ok(!exists $dataAref->[0]{snp}, "snp142 sparse track doesn't exist past at chr22:51244514");
+ok(!exists $dataAref->[0]{4}, "snp142 sparse track doesn't exist past at chr22:51244514");
 p $dataAref;
 
 #insertion in snp142 file, chromStart == chromEnd
 $dataAref = $reader->dbRead('chr22', [22452926] );
-ok($dataAref->[0]{snp}{name} eq 'rs148698006', "snp142 sparse track ok at chr22:22452926");
+ok($dataAref->[0]{4}{0} eq 'rs148698006', "snp142 sparse track ok at chr22:22452926");
 p $dataAref;
 
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 $dataAref = $reader->dbRead('chr1', [40370176] );
-ok($dataAref->[0]{snp}{name} eq 'rs564192510', "insertion snp142 sparse track rs# ok at chr1:22452926");
+ok($dataAref->[0]{4}{0} eq 'rs564192510', "insertion snp142 sparse track rs# ok at chr1:22452926");
+p $dataAref;
 
-my @values = split(",", $dataAref->[0]{snp}{alleleNs} );
+my @values = @{ $dataAref->[0]{4}{7} };
 ok($values[0] + $values[1] == 4477.000000 + 531.000000,
   "insertion snp142 sparse track has the right total allele count at chr1:22452926");
 ok($values[0] = 4477.000000, 
@@ -235,12 +236,12 @@ ok($values[1] = 531.000000,
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr1', [249240604] );
-ok($dataAref->[0]{snp}{name} eq 'rs368889620',
+ok($dataAref->[0]{4}{0} eq 'rs368889620',
   "insertion snp142 sparse track rs# ok at chr1:249240604-249240605 (0 indexed should be 249240604)");
 p $dataAref;
 
 $dataAref = $reader->dbRead('chr1', [249240605] );
-ok(!defined $dataAref->[0]{snp},
+ok(!defined $dataAref->[0]{4},
   "no snp142 sparse track exists beyond the end of the snp142 input text file,
     which ends at chr1:249240604-249240605");
 p $dataAref;

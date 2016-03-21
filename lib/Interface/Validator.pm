@@ -120,10 +120,10 @@ sub _validateInputFile {
   my @header_fields = $self->get_clean_fields($firstLine);
 
   if(!@header_fields || !$self->checkHeader(\@header_fields) ) {  
-    return $self->tee_logger('error', "Vcf->ped conversion failed") 
+    return $self->log('error', "Vcf->ped conversion failed") 
       unless $self->convertToPed;
 
-    return $self->tee_logger('error', "Binary plink -> Snp conversion failed")
+    return $self->log('error', "Binary plink -> Snp conversion failed")
      unless $self->convertToSnp;
   }
   return 1;
@@ -132,7 +132,7 @@ sub _validateInputFile {
 sub convertToPed {
   my ($self, $attempts) = @_;
 
-  $self->tee_logger('info', 'Converting input file to binary plink format');
+  $self->log('info', 'Converting input file to binary plink format');
   my $out = $self->_convertFileBasePath;
   return if system($self->_vcf2ped . " --vcf " . $self->snpfilePath . " --out $out");
   
@@ -156,7 +156,7 @@ sub convertToSnp {
     '-fam ', $cFiles->{fam}, 
     '-out ', $out, '-two ', $twobit);
 
-  $self->tee_logger('info', 'Converting from binary plink to snp format');
+  $self->log('info', 'Converting from binary plink to snp format');
 
   # returns a value only upon error
   return if system($self->_ped2snp . ' convert ' . join(' ', @args) );
@@ -164,7 +164,7 @@ sub convertToSnp {
   #because the linkage2Snp converted auto-appends a .snp file extension
   $self->setSnpfile($out.'.snp');
 
-  $self->tee_logger('info', 'Successfully converted to snp format');
+  $self->log('info', 'Successfully converted to snp format');
   return 1;
 }
 
@@ -182,7 +182,7 @@ sub _findBinaryPlinkFiles {
       fam => $fam->stringify,
     }
   }
-  $self->tee_logger('warn', 
+  $self->log('warn', 
     'Bed, bim, and/or fam don\'t exist at ' . $self->convertDir->stringify
   );
   return; 
@@ -355,20 +355,20 @@ sub _findBinaryPlinkFiles {
   #     $archive = Archive::Extract->new($self->snpfilePath);
   #   } catch {
   #     #probably not an archive
-  #     $self->tee_logger('warn', $_);
+  #     $self->log('warn', $_);
 
   #     #if it's not an archive, maybe we were given a base path or directory
   #     $infiles = $self->_findBinaryPlinkFiles($convertFilesPath);
 
   #     if(!$infiles) {
-  #       $self->tee_logger('error', $self . " did not find valid input file(s)");
+  #       $self->log('error', $self . " did not find valid input file(s)");
   #     }
   #   }
 
   #   try {
   #     $archive->extract($convertFilesPath);
   #   } catch {
-  #      $self->tee_logger('error', "Extraction failed for $convertFilesPath");
+  #      $self->log('error', "Extraction failed for $convertFilesPath");
   #   }
 
   # }

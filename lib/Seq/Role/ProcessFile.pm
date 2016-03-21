@@ -21,7 +21,7 @@ requires 'out_file';
 requires 'debug';
 
 #requires get_write_bin_fh from Seq::Role::IO, can't formally requires it in a role
-#requires tee_logger from Seq::Role::Message
+#requires log from Seq::Role::Message
 with 'Seq::Role::IO', 'Seq::Role::Message';
 # file_type defines the kind of file that is being annotated
 #   - snp_1 => snpfile format: [ "Fragment", "Position", "Reference", "Minor_Allele"]
@@ -133,8 +133,7 @@ sub print_annotations {
 
   # print header
   if ( !$self->_flagHeaderPrinted ) {
-    $self->tee_logger('error', 'Header wasn\'t printed');
-    return; 
+    return $self->log('error', 'Header wasn\'t printed');
   }
 
   # cache header attributes
@@ -158,16 +157,15 @@ sub print_annotations {
 sub compress_output {
   my $self = shift;
 
-  $self->tee_logger( 'info', 'Compressing all output files' );
+  $self->log( 'info', 'Compressing all output files' );
 
   if ( !-e $self->output_path ) {
-    $self->tee_logger( 'warn', 'No output files to compress' );
-    return;
+    return $self->log( 'warn', 'No output files to compress' );
   }
 
   # my($filename, $dirs) = fileparse($self->output_path);
 
-  my $tar = which('tar') or $self->tee_logger( 'error', 'No tar program found' );
+  my $tar = which('tar') or $self->log( 'error', 'No tar program found' );
   my $pigz = which('pigz');
   if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
 
@@ -189,7 +187,7 @@ sub compress_output {
       $self->out_file->parent->stringify,
     ) );
  
-  $self->tee_logger( 'warn', "Zipping failed with $?" ) unless !$outcome;
+  $self->log( 'warn', "Zipping failed with $?" ) unless !$outcome;
 }
 
 sub checkHeader {
@@ -214,9 +212,10 @@ sub checkHeader {
   }
 
   if($err) {
-    if(defined $die_on_unknown) { $self->tee_logger( 'error', $err ); }
-    else { $self->tee_logger( 'warn', $err ) };
-    return; 
+    if(defined $die_on_unknown) { 
+      return $self->log( 'error', $err ); 
+    }
+    return $self->log( 'warn', $err );
   }
   return 1;
 }

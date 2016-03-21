@@ -32,7 +32,7 @@ has statsFH => (
 sub storeStats {
   my ( $self, $outBasePath ) = @_;
   if ( !$self->hasStats ) {
-    $self->tee_logger( 'warn', 'No stats to store' );
+    $self->log( 'warn', 'No stats to store' );
   }
   else {
     my $fh = $self->_buildFh( $outBasePath . '.' . $self->statsExtension );
@@ -44,7 +44,7 @@ sub _buildFh {
   my ( $self, $outPath ) = @_;
 
   if ( !defined $outPath ) {
-    $self->tee_logger( 'error', 'no path provided to storeStats' ); #programmer error
+    return $self->log( 'error', 'no path provided to storeStats' ); #programmer error
   }
   elsif ( !$outPath ) {
     return \*STDOUT;

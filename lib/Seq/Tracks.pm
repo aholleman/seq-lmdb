@@ -18,8 +18,8 @@ use Seq::Tracks::ScoreTrack::Build;
 use Seq::Tracks::SparseTrack::Build;
 use Seq::Tracks::RegionTrack::Build;
 
-with 'Seq::Role::Message', 'Seq::Tracks::Definition', 'Seq::Role::DBManager',
-  'Seq::Role::ConfigFromFile';
+extends 'Seq::Tracks::Base';
+with 'Seq::Role::ConfigFromFile';
 
 #expect that this exists, since this is where any local files are supposed
 #to be kept
@@ -151,7 +151,7 @@ sub BUILD {
     say "database dir doesnt exist";
     $self->database_dir->mkpath;
   } elsif (!$self->database_dir->is_dir) {
-    $self->tee_logger('error', 'database_dir given is not a directory');
+    return $self->log('error', 'database_dir given is not a directory');
   }
   
   #needs to be initialized before dbmanager can be used
@@ -165,11 +165,11 @@ sub _buildDataTracks {
   for my $trackHref (@{$self->tracks}) {
     my $trackClass = $self->getDataTrackClass($trackHref->{type} );
     if(!$trackClass) {
-      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
+      $self->log('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     if(exists $out{$trackHref->{name} } ) {
-      $self->tee_logger('warn', "More than one track with the same name 
+      $self->log('warn', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
       . Overriding the last object for this name, with the new")
     }
@@ -188,7 +188,7 @@ sub _buildTrackBuilders {
   for my $trackHref (@{$self->tracks}) {
     my $className = $self->getBuilderTrackClass($trackHref->{type} );
     if(!$className) {
-      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
+      $self->log('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     # a bit awkward;
@@ -316,7 +316,7 @@ sub refTrackBuilder {
 #   my @out;
 #   for my $maybeTrackType (keys %$href) {
 #     if(!$trackMap->{$maybeTrackType} ) {
-#       $self->tee_logger('warn', "Invalid track type $maybeTrackType");
+#       $self->log('warn', "Invalid track type $maybeTrackType");
 #       next;
 #     }
 #     push @out, $trackMap->{$maybeTrackType}->new( data => $href->{$maybeTrackType} );

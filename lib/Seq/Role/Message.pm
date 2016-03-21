@@ -7,14 +7,53 @@ our $VERSION = '0.001';
 
 # ABSTRACT: A class for communicating to log and to some plugged in messaging service
 # VERSION
+use Moose::Role 2;
+use AnyEvent;
 
-use Moose::Role;
 use Redis::hiredis;
 
 use namespace::autoclean;
-with 'MooX::Role::Logger';
+#with 'MooX::Role::Logger';
 
 use Cpanel::JSON::XS;
+
+#TODO: figure out how to not need peopel to do if $self->debug
+#instead just use noop
+
+has debug => (
+  is => 'ro',
+  isa => 'Int',
+  lazy => 1,
+  default => 0,
+);
+
+sub setLogPath {
+  my ($self, $path) = @_;
+
+  $AnyEvent::Log::LOG->log_to_file($path);
+}
+
+sub setLogLevel {
+  my ($self, $level) = @_;
+  
+  $AnyEvent::Log::FILTER->level($level);
+}
+
+# $ctx = new AnyEvent::Log::Ctx
+#    title   => "dubious messages",
+#    level   => "error",
+#    log_cb  => sub { print STDOUT shift; 0 },
+#    slaves  => [$ctx1, $ctx, $ctx2],
+# ;
+
+# sub _buildTeeLogger {
+#   my $ctx = new AnyEvent::Log::Ctx
+#      title   => "dubious messages",
+#      level   => "error",
+#      log_cb  => sub { print STDOUT shift; 0 },
+#      slaves  => [$ctx1, $ctx, $ctx2],
+#   ;
+# }
 
 #note: not using native traits because they don't support Maybe attrs
 # state @publisherAddress;
@@ -91,7 +130,9 @@ use Cpanel::JSON::XS;
 
 #note, accessing hash directly because traits don't work with Maybe types
 sub publishMessage {
-  my ( $self, $msg ) = @_;
+  #my ( $self, $msg ) = @_;
+  #to save on perf, $_[0] == $self, $_[1] == $msg;
+
   #because predicates don't trigger builders, need to check hasPublisherAddress
   #return unless $self->messanger;
   # $self->messanger->{message}{data} = $msg;
@@ -99,17 +140,26 @@ sub publishMessage {
   #   [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
 }
 
-sub tee_logger {
-  my ( $self, $log_method, $msg ) = @_;
+sub log {
+  #my ( $self, $log_method, $msg ) = @_;
+  #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
+  state $debugLog = AnyEvent::Log::logger("debug");
 
   #interestingly some kind of message bufferring occurs, such that
   #this will actually make it through to the rest of the tee_logger function
-  if ( $log_method eq 'error' ) {
-    return confess "\n$msg\n";
+  #synchronous die
+  if ( $_[1] eq 'error' ) {
+    # state $errorLog = AnyEvent::Log::logger("error");
+    # return $errorLog->($_[2]);
+    return confess "\n$_[2]\n";
   }
 
-  #$self->publishMessage($msg);
-  $self->_logger->$log_method($msg);
+  #we don't have any complicated logging support, just log if it's not an error
+  $debugLog->("$_[1]: $_[2]");
+  # $_[0]->_logger->${ $_[1] }( $_[2] ); # this is very slow, sync to disk
+
+  #save some performance; could move this to anyevent as well
+  goto &publishMessage; #re-use stack to save performance
 }
 
 no Moose::Role;

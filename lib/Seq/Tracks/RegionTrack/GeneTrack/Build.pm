@@ -56,8 +56,19 @@ with 'Seq::Tracks::GeneTrack::Definition';
 
 #what goes into the region track
 #in a normal region track this would be set via -feature : 1 \n 2 \n 3 YAML
-state $features = [{txStart => 'int'}, {txEnd => 'int'}, 'name', 'kgID', 'mRNA', 'spID', 
-'spDisplayID', 'geneSymbol', 'refSeq', 'protAcc', 'description', 'rfamAcc'];
+state $features = [
+{txStart => 'int'}, 
+{txEnd => 'int'}, 
+'name',
+'kgID',
+'mRNA',
+'spID',
+'spDisplayID',
+'geneSymbol',
+'refSeq',
+'protAcc',
+'description',
+'rfamAcc'];
 
 has "+required_fields" => {
   default => sub {
@@ -75,18 +86,48 @@ has "+required_fields" => {
 #http://search.cpan.org/dist/Moose/lib/Moose/Manual/Construction.pod
 #TODO: check that this works
 #We're adding the above specified hardcoded features to whatever the user provided
-around BUILDARGS => sub {
-  my ($orig, $class, $href) = @_;
 
-  for my $name ( @$features ) {
-    #skip anything we've defined, because specify types
-    #bitwise or, returns 0 for -Number only
-    if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
-      next;
-    }
-    push(@{ $href->{features} }, $name);
-  }
-  $class->$orig($href);
+#This is more applicable to region tracks
+#This needs to be finished, there
+# before BUILDARGS => sub {
+#   my ($self, $href) = @_;
+
+#   if (!href->{features} ) {
+#     $href->{features} = $features;
+#     return;
+#   }
+
+#   my 
+#   for my $name ( @{ $href->{features} } ) {
+#     if (ref $name eq 'HASH') {
+#       for my $f ( @$features ) {
+#         my $name = $f;
+#         if (ref $on eq 'HASH') {
+#           ($name) = %$on;
+#         }
+
+#       } 
+#     }
+#   }
+#   for my $name ( @$features ) {
+#     #TODO: finish
+#     # if(ref $name eq 'HASH') {
+#     #   if()
+#     # }
+#     #skip anything we've defined, because specify types
+#     #bitwise or, returns 0 for -Number only
+#     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
+#       next;
+#     }
+#     push(@{ $href->{features} }, $name);
+#   }
+# };
+
+# TODO: when we finish the above, remove this
+before BUILDARGS => sub {
+  my ($self, $href) = @_;
+
+  $href->{features} = $features;
 };
 
 # This builder is a bit different. We're going to store not only data in the
@@ -125,7 +166,7 @@ sub buildTrack {
         if($. == 1) {
           my ($reqIdxHref, $err) = $self->mapRequiredFields(\@fields);
           if($err) {
-            $self->tee_logger('error', $err);
+            return $self->log('error', $err);
           }
 
           my $featIdxHref = $self->mapFeatureFields(\@fields);
@@ -201,7 +242,7 @@ sub buildTrack {
 
       if(%regionData) {
         if(!$wantedChr) {
-          $self->tee_logger('error', 'data remains but no chr wanted');
+          return $self->log('error', 'data remains but no chr wanted');
         }
         $self->dbPatchBulk($self->regionPath($wantedChr), \%regionData);
       }

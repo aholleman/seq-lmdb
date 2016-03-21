@@ -2,54 +2,22 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Assembly;
+package Seq::Base;
 
 our $VERSION = '0.002';
 
-#TODO: turn this into a base class that sets up the logger ?
-#I think this class should hold all of the common stuff, much lke the previous version
-
-# ABSTRACT: A class for assembly information
-# VERSION
-
-=head1 DESCRIPTION
-
-  @class B<Seq::Assembly>
-  # TODO: Check description
-
-  @example
-
-Used in: None
-
-Extended by:
-=for :list
-* Seq::Annotate
-* Seq::Build
-
-Uses:
-=for :list
-* Seq::Config::GenomeSizedTrack
-* Seq::Config::SparseTrack
-
-=cut
-
+#All this does is initialize the messaging state, if passed, and extends Seq::Track
+#which allows consuming classes to access the tracks.
 use Moose 2;
-use MooseX::Types::Path::Tiny qw/ AbsPath /;
-
 use namespace::autoclean;
-use DDP;
-
 extends 'Seq::Tracks';
-with 'Seq::Role::Message', 'Seq::Role::ConfigFromFile';
 
-#not sure in the current codebase that it doesn't make more sense to just 
-#have the package that needs the variable to declare it as has
-
-# state $_attributesAref = \qw/ genome_name genome_description genome_chrs genome_index_dir
-#    debug wanted_chr debug force act/;
-
+#Right now this is used to name the log file
+#Not sure if this will continue to be used.
+#removed genome_description, because assemblies already identify the species
+#and becuase it isn't used anywhere in the Seq library
+#genome_description (currently the species) has no prupose
 has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
-has genome_description => ( is => 'ro', isa => 'Str', required => 1, );
 
 =property @public {Str} database_dir
 
@@ -77,12 +45,10 @@ has publisherAddress => (
   default => sub{ [] },
 );
 
-#moved all track handling to Tracks.pm
-
-has debug => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 0,
+has logPath => (
+  is => 'ro',
+  lazy => 1,
+  default => '',
 );
 
 #set up singleton stuff
@@ -92,6 +58,15 @@ sub BUILD {
   if(%{$self->messanger} && @{$self->publisherAddress} ) {
     #p $self;
     $self->setPublisher($self->messanger, $self->publisherAddress);
+  }
+
+  if ($self->logPath) {
+    $self->setLogPath($self->logPath);
+  }
+
+  #todo: finisih ;for now we have only one level
+  if ( $self->debug ) {
+    $self->setLogLevel('info');
   }
 }
 

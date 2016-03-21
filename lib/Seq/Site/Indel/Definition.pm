@@ -23,13 +23,12 @@ sub BUILD {
   my $self = shift;
   if ( $self->indType eq '-' ) {
     if ( !looks_like_number( $self->minor_allele ) ) {
-      $self->tee_logger( 'error',
+      return $self->log( 'error',
         'Site::Indel expects deletion alleles to be numeric' );
     }
-  }
-  else {
+  } else {
     if ( looks_like_number( $self->minor_allele ) ) {
-      $self->tee_logger( 'error',
+      $self->log( 'error',
         'Site::Indel expects insertion alleles to consist of letters after +' );
     }
   }
