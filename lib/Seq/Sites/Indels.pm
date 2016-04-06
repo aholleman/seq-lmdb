@@ -14,7 +14,7 @@ use DDP;
 
 use Seq::Site::Indel;
 use Seq::Site::Indel::Type;
-with 'Seq::Site::Gene::Definition'; #for remaking the AA, later
+with 'Seq::Site::Definition'; #for remaking the AA, later
 
 has alleles => (
   is       => 'ro',

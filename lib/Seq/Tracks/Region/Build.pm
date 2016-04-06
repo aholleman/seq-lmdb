@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::GeneTrack::Build;
+package Seq::Tracks::Region::Build;
 
 our $VERSION = '0.001';
 

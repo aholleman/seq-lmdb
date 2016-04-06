@@ -13,10 +13,15 @@ use namespace::autoclean;
 use DDP;
 use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
-use Seq::Tracks::ReferenceTrack::Build;
-use Seq::Tracks::ScoreTrack::Build;
-use Seq::Tracks::SparseTrack::Build;
-use Seq::Tracks::RegionTrack::Build;
+use Seq::Tracks::Reference;
+use Seq::Tracks::Score;
+use Seq::Tracks::Sparse;
+use Seq::Tracks::Region;
+
+use Seq::Tracks::Reference::Build;
+use Seq::Tracks::Score::Build;
+use Seq::Tracks::Sparse::Build;
+use Seq::Tracks::Region::Build;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::ConfigFromFile';
@@ -46,10 +51,10 @@ sub _buildTrackMap {
   my $self = shift;
 
   return {
-    $self->refType => 'Seq::Tracks::ReferenceTrack',
-    $self->scoreType => 'Seq::Tracks::ScoreTrack',
-    $self->sparseType => 'Seq::Tracks::SparseTrack',
-    $self->regionType => 'Seq::Tracks::RegionTrack',
+    $self->refType => 'Seq::Tracks::Reference',
+    $self->scoreType => 'Seq::Tracks::Score',
+    $self->sparseType => 'Seq::Tracks::Sparse',
+    $self->regionType => 'Seq::Tracks::Region',
   }
 };
 
@@ -69,10 +74,10 @@ sub _buildTrackBuilderMap {
   my $self = shift;
 
   return {
-    $self->refType => 'Seq::Tracks::ReferenceTrack::Build',
-    $self->scoreType => 'Seq::Tracks::ScoreTrack::Build',
-    $self->sparseType => 'Seq::Tracks::SparseTrack::Build',
-    $self->regionType => 'Seq::Tracks::RegionTrack::Build',
+    $self->refType => 'Seq::Tracks::Reference::Build',
+    $self->scoreType => 'Seq::Tracks::Score::Build',
+    $self->sparseType => 'Seq::Tracks::Sparse::Build',
+    $self->regionType => 'Seq::Tracks::Region::Build',
   }
 };
 

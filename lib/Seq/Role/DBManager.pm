@@ -53,15 +53,22 @@ sub setDbPath {
   $databaseDir = $_[1]; #$_[0] is $self
 }
 
-#every 1M records by default between transactions
-#this isn't enforced here; individual build methods should use it
-#maybe move this to Build.pm, although we could certainly do that here
-#rationale for not making huge commitEvery is mostly that 
-#Perl gets slow with very big hashes
+#to store any records
+#For instance, here we can store our feature name mappings, our type mappings
+#whether or not a particular track has completed writing, etc
+state $metaDbName = 'meta';
+
+#Transaction size
+#Consumers can choose to ignore it, and use arbitrarily large commit sizes
+#this maybe moved to Tracks::Build, or enforce internally
 #transactions carry overhead
 #if a transaction fails/ process dies
 #the database should remain intact, just the last
 #$self->commitEvery records will be missing
+#The larger the transaction size, the greater the db inflation
+#Even compaction, using mdb_copy may not be enough to fix it it seems
+#requiring a clean re-write using single transactions
+#as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
 has commitEvery => (
   is => 'ro',
   init_arg => undef,
@@ -88,7 +95,7 @@ has overwrite => (
 #   say "Overwrite is" .  int($self->overwrite);
 # }
 
-sub getDbi {
+sub _getDbi {
   my ($self, $name) = @_;
   state $dbis;
   state $envs;
@@ -171,7 +178,7 @@ $mp->prefer_integer(); #treat "1" as an integer, save more space
 sub dbRead {
   my ($self, $chr, $posAref, $noSort) = @_;
 
-  my $db = $self->getDbi($chr);
+  my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -211,11 +218,13 @@ sub dbRead {
   return $oAref;
 }
 
-#expects one track per call ; each posHref should have {pos => {trackName => trackData} }
-sub dbPatchBulk {
-  my ( $self, $chr, $posHref ) = @_;
+#$pos can be any string, identifies a key within the kv database
+#dataHref should be trackName => trackData
+#i.e some key in the hash found at the key in the kv database
+sub dbPatch {
+  my ( $self, $chr, $pos, $dataHref, $noOverwrite) = @_;
 
-  my $db = $self->getDbi($chr);
+  my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   
   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
@@ -223,6 +232,67 @@ sub dbPatchBulk {
 
   my $cnt = 0;
 
+  my $json; #zero-copy
+  my $href;
+
+  $txn->get($dbi, $pos, $json);
+
+ # say "Last error is " . $LMDB_File::last_err;
+  if($json) {
+    #takes the key name of the data href
+    my ($featureID) = %{$dataHref};
+    #can't modify $json, read-only value, from memory map
+    $href = $mp->unpack($json);
+
+    # don't overwrite if the user doesn't want it
+    # just mark to skip
+    if($noOverwrite || !$self->overwrite) {
+      if(defined $href->{$featureID} ) {
+        #since we already have this feature, no need to write it
+        #since we don't want to overwrite
+        #requires us to check if $posHref->{$pos} is defined in 
+        return;
+      }
+    } 
+    # else we want to overwrite
+    $href->{$featureID} = $dataHref->{$featureID};
+    #update the stack copy of data to include everything found at the pos (key)
+    $dataHref = $href;
+    
+    next;
+  }
+  #trigger this only if json isn't found, save on many if calls
+  #unless is apparently a bit faster than if, when looking for negative conditions
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
+  }
+
+  $txn->commit();
+
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
+
+  #re-use the stack for efficiency
+  goto &dbPut;
+}
+
+#expects one track per call ; each posHref should have {pos => {trackName => trackData} }
+sub dbPatchBulk {
+  my ( $self, $chr, $posHref, $noOverwrite) = @_;
+
+  my $db = $self->_getDbi($chr);
+  my $dbi = $db->{dbi};
+  
+  #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  my $cnt = 0;
+
+  #https://ideone.com/Y0C4tX
+  my $tOverWrite = $noOverwrite ? 0 : ($self->overwrite ? 1 : 0);
+
+  #modifies the stack, but hopefully a smaller change than a full
+  #new stack + function call (look to goto below)
   $_[3] = xsort([keys %{$posHref} ] );
   
   for my $pos (@{$_[3] }) { #want sequential
@@ -239,7 +309,7 @@ sub dbPatchBulk {
 
       # say "previous href was";
       # p $previous_href;
-      if(!$self->overwrite) {
+      if(!$tOverWrite) {
         if(defined $href->{$featureID} ) {
           #since we already have this feature, no need to write it
           #since we don't want to overwrite
@@ -250,6 +320,7 @@ sub dbPatchBulk {
         }
       } # else we want to overwrite
       $href->{$featureID} = $posHref->{$pos}{$featureID};
+      #update the stack copy of data to include everything found at the key
       $posHref->{$pos} = $href;
       
       #deep merge is much more robust, but I'm worried about performance, so trying alternative
@@ -278,10 +349,34 @@ sub dbPatchBulk {
   goto &dbPutBulk;
 }
 
+sub dbPut {
+  my ( $self, $chr, $pos, $data) = @_;
+
+  my $db = $self->_getDbi($chr);
+  my $txn = $db->{env}->BeginTxn();
+
+  $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
+
+  #should move logging to async
+  #have the MDB_NOTFOUND thing becaues this could follow a get operation
+  #which could generate and MDB_NOTFOUND
+  #to short circuit, speed the if, set $LMDB_FILE::last_err to 0 after
+  #a bulk get
+  #unless is apparently a bit faster than if, when looking for negative conditions
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    $self->log('warn', 'LMDB PUT ERROR: ' . $LMDB_File::last_err);
+  }
+
+  $txn->commit();
+  
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
+}
+
 sub dbPutBulk {
   my ( $self, $chr, $posHref, $sortedPosAref) = @_;
 
-  my $db = $self->getDbi($chr);
+  my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
@@ -318,14 +413,42 @@ sub dbPutBulk {
   $LMDB_File::last_err = 0;
 }
 
+#TODO: Finish; should go over every record in the requested database
+#and write single commit size 
+#we don't care terribly much about performance here, this happens once in a great while,
+#so we use our public function dbPutBulk
+sub dbWriteCleanCopy {
+  #for every... $self->dbPutBulk
+  #dbRead N records, divide dbGetLength by some reasonable size, like 1M
+}
+
 #TODO: check if this works
-sub getDbLength {
+sub dbGetLength {
   my ( $self, $chr ) = @_;
 
-  my $db = $self->getDbi($chr);
+  my $db = $self->_getDbi($chr);
 
   return $db->{env}->stat->{entries};
 }
+
+sub dbGetMeta {
+  my ( $self, $trackName ) = @_;
+  
+  #dbGet always returns an array, so for a single "position" ($trackName)
+  #we just give back the first (should be only) element
+  #
+  return @{ $self->dbGet($metaDbName, $trackName) }[0];
+
+  
+}
+
+sub dbPutMeta {
+  my ( $self, $trackName, $trackData ) = @_;
+  
+  $self->dbPut($metaDbName, $trackName, $trackData);
+  return;
+}
+
 no Moose::Role;
 
 1;

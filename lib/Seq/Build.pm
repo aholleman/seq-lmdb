@@ -65,6 +65,8 @@ has wantedType => (
 #   isa => 'Maybe[Str]',
 # );
 
+#TODO: before building any track other than referebce, 
+#check whether the reference track  has finished building.
 sub BUILD {
   my $self = shift;
 

@@ -69,14 +69,17 @@ state $Eu_codon_2_aa = {
   "TTA" => "L", "TTC" => "F", "TTG" => "L", "TTT" => "F"
 };
 
-sub codon_2_aa {
-  my ( $self, $codon ) = @_;
-  if ($codon) {
-    return $Eu_codon_2_aa->{$codon};
-  }
-  else {
-    return;
-  }
+sub codon2aa {
+  #my ( $self, $codon ) = @_;
+  # if ( $Eu_codon_2_aa->{$codon} ) {
+  #   return $Eu_codon_2_aa->{$codon};
+  # } else {
+  #   return;
+  # }
+  #$_[1] == $codon;
+
+  #will return undefined if not found
+  return $Eu_codon_2_aa->{ $_[1] };
 }
 
 state $codingSite = 'Coding';
@@ -91,8 +94,17 @@ state $spliceDoSite = 'Splice Donor';
 has spliceDoSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceDoSite} );
 state $ncRNAsite = 'non-coding RNA';
 has ncRNAsiteType => (is=> 'ro', lazy => 1, default => sub{$ncRNAsite} );
-#private
-#for API: Coding type always first; order of interest
+
+=type {Str} VariantTypes, was SiteTypes, renamed to avoid confusion
+=cut
+
+enum VariantTypes => ['SNP', 'MULTIALLELIC', 'DEL', 'INS'];
+
+=type {Str} GeneSiteType
+
+=cut
+
+#Coding type always first; order of interest
 state $siteTypes = [$codingSite, $fivePrimeSite, $threePrimeSite,
 $spliceAcSite, $spliceDoSite, $ncRNAsite];
 
@@ -109,14 +121,6 @@ has siteTypes => (
   init_arg => undef,
   default => sub{$siteTypes},
 );
-=type {Str} SiteTypes
-=cut
-
-enum SiteTypes => ['SNP', 'MULTIALLELIC', 'DEL', 'INS'];
-
-=type {Str} GeneSiteType
-
-=cut
 
 #public
 enum GeneSiteType => $siteTypes;
@@ -125,7 +129,18 @@ enum GeneSiteType => $siteTypes;
 
 =cut
 
-enum StrandType   => [ '+', '-' ];
+state $strandTypes = [ '+' , '-'];
+
+has strandTypes => (
+  is => 'ro',
+  lazy => 1,
+  init_arg => undef,
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  default => sub {$strandTypes},
+);
+
+enum StrandType   => $strandTypes;
 
 subtype 'GeneSites'=> as 'ArrayRef[GeneSiteType]';
 

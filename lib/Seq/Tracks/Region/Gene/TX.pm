@@ -3,7 +3,15 @@ use strict;
 use warnings;
 
 #Breaking this thing down to fit in the new contxt
-package Seq::Gene;
+#based on Seq::Gene in (kyoto-based) seq branch
+#except _get_gene_data moved to Seq::Tracks::GeneTrack::Build
+
+#Should not extend Seq::Tracks::Build, because $self->name will be overwritten
+#This is purely a helper class, to prepare the requisite data
+#The consuming class will write what it needs to write
+
+#We could of course change this design, I can see advantage of better encapsulation
+package Seq::Tracks::Region::Gene::TX;
 
 our $VERSION = '0.001';
 
@@ -34,14 +42,15 @@ use Carp qw/ confess /;
 use namespace::autoclean;
 use DDP;
 use List::Util qw/reduce/;
-
+use POSIX;
 #this doesn't really seem to add anything
 #because we moved codon_2_aa out to Seq::Site::Gene::Definition
 #ref_codon_seq , and ref_aa_residue just wraps that
 #use Seq::Site::Gene;
 
-with 'Seq::Role::Message','Seq::Site::Definition',
-'Seq::Tracks::RegionTrack::GeneTrack::Definition';
+#the definition files hold the common
+with 'Seq::Role::Message', 'Seq::Tracks::Region::Gene::Site',
+'Seq::Tracks::Region::Gene::Definition';
 
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite
@@ -53,52 +62,9 @@ state $fivePrimeBase = '5';
 state $threePrimeBase = '3';
 state $nonCodingBase = '0';
 
-has referenceTrack => (
-  is       => 'ro',
-  init_arg => undef,
-  defulat  => sub{ Seq::Tracks::ReferenceTrack->new() },
-  handles  => {
-    getRefBase => 'get',
-  }
-);
-
-has chrom        => ( is => 'rw', isa => 'Str', required => 1, );
-has strand        => ( is => 'rw', isa => 'Str', required => 1, );
-has txStart      => ( is => 'rw', isa => 'Int', required => 1, );
-has txEnd        => ( is => 'rw', isa => 'Int', required => 1, );
-has cdsStart     => ( is => 'rw', isa => 'Int', required => 1, );
-has cdsEnd       => ( is => 'rw', isa => 'Int', required => 1, );
-
-has exonStarts => (
-  is       => 'rw',
-  isa      => 'ArrayRef[Int]',
-  required => 1,
-  coerce   => 1,
-  traits   => ['Array'],
-  handles  => {
-    all_exon_starts => 'elements',
-    get_exon_starts => 'get',
-    set_exon_starts => 'set',
-  },
-);
-
-has exonEnds => (
-  is       => 'rw',
-  isa      => 'ArrayRef[Int]',
-  required => 1,
-  coerce   => 1,
-  traits   => ['Array'],
-  handles  => {
-    all_exon_ends => 'elements',
-    get_exon_ends => 'get',
-    set_exon_ends => 'set',
-  },
-);
-
-#transcript_id
-has name => ( is => 'rw', isa => 'Str', required => 1, );
-
 # I think this is confusing
+# my impression is that it provides duplicate information
+# but encapsulated. not certain it's necessary
 # has alt_names => (
 #   is      => 'rw',
 #   isa     => 'HashRef',
@@ -111,6 +77,8 @@ has name => ( is => 'rw', isa => 'Str', required => 1, );
 #   },
 # );
 
+#used in writing peptide, which isn't done now,
+#and also to get the codon sequence
 has transcriptSequence => (
   is      => 'ro',
   isa     => 'Str',
@@ -122,10 +90,11 @@ has transcriptSequence => (
   handles => { getTranscriptBases => 'substr', },
 );
 
+# used in making the transcriptAnnotations as well as codon details
 has transcriptPositions => (
   is      => 'ro',
   init_arg => undef,
-  isa     => 'ArrayRef',
+  isa     => 'ArrayRef[Int]',
   traits  => ['Array'],
   handles => {
     getTranscriptPos => 'get',
@@ -136,20 +105,24 @@ has transcriptPositions => (
   writer  => '_writeTranscriptPositions',
 );
 
+# used in building the codon details
 has transcriptAnnotation => (
   is      => 'ro',
   isa     => 'Str',
   traits  => ['String'],
   handles => { getTranscriptAnnotation => 'substr', },
   lazy    => 1,
+  init_arg => undef,
   default => '',
   writer  => '_writeTranscriptAnnotation',
 );
 
+# uses transcriptAnnotations to figure out if anything went wrong
 has transcriptErrors => (
   is      => 'rw',
   isa     => 'ArrayRef',
   lazy    => 1,
+  init_arg => undef,
   builder => '_buildTranscriptErrors',
   traits  => ['Array'],
   handles => {
@@ -158,6 +131,24 @@ has transcriptErrors => (
   },
 );
 
+# stores all of our individual sites
+# these can be used by the consumer to write per-reference-position
+# codon information
+has transcriptSites => (
+  is      => 'rw',
+  isa     => 'ArrayRef[HashRef]',
+  default => sub { [] },
+  traits  => ['Array'],
+  handles => {
+    all_transcript_sites => 'elements',
+    add_transcript_site  => 'push',
+  },
+  lazy => 1,
+  init_arg => undef,
+  builder => '_buildTranscriptSites',
+);
+
+# not writing peptides anymore, can add back
 has peptide => (
   is      => 'rw',
   isa     => 'Str',
@@ -189,16 +180,28 @@ has peptide => (
 #   writer => '_writeTranscriptSites',
 # );
 
-has flanking_sites => (
+has flankingSites => (
   is      => 'rw',
   isa     => 'ArrayRef[Seq::Site::Gene]',
   default => sub { [] },
   traits  => ['Array'],
   handles => {
-    all_flanking_sites => 'elements',
-    add_flanking_sites => 'push',
+    allFlankingSites => 'elements',
+    addFlankingSites => 'push',
   },
 );
+
+sub getTxInfo {
+  my $self = shift;
+
+  return {
+    transcriptSequence => $self->transcriptSequence,
+    transcriptPositions => $self->transcriptPositions,
+    transcriptAnnotation => $self->transcriptAnnotation,
+    transcriptErrors => $self->transcriptErrors,
+    peptide => $self->peptide,
+  }
+}
 
 sub BUILD {
   my $self = shift;
@@ -212,7 +215,9 @@ sub BUILD {
 
   # the by-product of _build_transcript_sites is to build the peptide
   $self->_build_transcript_sites;
-  $self->_build_flanking_sites;
+
+  #I assume flanking sites are used for nearest gene
+  #$self->_build_flanking_sites;
 }
 
 # give the sequence with respect to the direction of transcription / coding
@@ -257,6 +262,7 @@ sub _buildTranscript {
   }
 
   $self->_writeTranscriptPositions( \@positions );
+  
   $self->_writeTranscriptSequence( $seq );
 
   #now build the annotation
@@ -331,6 +337,7 @@ sub _buildTranscriptErrors {
       push @errors, 'transcript does not end with stop codon';
     }
   }
+  
   return \@errors;
 }
 
@@ -365,17 +372,22 @@ sub _buildTranscriptErrors {
 @returns void
 
 =cut
-
-sub _buildPeptide {
+#was build_transcript_sites
+sub _buildTranscriptSites {
   my $self              = shift;
+
+  state $fivePrime         = qr{\A[$fivePrimeBase]+};
+  state $threePrime        = qr{[$threePrimeBase]+\z};
+
   my @exonStarts       = $self->allExonStarts;
   my @exonEnds         = $self->allExonEnds;
   
   my $codingBaseCount = 0;
   my $lastCodonNumber = 0;
 
-  state $fivePrime         = qr{\A[$fivePrimeBase]+};
-  state $threePrime        = qr{[$threePrimeBase]+\z};
+  #will contain codon information, for each position in the reference
+  #that is covered by the transcript
+  my $transcriptSitesHref;
 
   if ( $self->noTranscriptErrors ) {
     $self->log('info', join( " ", $self->name, $self->chrom, $self->strand ) );
@@ -384,6 +396,7 @@ sub _buildPeptide {
       $self->allTranscriptErrors ) );
   }
 
+  #( $self->allTranscriptPos ) is another way to say @{ $self->allTranscriptPos }
   for ( my $i = 0; $i < ( $self->allTranscriptPos ); $i++ ) {
     my (
       $annotation_type, $codon_seq, $codon_number,
@@ -392,20 +405,22 @@ sub _buildPeptide {
     my $siteType; 
     $siteAnnotation = $self->getTranscriptAnnotation( $i, 1 );
 
-    my $codonNumber;
-    my $reqCodonSeq = '';
+    my ($codonNumber, $codonPosition) = (-9, -9);
+    # not writing peptides anymore, can add back
+    my $referenceCodonSeq = '';
+    
     # is site coding
     if ( $siteAnnotation =~ m/[ACGT]/ ) {
-      $codonNumber   = 1 + int( ( $codingBaseCount / 3 ) );
+      $codonNumber   = 1 + POSIX::floor( ( $codingBaseCount / 3 ) );
       
-      my $codonPosition = $codingBaseCount % 3;
+      $codonPosition = $codingBaseCount % 3;
+
       my $codonStart = $i - $codonPosition;
       my $codonEnd   = $codonStart + 2;
-
       #say "codon_start: $codon_start, codon_end: $codon_end, i = $i, coding_bp = $coding_base_count";
       for ( my $j = $codonStart; $j <= $codonEnd; $j++ ) {
         #TODO: account for messed up transcripts that are truncated
-        $reqCodonSeq .= $self->getTranscriptBases( $j, 1 );
+        $referenceCodonSeq .= $self->getTranscriptBases( $j, 1 );
       }
       $codingBaseCount++;
     } elsif ( $siteAnnotation eq $fivePrimeBase ) {
@@ -420,20 +435,25 @@ sub _buildPeptide {
 
     ### This is the core:
 
-    # build peptide
-    if ( $codonNumber ) {
-      if ( $lastCodonNumber != $codonNumber ) {
-        $self->addAminoResidue( $self->codon_2_aa($reqCodonSeq) );
-      } else {
-        say "site obj: " . dump($site);
-      }
-    }
+    #stores the codon information as binary
+    #this was "$self->add_transcript_site($site)"
+    my $site = $self->prepareCodonDetails($siteType, $codonNumber, $codonPosition);
+    
+    $transcriptSitesHref->{ $self->getTranscriptPos($i) } = $site;
+
+    # no longer doing this, spoke with Dave
+    # can re-add once rest is up if needed
+    # # build peptide
+    # if ( $codonNumber ) {
+    #   if ( $lastCodonNumber != $codonNumber ) {
+    #     $self->addAminoResidue( $self->codon2aa($referenceCodonSeq) );
+    #   } else {
+    #     say "site obj: ";
+    #     p $site;
+    #   }
+    # }
 
     $lastCodonNumber = $codonNumber;
-
-    #not yet sure of the need for this
-    #it could very well be needed, just haven't gotten far enough yet
-    # $self->add_transcript_site($site);
   }
 }
 

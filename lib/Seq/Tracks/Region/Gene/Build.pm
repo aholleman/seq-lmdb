@@ -7,7 +7,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::GeneTrack::Build;
+package Seq::Tracks::Region::Gene::Build;
 
 our $VERSION = '0.001';
 
@@ -47,89 +47,48 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 use List::MoreUtils::XS qw(firstidx);
 use DDP;
+use Hash::Merge::Simple qw(merge);
 
 extends 'Seq::Tracks::Build';
 with 'Seq::Role::IO', 'Seq::Tracks::Build::MapFieldToIndex';
 
 #all of our required position-related fields are here;
-with 'Seq::Tracks::GeneTrack::Definition';
-
-#what goes into the region track
-#in a normal region track this would be set via -feature : 1 \n 2 \n 3 YAML
-state $features = [
-{txStart => 'int'}, 
-{txEnd => 'int'}, 
-'name',
-'kgID',
-'mRNA',
-'spID',
-'spDisplayID',
-'geneSymbol',
-'refSeq',
-'protAcc',
-'description',
-'rfamAcc'];
-
-has "+required_fields" => {
-  default => sub {
-    my $self = shift; #could optimize away to shift->geneT... :)
-    return $self->geneTrackPositionalKeys;
-  },
-  #TODO: add this; constrain hash key values isa => 
-};
+with 'Seq::Tracks::Region::Gene::Definition';
 
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
 #Rather than implement our own.
+#unfortunately, sources tell me that you can't augment attributes inside 
+#of moose roles, so done here
 
-# this should be called after Seq::Tracks::Build around BUILDARGS
-#http://search.cpan.org/dist/Moose/lib/Moose/Manual/Construction.pod
-#TODO: check that this works
-#We're adding the above specified hardcoded features to whatever the user provided
+#I don't think this will work, around BUILDARGS may not
+#get the default value in its href
+# has '+features' => (
+#   init_arg => undef,
+#   default => sub{ my $self = shift; return $self->featureOverride },
+# );
 
-#This is more applicable to region tracks
-#This needs to be finished, there
-# before BUILDARGS => sub {
-#   my ($self, $href) = @_;
+# has '+required_fields' => (
+#   init_arg => undef,
+#   default => sub{ my $self = shift; return $self->requiredFieldOverride },
+# );
 
-#   if (!href->{features} ) {
-#     $href->{features} = $features;
-#     return;
-#   }
-
-#   my 
-#   for my $name ( @{ $href->{features} } ) {
-#     if (ref $name eq 'HASH') {
-#       for my $f ( @$features ) {
-#         my $name = $f;
-#         if (ref $on eq 'HASH') {
-#           ($name) = %$on;
-#         }
-
-#       } 
-#     }
-#   }
-#   for my $name ( @$features ) {
-#     #TODO: finish
-#     # if(ref $name eq 'HASH') {
-#     #   if()
-#     # }
-#     #skip anything we've defined, because specify types
-#     #bitwise or, returns 0 for -Number only
-#     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
-#       next;
-#     }
-#     push(@{ $href->{features} }, $name);
-#   }
-# };
-
-# TODO: when we finish the above, remove this
 before BUILDARGS => sub {
-  my ($self, $href) = @_;
+  my ($orig, $class, $href) = @_;
+  $href->{required_fields} = $Seq::Tracks::Region::Gene::Definition::reqFields;
+  $href->{features} = $Seq::Tracks::Region::Gene::Definition::featureFields;
+  $class->$orig($href);
+}
 
-  $href->{features} = $features;
-};
-
+#everything that we want to store in the region
+state $geneTrackRegionKeys;
+has requiredFieldOverride => (
+  is => 'ro',
+  lazy => 1,
+  init_arg => undef,
+  isa => ['ArrayRef'],
+  builder => '_buildGeneTrackRegionKeys',
+);
 # This builder is a bit different. We're going to store not only data in the
 # main, genome-wide database (which has sparse stuff)
 # but also a special sparse database, the region database
@@ -227,14 +186,18 @@ sub buildTrack {
           %regionData = (); #just breaks the reference to allData
         }
       
-        my %fToWrite;
+        my $fToWriteHref;
         for my $f (keys %$featIdxHref) {
-          $fToWrite{ $self->getFeatureDbName($f) } =
+          $fToWriteHref->{ $self->getFeatureDbName($f) } =
             $self->prepareData( $featIdxHref->{$f} );
         }
 
-        $regionData{$regionIdx} = \%fToWrite;
-        $allData{$regionIdx} = \%fToWrite;
+        my $txInfo = Seq::Tracks::Region::Gene::TX->new( $fToWriteHref );
+
+        $fToWriteHref = merge $fToWriteHref, $txInfo->getTxInfo();
+
+        $regionData{$regionIdx} = $fToWriteHref;
+        $allData{$regionIdx} = $fToWriteHref;
 
         $count++; #track for commitEvery
         $regionIdx++; #give each transcript a new entry in the region db
@@ -266,3 +229,45 @@ sub regionPath {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+
+# this should be called after Seq::Tracks::Build around BUILDARGS
+#http://search.cpan.org/dist/Moose/lib/Moose/Manual/Construction.pod
+#TODO: check that this works
+#We're adding the above specified hardcoded features to whatever the user provided
+
+#This is more applicable to region tracks
+#This needs to be finished, there
+# before BUILDARGS => sub {
+#   my ($self, $href) = @_;
+
+#   if (!href->{features} ) {
+#     $href->{features} = $features;
+#     return;
+#   }
+
+#   my 
+#   for my $name ( @{ $href->{features} } ) {
+#     if (ref $name eq 'HASH') {
+#       for my $f ( @$features ) {
+#         my $name = $f;
+#         if (ref $on eq 'HASH') {
+#           ($name) = %$on;
+#         }
+
+#       } 
+#     }
+#   }
+#   for my $name ( @$features ) {
+#     #TODO: finish
+#     # if(ref $name eq 'HASH') {
+#     #   if()
+#     # }
+#     #skip anything we've defined, because specify types
+#     #bitwise or, returns 0 for -Number only
+#     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
+#       next;
+#     }
+#     push(@{ $href->{features} }, $name);
+#   }
+# };

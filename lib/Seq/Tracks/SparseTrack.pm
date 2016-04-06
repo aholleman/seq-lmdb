@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::SparseTrack;
+package Seq::Tracks::Sparse;
 
 our $VERSION = '0.001';
 

@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 #TODO: TEST to make sure this (and all other fields are still working)
-package Seq::Tracks::SparseTrack::Build;
+package Seq::Tracks::Sparse::Build;
 
 our $VERSION = '0.001';
 
@@ -53,9 +53,17 @@ state $cEnd   = 'chromEnd';
 
 #TODO: add types here, so that we can check at build time whether 
 #the right stuff has been passed
-has '+required_fields' => (
-  default => sub{ [$chrom, $cStart, $cEnd] },
-);
+# I don't think this will work, because buildargs in parent will be called
+# before this is when lazy
+# has '+required_fields' => (
+#   default => sub{ [$chrom, $cStart, $cEnd] },
+# );
+
+before BUILDARGS => sub {
+  my ($orig, $class, $href) = @_;
+  $href->{required_fields} = [$chrom, $cStart, $cEnd];
+  $class->$orig($href);
+}
 
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.

@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Gene;
+package Seq::Tracks::Region::Gene;
 
 our $VERSION = '0.001';
 
@@ -46,11 +46,7 @@ use Data::Dump qw/ dump /;
 
 use Seq::Site::Gene;
 
-with 'MooX::Role::Logger';
-
-state $gene_track_fields = \qw( chrom     strand    txStart   txEnd
-  cdsStart  cdsEnd    exonCount exonStarts
-  exonEnds  name );
+with 'Seq::Gene::Definition';
 
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite

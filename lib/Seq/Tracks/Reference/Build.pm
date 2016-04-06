@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 #old GenomeSizedTrackStr
-package Seq::Tracks::ReferenceTrack::Build;
+package Seq::Tracks::Reference::Build;
 
 our $VERSION = '0.001';
 
