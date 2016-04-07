@@ -3,6 +3,11 @@
 ###### the pointer to the correct item into RegionTracks
 ####### Until then, we only have the special case "GeneTrack"
 #
+### For now: Gene tracks are just weird, and we ignore any user supplied features
+# We just give them what we think is useful
+# Anything they want in addition to that can be specified as a region track
+# Using the existing system, although maybe we will need to specify 
+# a "region_features" key
 use 5.10.0;
 use strict;
 use warnings;
@@ -50,7 +55,10 @@ use DDP;
 use Hash::Merge::Simple qw(merge);
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO', 'Seq::Tracks::Build::MapFieldToIndex';
+with 'Seq::Role::IO';
+
+#TODO: make mapfield to index work
+#with 'Seq::Tracks::Build::MapFieldToIndex';
 
 #all of our required position-related fields are here;
 with 'Seq::Tracks::Region::Gene::Definition';
@@ -73,22 +81,15 @@ with 'Seq::Tracks::Region::Gene::Definition';
 #   default => sub{ my $self = shift; return $self->requiredFieldOverride },
 # );
 
-before BUILDARGS => sub {
-  my ($orig, $class, $href) = @_;
-  $href->{required_fields} = $Seq::Tracks::Region::Gene::Definition::reqFields;
-  $href->{features} = $Seq::Tracks::Region::Gene::Definition::featureFields;
-  $class->$orig($href);
-}
+#Gene tracks are a bit weird, even compared to region tracks
+#so we need to store things a bit differently
+# before BUILDARGS => sub {
+#   my ($orig, $class, $href) = @_;
+#   $href->{required_fields} = $Seq::Tracks::Region::Gene::Definition::reqFields;
+#   $href->{features} = $Seq::Tracks::Region::Gene::Definition::featureFields;
+#   $class->$orig($href);
+# }
 
-#everything that we want to store in the region
-state $geneTrackRegionKeys;
-has requiredFieldOverride => (
-  is => 'ro',
-  lazy => 1,
-  init_arg => undef,
-  isa => ['ArrayRef'],
-  builder => '_buildGeneTrackRegionKeys',
-);
 # This builder is a bit different. We're going to store not only data in the
 # main, genome-wide database (which has sparse stuff)
 # but also a special sparse database, the region database
@@ -102,19 +103,19 @@ sub buildTrack {
   for my $file ($self->all_local_files) {
     $pm->start and next;
       my $fh = $self->get_read_fh($file);
-      my %reqIdx = ();
+      
 
       #allData holds everything. regionData holds what is meant for the region track
-      my %allData = ();
-      my %regionData = ();
+      my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
+      my %allData;
+      
+      my %regionIdx; # a map <HashRef> { requiredFieldName => columnIndexInFile}
+      my %regionData;
 
       #collect unique gene names
       my %genes = ();
       
       my $wantedChr;
-
-      my $featIdxHref; # a map <HashRef> { featureName => columnIndexInFile}
-      my $reqIdxHref; # a map <HashRef> { requiredFieldName => columnIndexInFile}
       
       my $regionIdx = 0; # this is what our key will be in the region track
       my $count = 0;
@@ -123,15 +124,27 @@ sub buildTrack {
         my @fields = split("\t", $_);
 
         if($. == 1) {
-          my ($reqIdxHref, $err) = $self->mapRequiredFields(\@fields);
-          if($err) {
-            return $self->log('error', $err);
+          # say "fields are";
+          # p @fields;
+
+          ALL_LOOP: for my $field ($self->allGeneTrackKeys) {
+            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+            if(~$idx) { #bitwise complement, makes -1 0; this means we found
+              $allIdx{$field} = $idx;
+              next ALL_LOOP; #label for clarity
+            }
           }
 
-          my $featIdxHref = $self->mapFeatureFields(\@fields);
-          # say "featureIdx is";
-          # p %featureIdx;
-          #exit;
+          REQ_LOOP: for my $field ($self->allGeneTrackRegionFeatures) {
+            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+            if(~$idx) { #bitwise complement, makes -1 0; this means we found
+              $regionIdx{$field} = $idx;
+              next ALL_LOOP; #label for clarity
+            }
+            $self->tee_logger('error', 'Required field $field missing in $file header');
+            die 'Required field $field missing in $file header';
+          }
+
           next FH_LOOP;
         }
 

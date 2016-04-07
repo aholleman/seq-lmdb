@@ -45,12 +45,13 @@ use Parallel::ForkManager;
 use DDP;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Tracks::Build::MapFieldToIndex';
+#TOOD: make this role work, remove the $reqFields and featureFields stuff below
+#with 'Seq::Tracks::Base::MapFields';
 
 state $chrom = 'chrom';
 state $cStart = 'chromStart';
 state $cEnd   = 'chromEnd';
-
+state $reqFields = [$chrom, $cStart, $cEnd];
 #TODO: add types here, so that we can check at build time whether 
 #the right stuff has been passed
 # I don't think this will work, because buildargs in parent will be called
@@ -59,11 +60,11 @@ state $cEnd   = 'chromEnd';
 #   default => sub{ [$chrom, $cStart, $cEnd] },
 # );
 
-before BUILDARGS => sub {
-  my ($orig, $class, $href) = @_;
-  $href->{required_fields} = [$chrom, $cStart, $cEnd];
-  $class->$orig($href);
-}
+# before BUILDARGS => sub {
+#   my ($orig, $class, $href) = @_;
+#   $href->{required_fields} = [$chrom, $cStart, $cEnd];
+#   $class->$orig($href);
+# }
 
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.
@@ -100,15 +101,30 @@ sub buildTrack {
         my @fields = split("\t", $_);
 
         if($. == 1) {
-          my ($reqIdxHref, $err) = $self->mapRequiredFields(\@fields);
-          if($err) {
-            return $self->log('error', $err);
+          # say "fields are";
+          # p @fields;
+
+          REQ_LOOP: for my $field (@$reqFields) {
+            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+            if(~$idx) { #bitwise complement, makes -1 0
+              $reqIdxHref->{$field} = $idx;
+              next REQ_LOOP; #label for clarity
+            }
+            
+            $self->tee_logger('error', 'Required field $field missing in $file header');
           }
 
-          my $featureIdxHref = $self->mapFeatureFields(\@fields);
-          # say "featureIdx is";
-          # p %featureIdx;
-          #exit;
+          # say 'all features wanted are';
+          # p @{[$self->allFeatures]};
+          
+          FEATURE_LOOP: for my $fname ($self->allFeatures) {
+            my $idx = firstidx {$_ eq $fname} @fields;
+            if(~$idx) { #only non-0 when non-negative, ~0 > 0
+              $featureIdxHref->{ $self->getFeatureDbName($fname) } = $idx;
+              next FEATURE_LOOP;
+            }
+            $self->tee_logger('warn', "Feature $fname missing in $file header");
+          }
 
           next FH_LOOP;
         }
