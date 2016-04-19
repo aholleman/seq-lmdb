@@ -225,18 +225,36 @@ sub buildTrack {
         #we prepare the region data to store in the region database
         $regionData{$txNumber} = $self->prepareData($tRegionDataHref);
 
+        #And we're done with region database handling
+        #So let's move on to the main database entries,
+        #which are the ones stored per-position
+
         #now we move to taking care of the site specific stuff
         #which gets inserted into the main database,
         #for each reference position covered by a transcript
         #"TX" is a misnomer at the moment, in a way, because our only goal
-        #with this class is to get back all the covered sites along with
-        #their codon data, which is handles by the Gene::Site role, called
-        #by TX
-        #That just gives us the raw data. Only the  build methods
-        #know how to "prepare" the data for insertion, and so we will do that 
-        #here. We could do this in a faster way by placing all of the site build
-        #functionality in TX, but that leaves us with a separation of concerns
-        #issue, imo
+        #with this class is to get back all sites covered by a transcript
+        #and for each one of those sites, store the genetic data pertaining to
+        #that transcript at that position
+
+        #This is:
+        # 1) The codon
+        # 2) The strand it's on
+        # 3) The codon number (which codon it is in the transcript)
+        # 4) The codon "Position" (which position that site occupies in the codon)
+        # 5) What type of site it is (As defined by Seq::Site::Definition)
+          # ex: non-coding RNA || Coding || 3' UTR etc
+
+        # So from the TX class, we can get this data, and it is stored
+        # and fetched by that class. We don't need to know exactly how it's stored
+        # but for our amusement, it's packed into a single string
+
+        # The responsibility of this BUILD class, as a superset of the Region build class
+        # Is to
+        # 1) Store a reference to the corresponding entry in the gene database (region database)
+        # 2) Store this codon information at some key, which the Tracks::Region::Gene
+        # will know how to fetch.
+        # and then, of course, to actually insert that into the database
         my $txInfo = Seq::Tracks::Region::Gene::TX->new( $allDataHref );
 
         my $sHref;
@@ -267,7 +285,7 @@ sub buildTrack {
         #and is also what the main database stores as a reference
         #to the region database
         #to save on space vs storing some other transcript id
-        $txNumber++;;
+        $txNumber++;
       }
 
       if(%regionData) {
