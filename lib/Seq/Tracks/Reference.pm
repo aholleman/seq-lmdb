@@ -45,7 +45,10 @@ use Moose 2;
 
 use namespace::autoclean;
 
-extends 'Seq::Tracks::Base';
+extends 'Seq::Tracks::Get';
+
+#This really is a simple class
+#The default get method handles this just fine, as defined in Seq::Tracks::Get
 
 =property @public @required {GenomeSizedTrackType<Str>} type
 

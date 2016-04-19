@@ -18,8 +18,6 @@ has _invertedFeatures => (
   lazy => 1,
   traits => ['Hash'],
   handles  => {
-    getFeatureName => 'get',
-    allFeatureDbNames => 'keys',
     invertedFeatureNamesKv => 'kv',
   },
   _builder => '_buildInvertedFeatures',
@@ -41,6 +39,35 @@ sub _buildInvertedFeatures {
   return \%invertedIdx;
 }
 
+# has _invertedRequiredFields => (
+#   is => 'ro',
+#   isa => 'HashRef[Str]',
+#   lazy => 1,
+#   traits => ['Hash'],
+#   handles  => {
+#     getFeatureName => 'get',
+#     allFeatureDbNames => 'keys',
+#     invertedFeatureNamesKv => 'kv',
+#   },
+#   _builder => '_buildInvertedFeatures',
+# );
+
+# sub _buildInvertedFeatures {
+#   my $self = shift;
+
+#   if($self->noFeatures) {
+#     return {};
+#   }
+  
+#   my %invertedIdx;
+#   for my $pair ($self->featureNamesKv) {
+#     # my $name = $pair->[0]; aka -feature: name
+#     # my $storedAs = $pair->[1]; aka dbName
+#     $invertedIdx{ $pair->[1] } = $pair->[0];
+#   }
+#   return \%invertedIdx;
+# }
+
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 
 #they need to query for items held in the main database
@@ -48,7 +75,7 @@ sub _buildInvertedFeatures {
 #Doesn't shift anything to save performance, can be called tens of millions of times
 sub get {
   #$href is the data that the user previously grabbed from the database
-  #my ($self, $href) = @_;
+  my ($self, $href) = @_;
   # so $_[0] is $self, $_[1] is $href; 
 
   #this won't work well for Region tracks, so those should override this method
@@ -61,21 +88,34 @@ sub get {
   # }
   #this feels like the most Go-like, and direct means
   #reads: if (!ref $href->{$self->dbName} ) { return $href->{$self->dbName} }
-  if(!ref $_[1]->{ $_[0]->dbName } ) {
-    return $_[1]->{ $_[0]->dbName };
+
+  #dbName is simply the database version of the feature name
+  #we do this to save space in the database, by a huge number of bytes
+  #and protects against users using really funky long feature names
+  #dbName defined in Seq::Tracks::Base
+
+  #as stated above some features simply don't have any features, just a scalar
+  #like scores
+  if(!ref $href->{ $self->dbName } ) {
+    return $href->{ $self->dbName };
   }
 
   #we have features, so let's grab only those; user can change after they build
   #to reduce how much is put into the output file
-  if(ref $_[1]->{ $_[0]->dbName } ne 'HASH') {
-    return $_[0]->log('error', "Expected data to be HASH reference, got " 
-      . ref $_[1]->{ $_[0]->dbName } );
+  if(ref $href->{ $self->dbName } ne 'HASH') {
+    return $self->log('error', "Expected data to be HASH reference, got " 
+      . ref $href->{ $self->dbName } );
   }
 
   my %out;
-  for my $pair ($_[0]->invertedFeatureNamesKv) {
+
+  #now go from the database feature names to the human readable feature names
+  #and include only the featuers specified in the yaml file
+  #each $pair <ArrayRef> : [dbName, humanReadableName]
+  for my $pair ($self->invertedFeatureNamesKv) {
+    #First, we want to get the 
     #reads: $href->{$self->dbName}{ $pair->[0] } where $pair->[0] == feature dbName
-    my $val = $_[1]->{ $_[0]->dbName }{ $pair->[0] }; 
+    my $val = $href->{ $self->dbName }{ $pair->[0] }; 
     if ($val) {
       #pair->[1] == feature name (what the user specified as -feature: name
       $out{ $pair->[1] } = $val;
@@ -83,6 +123,11 @@ sub get {
   }
   return \%out;
 }
+
+# use the existing method to munge stuff here
+# sub toString {
+#   my $self = shift; 
+# }
 
 __PACKAGE__->meta->make_immutable;
 

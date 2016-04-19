@@ -107,18 +107,20 @@ sub buildTrack {
 
       #allData holds everything. regionData holds what is meant for the region track
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
-      my %allData;
       
-      my %regionIdx; # a map <HashRef> { requiredFieldName => columnIndexInFile}
       my %regionData;
+
+      #everything we are going to put into a site
+      my %siteData;
 
       #collect unique gene names
       my %genes = ();
       
       my $wantedChr;
       
-      my $regionIdx = 0; # this is what our key will be in the region track
+      my $txNumber = 0; # this is what our key will be in the region track
       my $count = 0;
+
       FH_LOOP: while (<$fh>) {
         chomp $_;
         my @fields = split("\t", $_);
@@ -135,10 +137,13 @@ sub buildTrack {
             }
           }
 
+          #check that we have all of the features that we want
+          #these are basically just required features, since
+          #gene tracks are completely hardcoded at build time
           REQ_LOOP: for my $field ($self->allGeneTrackRegionFeatures) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
             if(~$idx) { #bitwise complement, makes -1 0; this means we found
-              $regionIdx{$field} = $idx;
+              #don't need this due to above $regionIdx{$field} = $idx;
               next ALL_LOOP; #label for clarity
             }
             $self->tee_logger('error', 'Required field $field missing in $file header');
@@ -147,6 +152,10 @@ sub buildTrack {
 
           next FH_LOOP;
         }
+
+        #Every row (besides header) describes a transcript
+        #We want to keep track of which transcript this is (just a number,
+        #starting from 0), so that we can insert that 
 
         #we're not going to insert all required fields into the region database
         #only the stuff that isn't position-dependent
@@ -157,16 +166,17 @@ sub buildTrack {
         #also, we try to avoid assignment operations when not onerous
         #but here not as much of an issue; we expect only say 20k genes
         #and only hundreds of thousands to low millions of transcripts
-        my $chr = $fields[ $reqIdxHref->{$self->chrKey} ];
+        my $chr = $fields[ $allIdx{$self->chrKey} ];
 
         #if we have a wanted chr
         if( $wantedChr ) {
-          #and it's not equal to the current line's chromosome
-          if( $wantedChr ne $chr ) { # a bit clunky
-            #and we have data
+          #and it's not equal to the current line's chromosome, which means
+          #we're at a new chromosome
+          if( $wantedChr ne $chr ) {
+            #and if we have region data (we only write region data)
             if(%regionData) {
               #write that data
-              $self->dbPatchBulk($self->regionPath($chr), \%regionData);
+              $self->dbPatchBulk($self->regionTrackPath($chr), \%regionData);
               %regionData = ();
             }
             #and reset the chromosome
@@ -192,35 +202,79 @@ sub buildTrack {
         #position-dependent features for the main database
 
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulk($self->regionPath($wantedChr), \%regionData);
+          $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
 
-          #however, don't reset  allData; we'll need that later
           $count = 0;
           %regionData = (); #just breaks the reference to allData
         }
-      
-        my $fToWriteHref;
-        for my $f (keys %$featIdxHref) {
-          $fToWriteHref->{ $self->getFeatureDbName($f) } =
-            $self->prepareData( $featIdxHref->{$f} );
+        
+        #what we want to write
+        my $tRegionDataHref;
+        my $allDataHref;
+        for my $fieldName (keys %allIdx) {
+          #store the field value
+          $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
+          
+          # if this is a field that we need to store in the region db
+          my $dbName = $self->getGeneTrackRegionFeatDbName($fieldName);
+          if( defined( $dbName ) ) {
+            $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
+          }
         }
 
-        my $txInfo = Seq::Tracks::Region::Gene::TX->new( $fToWriteHref );
+        #we prepare the region data to store in the region database
+        $regionData{$txNumber} = $self->prepareData($tRegionDataHref);
 
-        $fToWriteHref = merge $fToWriteHref, $txInfo->getTxInfo();
+        #now we move to taking care of the site specific stuff
+        #which gets inserted into the main database,
+        #for each reference position covered by a transcript
+        #"TX" is a misnomer at the moment, in a way, because our only goal
+        #with this class is to get back all the covered sites along with
+        #their codon data, which is handles by the Gene::Site role, called
+        #by TX
+        #That just gives us the raw data. Only the  build methods
+        #know how to "prepare" the data for insertion, and so we will do that 
+        #here. We could do this in a faster way by placing all of the site build
+        #functionality in TX, but that leaves us with a separation of concerns
+        #issue, imo
+        my $txInfo = Seq::Tracks::Region::Gene::TX->new( $allDataHref );
 
-        $regionData{$regionIdx} = $fToWriteHref;
-        $allData{$regionIdx} = $fToWriteHref;
+        my $sHref;
+        my $sCount;
+        for my $pos ($txInfo->allTranscriptSitePos) {
+          $sHref->{$pos} = $self->prepareData({
+            $self->getGeneTrackFeatMainDbName('region') => $txNumber,
+            $self->getGeneTrackFeatMainDbName('site') 
+              => $txInfo->getTranscriptSite($pos),
+          });
 
-        $count++; #track for commitEvery
-        $regionIdx++; #give each transcript a new entry in the region db
+          if($sCount > $self->commitEvery) {
+            $self->dbPatchBulk($self->regionTrackPath($wantedChr), $sHref);
+            $sHref = {};
+          }
+
+          $sCount++;
+        }
+
+        if(%$sHref) {
+          $self->dbPatchBulk($self->regionTrackPath($wantedChr), $sHref);
+        }
+
+        $count++; #track for commitEvery for the region db
+
+        #keep track of the transcript 0-indexed number
+        #this becomes the key in the region database
+        #and is also what the main database stores as a reference
+        #to the region database
+        #to save on space vs storing some other transcript id
+        $txNumber++;;
       }
 
       if(%regionData) {
         if(!$wantedChr) {
           return $self->log('error', 'data remains but no chr wanted');
         }
-        $self->dbPatchBulk($self->regionPath($wantedChr), \%regionData);
+        $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
       }
 
       #now we have this big hashref of gene stuff. well, let's pass it on 
@@ -229,13 +283,6 @@ sub buildTrack {
     $pm->finish;
   }
   $pm->wait_all_children;
-}
-
-#TODO: this should definitely go into RegionTrack
-sub regionPath {
-  my ($self, $chr) = @_;
-
-  return $self->name . "/$chr";
 }
 
 

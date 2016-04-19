@@ -21,31 +21,30 @@ with 'Seq::Site::Definition';
 #later we may move away from this, as we start storing these mappings in the db
 #could also move to arrays, since order is inherent there
 state $featureMap = {
-  0 => 'name', #this is the regional information
-  1 => 'codonSequence',
-  2 => 'codonDetails',
+  0 => 'refCodonSequence',
+  1 => 'refCodonDetails',
 };
 
 state $invFeatureMap = {
-  'name' => 0,
-  'codonSequence' => 1,
-  'codonDetails' => 2,
+  'refCodonSequence' => 0,
+  'refCodonDetails' => 1,
 };
 
 
 sub prepareCodonDetails {
   # my $self = shift; $_[0] == $self
-  my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSequence) = @_;
+  my ($self, $siteType, $codonNumber, $codonPosition, $codonSequence) = @_;
 
   my $outHref;
 
+  #could also $outHref->{refCodonSequence} = $codonSequence ? $codonSequence : 'NA';
   if($codonSequence) {
-    $outHref->{codonSequence} = $codonSequence;
+    $outHref->{refCodonSequence} = $codonSequence;
   }
 
-  $outHref->{name} = $self->name;
-  $outHref->{codonDetails} = 
-    $self->convoluteCodonDetails($siteType, $strand, $codonNumber, $codonPosition);
+  $outHref->{refCodonDetails} = 
+    $self->convoluteCodonDetails($siteType, $self->strand,
+      $codonNumber, $codonPosition);
   #types are checked in PackCodonDetails
   return $outHref;
 }
@@ -63,11 +62,19 @@ sub getTXsite {
         $self->deconvoluteCodonDetails( $href->{$key} );
       next;
     }
-    
+
     $outHref->{ $featureMap->{$key} } = $href->{$key};
   }
 
   return $outHref;
 }
+
+# not in use yet
+# sub hasCodon {
+#   my ($self, $href) = @_;
+
+#   return !!$href->{ $invFeatureMap->{refCodonSequence} };
+# }
+
 __PACKAGE__->meta->make_immutable;
 1;

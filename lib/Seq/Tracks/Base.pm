@@ -52,6 +52,7 @@ has features => (
     allFeatureNames => 'keys',
     getFeatureDbName => 'get',
     noFeatures  => 'is_empty',
+    featureNamesKv => 'kv',
   },
 );
 
@@ -73,30 +74,33 @@ has _featureDataTypes => (
   },
 );
 
-has required_fields => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  lazy => 1,
-  default => sub{ {} },
-  handles => {
-    allReqFieldNames => 'keys',
-    getReqFieldDbName => 'get', 
-    noRequiredFields  => 'is_empty',
-  },
-);
+# I'm moving away from the required field thing
+#Required fields is a bit hacky, because they're not usually stored 
+#explicitly
+# has required_fields => (
+#   is => 'ro',
+#   isa => 'HashRef',
+#   traits => ['Hash'],
+#   lazy => 1,
+#   default => sub{ {} },
+#   handles => {
+#     allReqFieldNames => 'keys',
+#     getReqFieldDbName => 'get', 
+#     noRequiredFields  => 'is_empty',
+#   },
+# );
 
-has _requiredFieldDataTypes => (
-  is => 'ro',
-  isa => 'HashRef[DataType]',
-  traits => ['Hash'],
-  lazy => 1,
-  default => sub{ {} },
-  handles => {
-    getReqFieldType => 'get',
-    noReqFieldTypes  => 'is_empty',
-  },
-);
+# has _requiredFieldDataTypes => (
+#   is => 'ro',
+#   isa => 'HashRef[DataType]',
+#   traits => ['Hash'],
+#   lazy => 1,
+#   default => sub{ {} },
+#   handles => {
+#     getReqFieldType => 'get',
+#     noReqFieldTypes  => 'is_empty',
+#   },
+# );
 
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
@@ -210,6 +214,15 @@ around BUILDARGS => sub {
 
   $class->$orig($data);
 };
+
+sub get {
+  my $self = shift;
+  #the entire hash from the main database
+  my $dataHref = shift;
+
+  
+}
+
 #TODO: we should allow casting of required_fields.
 #we'll expect that modules will constrain the hash ref values
 #to what they require

@@ -77,6 +77,13 @@ sub getDbName {
 
 sub createTrackFieldMeta {
   my $self = shift;
+
+  $trackFieldMeta = $self->dbGetMeta($self->name);
+
+  my $mapping
+  if(!$trackFieldMeta) {
+
+  }
 }
 #same as above, but optional, and we don't map within this
 #this takes up to 2 arguments, but requires 1: the fields we want to map

@@ -118,7 +118,10 @@ has geneTrackKeys => (
 #whatever should go into the main database
 #region key is 0 in the included "Seq::Tracks::Region::Definition"
 #but to make life easy, and since we don't need to comply with the
-#Region interface anyway (because of tx key) I redeclare here
+#Region interface anyway (because of codon & ngene key) I redeclare here
+
+#codon is meant to hold some data that Gene::Site knows how to handle
+#and ngene is meant to hold some data the Gene::NearestGene knows how to handle
 has geneTrackKeysForMain => (
   is => 'ro',
   lazy => 1,
@@ -128,12 +131,13 @@ has geneTrackKeysForMain => (
     my $self = shift; 
     return { 
       region => 0,
-      tx  => 1, 
+      ngene  => 1,
+      site  => 2,
     } 
   },
   traits => ['Hash'],
   handles => {
-    getGeneTrackMainFeatDbName => 'get',
+    getGeneTrackFeatMainDbName => 'get',
   }
 );
 
@@ -146,7 +150,8 @@ has _geneTrackKeysForMainDbNameInverse => (
     my $self = shift; 
     return { 
       0 => 'region',
-      1  => 'tx',
+      1 => 'ngene'.
+      2 => 'site',
     } 
   },
   traits => ['Hash'],
