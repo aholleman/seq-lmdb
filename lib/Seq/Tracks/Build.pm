@@ -19,7 +19,8 @@ extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO';
 
 #anything with an underscore comes from the config format
-#this only is used by Build
+#anything config keys that can be set in YAML but that only need to be used
+#during building should be defined here
 has local_files => (
   is      => 'ro',
   isa     => 'ArrayRef',

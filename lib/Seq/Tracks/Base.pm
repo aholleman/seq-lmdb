@@ -215,10 +215,10 @@ around BUILDARGS => sub {
   $class->$orig($data);
 };
 
-sub get {
-  my $self = shift;
-  #the entire hash from the main database
-  my $dataHref = shift;
+# sub get {
+#   my $self = shift;
+#   #the entire hash from the main database
+#   my $dataHref = shift;
 
   
 }

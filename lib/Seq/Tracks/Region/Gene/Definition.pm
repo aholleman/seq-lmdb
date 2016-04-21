@@ -35,7 +35,11 @@ with 'Seq::Tracks::Region::Definition';
 #at creation time, so that it can check whether it has requisite data 
 #for declared attributes
 
-#This declares an implicit name for each 
+#This declares an implicit name for each in the form
+
+ # key = valueInArrayAtThisPosition
+# and as usual each key is also stored as a number in the database
+# for now, since we're hardcoding, that database name will just be the index
 state $ucscGeneAref = [
   'chrom',
   'strand',
@@ -58,17 +62,21 @@ state $ucscGeneAref = [
   'rfamAcc',
 ];
 
-has chrKey => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] } );
-has txStartKey => (is => 'ro', lazy => 1, default => sub{$ucscGeneAref->[2] } );
-has txEndKey => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[3] } );
+has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] } );
+# has txStartFieldName => (is => 'ro', lazy => 1, default => sub{$ucscGeneAref->[2] } );
+# has txEndFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[3] } );
 
 #make some indices, to help us get these values back
 #moved away from native moose methods, because they turned out to be really verbose
+#this is where we use the index values to get the "DbName"
 state $ucscGeneIdx;
 state $ucscGeneInvIdx;
 state $geneTrackRegionFeaturesAref;
 for (my $i=0; $i < @$ucscGeneAref; $i++) {
+
+  #the database name is stored, on the human readable name key
   $ucscGeneIdx->{ $ucscGeneAref->[$i] } = $i;
+  #the human readable name is stored on the database name key
   $ucscGeneInvIdx->{ $i } =  $ucscGeneAref->[$i];
 
   if( $ucscGeneAref->[$i] ne 'exonStarts' && $ucscGeneAref->[$i] ne 'exonEnds') {
@@ -77,7 +85,7 @@ for (my $i=0; $i < @$ucscGeneAref; $i++) {
 }
 
 #just the stuff meant for the region, above we exclude exonStarts and exonEnds
-has geneTrackKeysForRegion => (
+has geneTrackFieldNamesForRegion => (
   is => 'ro',
   lazy => 1,
   init_arg => undef,
@@ -85,7 +93,7 @@ has geneTrackKeysForRegion => (
   default => sub{ $geneTrackRegionFeaturesAref },
   traits => ['Array'],
   handles => {
-    allGeneTrackRegionFeatures => 'elements',
+    allGeneTrackRegionFeatureNames => 'elements',
     
   },
 );
@@ -103,14 +111,14 @@ sub getGeneTrackRegionFeatName {
 }
 
 #all of the keys
-has geneTrackKeys => (
+has geneTrackFeatureNamesForRegionDatabase => (
   is => 'ro',
   lazy => 1,
   init_arg => undef,
   isa => 'ArrayRef',
   traits => ['Array'],
   handles => {
-    'allGeneTrackKeys' => 'elements',
+    'allGeneTrackFeatureNames' => 'elements',
   },
   default => sub{ $ucscGeneAref }, #must be non-reference scalar
 );
@@ -122,177 +130,62 @@ has geneTrackKeys => (
 
 #codon is meant to hold some data that Gene::Site knows how to handle
 #and ngene is meant to hold some data the Gene::NearestGene knows how to handle
-has geneTrackKeysForMain => (
+
+state $ngeneDbName = 1;
+state $codonDbName = 2;
+state $ngeneName = 'ngene';
+state $codonName = 'site';
+has geneTrackFeaturesForMainDatabase => (
+  is => 'ro',
+  lazy => 1,
+  init_arg => undef,
+  isa => 'HashRef',
+  default => sub{ 
+    my $self = shift;
+
+    if($self->getRegionFeatureDbName != 0) {
+      $self->tee_logger('error', 'Region Feature Db Name should be 0');
+      die 'Region Feature Db Name should be 0';
+    }
+
+    return { 
+      $self->regionReferenceFeatureName => $self->regionReferenceFeatureDbName,
+      $ngeneName  => $ngeneDbName,
+      $codonName  => $codonDbName,
+    } 
+  },
+  traits => ['Hash'],
+  handles => {
+    #We could be even more verbose with this name, but no need
+    #because Gene Tracks only have a few features. One is the region reference
+    getGeneTrackFeatureDbName => 'get',
+  }
+);
+
+has _geneTrackFeaturesForMainDbNameInverse => (
   is => 'ro',
   lazy => 1,
   init_arg => undef,
   isa => 'HashRef',
   default => sub{ 
     my $self = shift; 
+
+    if($self->getRegionFeatureDbName != 0) {
+      $self->tee_logger('error', 'Region Feature Db Name should be 0');
+      die 'Region Feature Db Name should be 0';
+    }
+
     return { 
-      region => 0,
-      ngene  => 1,
-      site  => 2,
+      $self->regionReferenceFeatureDbName => $self->regionReferenceFeatureName,
+      $ngeneDbName => $ngeneName.
+      $codonDbName => $codonName,
     } 
   },
   traits => ['Hash'],
   handles => {
-    getGeneTrackFeatMainDbName => 'get',
+    getGeneTrackFeatureName => 'get',
   }
 );
-
-has _geneTrackKeysForMainDbNameInverse => (
-  is => 'ro',
-  lazy => 1,
-  init_arg => undef,
-  isa => 'HashRef',
-  default => sub{ 
-    my $self = shift; 
-    return { 
-      0 => 'region',
-      1 => 'ngene'.
-      2 => 'site',
-    } 
-  },
-  traits => ['Hash'],
-  handles => {
-    getGeneTrackMainFeatName => 'get',
-  }
-);
-
-
-#Moved away from the below geneTrackKeysForRegion etc because
-#awfully verbose
-#whatever should go into the region
-# has geneTrackKeysForRegion => (
-#   is => 'ro',
-#   lazy => 1,
-#   init_arg => undef,
-#   isa => 'HashRef',
-#   builder => '_buildGeneTrackKeysForRegion',
-#   traits => ['Hash'],
-#   handles => {
-#     getGeneTrackRegionFeatDbName => 'get',
-#     allGeneTrackRegionFeatures => 'keys',
-#   },
-# );
-
-# sub _buildGeneTrackKeysForRegion {
-#   #$self == $_[0];
-#   my $href;
-#   for my $key (keys @$ucscGeneIdx) {
-#     # for my $key (keys %$ucscGeneHref) {
-#     if($key eq 'exonStarts' || $key eq 'exonEnds') {
-#       next;
-#     }
-#    $href->{$key} = $ucscGeneIdx->{$key}; 
-#   }
-#   return $href;
-# }
-
-# has _geneTrackKeysForRegionInverted => (
-#   is => 'ro',
-#   lazy => 1,
-#   init_arg => undef,
-#   isa => 'HashRef',
-#   builder => '_buildGeneTrackKeysForRegionInverted',
-#   traits => ['Hash'],
-#   handles => {
-#     getGeneTrackRegionFeatName=> 'get',
-#   },
-# );
-
-# sub _buildGeneTrackKeysForRegionInverted {
-#   #$self == $_[0];
-#   my $href;
-#   for my $key (keys @$ucscGeneIdx) {
-#     # for my $key (keys %$ucscGeneHref) {
-#     if($key eq 'exonStarts' || $key eq 'exonEnds') {
-#       next;
-#     }
-#    $href->{ $ucscGeneIdx->{$key} } = $key; 
-#   }
-#   return $href;
-# }
-
-# has geneTrackKeysForRegionInverted => (
-#   is => 'ro',
-#   lazy => 1,
-#   init_arg => undef,
-#   isa => 'HashRef',
-#   builder => '_buildGeneTrackKeysForRegion',
-# );
-
-
-# has chrKey => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] } );
-# has txStartKey => (is => 'ro', lazy => 1, default => sub{$ucscGeneHref->[2] } );
-# has txEndKey => (is => 'ro', lazy => 1, default => sub{ $ucscGeneHref->[3] } );
-
-#gene tracks are weird, they're not just like region tracks
-#they also need to store some transcript information
-#which is pre-calculated, for every site in the reference
-#that's between txStart and txEnd
-#it includes the strand, the site type, the codon number, and position of 
-#that base within the codon; the latter two only if in an exon
-#unfortunately, sources tell me that you can't augment attributes inside 
-#of moose roles, so 
-# has featureOverride => (
-#   is => 'ro',
-#   isa => 'HashRef',
-#   lazy => 1,
-#   init_arg => undef,
-#   default => sub{ {
-#     #TODO: for now this must be the same in the general region track
-#     #fix it so that we don't need to declare the same spelling twice
-#     region => 0,
-#     tx  => 1,
-#   } },
-# );
-
-#everything that we want to store in the region
-# state $geneTrackRegionKeys;
-
-#unfortunately, I believe that in the current setup, I need to make these 
-#package variables
-
-# our $reqFields;
-
-# for my $key (keys %$ucscGeneHref) {
-#   if($key eq 'exonStarts' || $key eq 'exonEnds') {
-#     next;
-#   }
-#   push @$reqFields, $ucscGeneHref->{$key}; 
-# }
-
-# #hacks until we get automated name conversion working
-# our $featureFields = {
-#   region => 0,
-#   tx  => 1,
-# };
-
-
-
-# has requiredFieldOverride => (
-#   is => 'ro',
-#   lazy => 1,
-#   init_arg => undef,
-#   isa => ['ArrayRef'],
-#   builder => '_buildGeneTrackRegionKeys',
-# );
-
-# sub _buildGeneTrackRegionKeys {
-#   if($geneTrackRegionKeys) {
-#     return $geneTrackRegionKeys;
-#   }
-
-#   for my $key (keys %$ucscGeneHref) {
-#     if($key eq 'exonStarts' || $key eq 'exonEnds') {
-#       next;
-#     }
-#     push @$geneTrackRegionKeys, $ucscGeneHref->{$key}; 
-#   }
-#   return $geneTrackRegionKeys;
-# }
 
 no Moose::Role;
 no Moose::Util::TypeConstraints;

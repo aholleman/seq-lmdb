@@ -49,15 +49,10 @@ use namespace::autoclean;
 #   default => sub { return { region => 0, } },
 # );
 
-has regionKey => (is => 'ro', lazy => 1, default => 'region' );
+#The db name shouldn't change from 0, expected by subclasses of this class
+has regionReferenceKey => (is => 'ro', lazy => 1, default => 'region' );
+has regionReferenceDBkey => (is => 'ro', lazy => 1, default => 0 );
 
-sub getRegionKeyDbName {
-  return 0;
-}
-
-sub getRegionKeyName {
-  return 'region';
-}
 
 sub regionPath {
   my ($self, $chr) = @_;

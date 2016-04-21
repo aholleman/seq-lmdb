@@ -60,7 +60,7 @@ with 'Seq::Role::IO';
 #TODO: make mapfield to index work
 #with 'Seq::Tracks::Build::MapFieldToIndex';
 
-#all of our required position-related fields are here;
+#all of our required position-related fields are here;f
 with 'Seq::Tracks::Region::Gene::Definition';
 
 #unlike original GeneTrack, don't remap names
@@ -129,7 +129,7 @@ sub buildTrack {
           # say "fields are";
           # p @fields;
 
-          ALL_LOOP: for my $field ($self->allGeneTrackKeys) {
+          ALL_LOOP: for my $field ($self->allGeneTrackFeatureNames) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
             if(~$idx) { #bitwise complement, makes -1 0; this means we found
               $allIdx{$field} = $idx;
@@ -140,13 +140,13 @@ sub buildTrack {
           #check that we have all of the features that we want
           #these are basically just required features, since
           #gene tracks are completely hardcoded at build time
-          REQ_LOOP: for my $field ($self->allGeneTrackRegionFeatures) {
+          REQ_LOOP: for my $field ($self->allGeneTrackRegionFeatureNames) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
             if(~$idx) { #bitwise complement, makes -1 0; this means we found
               #don't need this due to above $regionIdx{$field} = $idx;
               next ALL_LOOP; #label for clarity
             }
-            $self->tee_logger('error', 'Required field $field missing in $file header');
+            $self->tee_logger('error', 'Required $field missing in $file header');
             die 'Required field $field missing in $file header';
           }
 
@@ -166,7 +166,7 @@ sub buildTrack {
         #also, we try to avoid assignment operations when not onerous
         #but here not as much of an issue; we expect only say 20k genes
         #and only hundreds of thousands to low millions of transcripts
-        my $chr = $fields[ $allIdx{$self->chrKey} ];
+        my $chr = $fields[ $allIdx{$self->chrFieldName} ];
 
         #if we have a wanted chr
         if( $wantedChr ) {
@@ -223,6 +223,8 @@ sub buildTrack {
         }
 
         #we prepare the region data to store in the region database
+        #we key on transcript so that we can match our region reference 
+        #entry in the main database
         $regionData{$txNumber} = $self->prepareData($tRegionDataHref);
 
         #And we're done with region database handling
@@ -261,8 +263,10 @@ sub buildTrack {
         my $sCount;
         for my $pos ($txInfo->allTranscriptSitePos) {
           $sHref->{$pos} = $self->prepareData({
-            $self->getGeneTrackFeatMainDbName('region') => $txNumber,
-            $self->getGeneTrackFeatMainDbName('site') 
+            #remember, we always insert some very short name in the database
+            #to save on space
+            $self->getGeneTrackFeatureDbName('region') => $txNumber,
+            $self->getGeneTrackFeatureDbName('site') 
               => $txInfo->getTranscriptSite($pos),
           });
 
