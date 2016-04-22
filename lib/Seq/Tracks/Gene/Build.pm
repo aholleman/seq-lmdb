@@ -12,7 +12,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Region::Gene::Build;
+package Seq::Tracks::Gene::Build;
 
 our $VERSION = '0.001';
 
@@ -61,7 +61,7 @@ with 'Seq::Role::IO';
 #with 'Seq::Tracks::Build::MapFieldToIndex';
 
 #all of our required position-related fields are here;f
-with 'Seq::Tracks::Region::Gene::Definition';
+with 'Seq::Tracks::Gene::Definition';
 
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention

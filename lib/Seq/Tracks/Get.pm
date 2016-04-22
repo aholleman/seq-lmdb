@@ -11,6 +11,7 @@ use Moose 2;
 extends 'Seq::Tracks::Base';
 
 
+# Needed in order to go from the database name to the label the user wants to see
 # dbName => featureNameAsItAppearsInInputFile
 has _invertedFeatures => (
   is => 'ro',

@@ -1,7 +1,7 @@
 #TODO: Merge this with Seq::Tracks::Region::Gene::TX::Definition as needed
 #TODO: figure out a more elegant solution, esp. one using automatic 
 #name convolution, instead of manual
-package Seq::Tracks::Region::Gene::Definition;
+package Seq::Tracks::Gene::Definition;
 use 5.16.0;
 use strict;
 use warnings;

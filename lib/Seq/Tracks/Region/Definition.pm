@@ -50,8 +50,8 @@ use namespace::autoclean;
 # );
 
 #The db name shouldn't change from 0, expected by subclasses of this class
-has regionReferenceKey => (is => 'ro', lazy => 1, default => 'region' );
-has regionReferenceDBkey => (is => 'ro', lazy => 1, default => 0 );
+has regionReferenceFeatureName => (is => 'ro', lazy => 1, default => 'region' );
+has regionReferenceFeatureDbName => (is => 'ro', lazy => 1, default => 0 );
 
 
 sub regionPath {
