@@ -90,8 +90,8 @@ state $threePrimeSite = '3UTR';
 has threePrimeSiteType => (is=> 'ro', lazy => 1, default => sub{$threePrimeSite} );
 state $spliceAcSite = 'Splice Acceptor';
 has spliceAcSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceAcSite} );
-state $spliceDoSite = 'Splice Donor';
-has spliceDoSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceDoSite} );
+state $spliceDonSite = 'Splice Donor';
+has spliceDonSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceDonSite} );
 state $ncRNAsite = 'non-coding RNA';
 has ncRNAsiteType => (is=> 'ro', lazy => 1, default => sub{$ncRNAsite} );
 
@@ -106,7 +106,7 @@ enum VariantTypes => ['SNP', 'MULTIALLELIC', 'DEL', 'INS'];
 
 #Coding type always first; order of interest
 state $siteTypes = [$codingSite, $fivePrimeSite, $threePrimeSite,
-$spliceAcSite, $spliceDoSite, $ncRNAsite];
+$spliceAcSite, $spliceDonSite, $ncRNAsite];
 
 #public
 has siteTypes => (

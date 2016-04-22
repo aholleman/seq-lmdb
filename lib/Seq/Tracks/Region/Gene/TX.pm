@@ -120,32 +120,39 @@ has transcriptErrors => (
 # used in building the codon details
 # this could likely be optimized out; right now it stores some, but not all
 # of the final annotations, made during the building of the transcript sequence
-has txAnnotation => (
-  is      => 'ro',
-  isa     => 'Str',
-  traits  => ['String'],
-  lazy    => 1,
-  init_arg => undef,
-  default => '',
-  writer  => '_writeTranscriptAnnotation',
-  handles => { 
-    getTranscriptAnnotation => 'substr', 
-  },
-);
+# has txAnnotation => (
+#   is      => 'ro',
+#   isa     => 'Str',
+#   traits  => ['String'],
+#   lazy    => 1,
+#   init_arg => undef,
+#   default => '',
+#   writer  => '_writeTranscriptAnnotation',
+#   handles => { 
+#     getTranscriptAnnotation => 'substr', 
+#   },
+# );
+
+#attempt 2, storing annotation as hash is easier to reason about I think
+#stores {
+# <Number> refPos => <String> reference base || annotation code
+#}
+my $txAnnotationHref;
 
 #maps a position in the annotation sequence string to a reference position
-has txAnnotationPositionMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  lazy => 1,
-  init_arg => undef,
-  default => sub { {} },
-  writer => '_writeTxAnnotionPositionMap',
-  handles => {
-    getTranscriptPosition => 'get',
-  }
-)
+#now included in txAnnotationHref;
+# has txAnnotationPositionMap => (
+#   is => 'ro',
+#   isa => 'HashRef',
+#   traits => ['Hash'],
+#   lazy => 1,
+#   init_arg => undef,
+#   default => sub { {} },
+#   writer => '_writeTxAnnotionPositionMap',
+#   handles => {
+#     getTranscriptPosition => 'get',
+#   }
+# )
 
 # stores all of our individual sites
 # these can be used by the consumer to write per-reference-position
@@ -172,17 +179,6 @@ has transcriptSites => (
 #So instead of this transcriptSites object
 #I think it better to just write everything we need into the db
 #for each position; in which case, this will never need to be called
-has transcriptSites => (
-  is      => 'ro',
-  isa     => 'ArrayRef[HashRef]',
-  traits  => ['Array'],
-  handles => {
-    allTranscriptSites => 'elements',
-  },
-  lazy => 1,
-  default => sub { [] },
-  writer => '_writeTranscriptSites',
-);
 
 #not using seq::site::gene
 # has flankingSites => (
@@ -324,7 +320,7 @@ sub _buildTranscript {
   #I don't htink the transcript positions are needed
   #we should map instead to annotation positions
   #$self->_writeTranscriptPositions( \@exonPositions );
-  $self->_writeTranscriptSequence( $seq );
+  # $self->_writeTranscriptSequence( $seq );
 
   #now build the annotation, which uses the transcript string
   #we can re-use the same string, since that is no longer needed here
@@ -352,20 +348,21 @@ sub _buildTranscriptAnnotation {
   my $posIdx;
   #posIdx corresponds to the place in the transcript sequence that we've stored
   #, whereas the $exonPos indicates the position in the chromosome.
+  #this works because @exonPositionsHref stores positions in the same order
+  #as $seq stores bases
+  #exonPos is the position in the reference assembly
   for my $exonPos (@exonPositionsHref) {
-    $positionMap{$exonPos} = $posIdx;
+    $txAnnotationHref->{$exonPos} = substr($seq, $posIdx, 1);
     $posIdx++;
   }
 
   #First generated the non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
-    BETWEEN_LOOP: for ( my $exonPos = $exonStarts[$i]; $pos < $exonEnds[$i]; $pos++ ) {
+    RANGE_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
       #where are we in the $seq that we've recorded
       #since that is a 0 indexed string that we've built, whose indices don't tell
       #us anything about where that is in the genome
       #a consequence of not rebuilding the transcript here.
-      my $posInSequence = $positionMap{$exonPos};
-
       if(nonCoding) {
         #replace that base in the sequence with our non-coding code
         #Note that this block will replace all bases with a $nonCodingBase
@@ -376,11 +373,12 @@ sub _buildTranscriptAnnotation {
         #say end is 3 and start is 2, that's a single base; 3-2 = 1 and the 
         #substring would replace only the starting base
         #https://ideone.com/RVDypI
-        my $length = $exonEnds[$i] - $exonStarts[$i];
-        
+        # my $length = $exonEnds[$i] - $exonStarts[$i];
+        # substr( $seq, $posInSequence, $length ) = $nonCodingBase x $length;
+        # last RANGE_LOOP;
 
-        substr( $seq, $posInSequence, $length ) = $nonCodingBase x $length;
-        last BETWEEN_LOOP;
+        $txAnnotationHref->{$exonPos} = $nonCodingBase;
+        next;
       }
 
       #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
@@ -395,13 +393,15 @@ sub _buildTranscriptAnnotation {
         }
         #if we're before cds start, but in an exon we must be in the 5' UTR
         #http://www.perlmonks.org/?node_id=889729
-        substr($seq, $posInSequence, 1) = $fivePrimeBase;
+        #substr($seq, $posInSequence, 1) = $fivePrimeBase;
+        $txAnnotationHref->{$exonPos} = $posStrand ? $fivePrimeBase : $threePrimeBase;
         next;
       }
       #if we're after cds end, but in an exon we must be in the 3' UTR
       #since codingEnd is open, >= really means > codingEnd - 1
       #so we must be in the 3' UTR, if we're in the transcript
-      substr($seq, $posInSequence, 1) = $threePrimeBase;
+      #substr($seq, $posInSequence, 1) = $threePrimeBase;
+      $txAnnotationHref->{$exonPos} = $posStrand ? $threePrimeBase : $fivePrimeBase;
     }
 
     # Annotate splice donor/acceptor bp
@@ -419,42 +419,40 @@ sub _buildTranscriptAnnotation {
     #  APR                                        ###                ###
     #  DNR                                %%%                  %%%
     #
-    #The only deviation here from Thomas' flanking_sites code
-    #is that we don't check for the strand here, because we're already
-    #flipped around the coding start and coding end positions above
-    #TODO: double check this works as expected
 
-    #TODO: check that there isn't a subtle bug, in that we should be checking
-    #exonStarts[$i] -n >= $codingStart and <= $codingEnd
+    #TODO: should we check if start + n is past end? or >= end - $n
     for ( my $n = 1; $n <= $spliceSiteLength; $n++ ) {
       my $exonPos = $exonStarts[$i] - $n;
       if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
         #get the position in the sequence string
         #note that we may not actually have this position, because it's outside
         #in fact, I would expect it would never include the exon
-        my $posInSequence = $positionMap{$exonPos};
+        # my $posInSequence = $positionMap{$exonPos};
 
-        if(!$posInSequence) {
-          $posInSequence = 
-        } else {
-          $self->tee_logger('debug', 'Splice site in exon sequence');
-        }
+        # if(!$posInSequence) {
+        #   $self->tee_logger('debug', 'Splice site in exon sequence');
+        # }
+
+        # my $posInSequence = $positionMap{ $exonStarts[$i] }
         
-        #inserting value in between strings
-        #https://ideone.com/LlAbeE
-        substr($seq, $posInSequence, 1) = 
-          substr($seq, $posInSequence, 1) . $posStrand ? $spliceAcSite : $spliceDonSite;
+        # #inserting value in between strings
+        # #https://ideone.com/LlAbeE
+        # substr($seq, $posInSequence, 1) = $posStrand ? $spliceAcSite : $spliceDonSite 
+        #   . substr($seq, $posInSequence, 1);
+        $txAnnotationHref->{$exonPos} = $posStrand ? $spliceAcSite : $spliceDonSite;
         next;
       }
 
       #inserting into a string https://ideone.com/LlAbeE
-      $pos = $exonStarts[$i] + $n - 1;
-      if ( $pos > $codingStart && $pos < $codingEnd ) {
+      $exonPos = $exonStarts[$i] + $n - 1;
+      if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
         #get the position in the sequence string
-        my $posInSequence = $positionMap{$pos};
-        #because exonEnds are open (not including the specified end) subtract 1
-        substr($seq, $posInSequence, 1) = $posStrand ? $spliceDonSite : $spliceAcSite;
-        next;
+        # my $posInSequence = $positionMap{$pos};
+        # #because exonEnds are open (not including the specified end) subtract 1
+        # substr($seq, $posInSequence, 1) = $posStrand ? $spliceDonSite : $spliceAcSite;
+        # next;
+
+        $txAnnotationHref->{$exonPos} = $posStrand ? $spliceDonSite : $spliceAcSite;
       }
     }
 
@@ -464,14 +462,14 @@ sub _buildTranscriptAnnotation {
 
   #once we've processed all sites, we need to flip around the 5' and 3' UTR
   #designators if we're on neg strand
-  if ( $negStrand ) {
-    # flip 5' and 3' UTR distinction
-    # if this is negative strand, we already have the reverse compliment $seq
-    # from _buildTranscript
-    $seq =~ tr/53/35/;
-  }
+  # if ( $negStrand ) {
+  #   # flip 5' and 3' UTR distinction
+  #   # if this is negative strand, we already have the reverse compliment $seq
+  #   # from _buildTranscript
+  #   $seq =~ tr/53/35/;
+  # }
 
-  $self->_writeTranscriptAnnotation($seq);
+  #$self->_writeTranscriptAnnotation($seq);
 }
 
 #The only goal here now is to store errors in an array
@@ -614,8 +612,8 @@ sub _buildTranscriptSites {
       $siteType = $self->ncRNAsiteType;
     } elsif ( $siteAnnotation eq $spliceAcSite ) {
       $siteType = $self->spliceAcSiteType;
-    } elsif ( $siteAnnotation eq $spliceDoSite ) {
-      $siteType = $self->spliceDoSiteType;
+    } elsif ( $siteAnnotation eq $spliceDonSite ) {
+      $siteType = $self->spliceDonSiteType;
     } else {
       $self->tee_logger('error', "unknown site code $siteAnnotation");
       die 'unknown site code $siteAnnotation';
