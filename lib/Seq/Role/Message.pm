@@ -8,6 +8,9 @@ our $VERSION = '0.001';
 # ABSTRACT: A class for communicating to log and to some plugged in messaging service
 # VERSION
 use Moose::Role 2;
+
+#for more on AnyEvent::Log
+#http://search.cpan.org/~mlehmann/AnyEvent-7.12/lib/AnyEvent/Log.pm
 use AnyEvent;
 
 use Redis::hiredis;
@@ -130,8 +133,8 @@ sub setLogLevel {
 
 #note, accessing hash directly because traits don't work with Maybe types
 sub publishMessage {
-  #my ( $self, $msg ) = @_;
-  #to save on perf, $_[0] == $self, $_[1] == $msg;
+  #my ( $self, $event, $msg ) = @_;
+  #to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
 
   #because predicates don't trigger builders, need to check hasPublisherAddress
   #return unless $self->messanger;
@@ -143,20 +146,29 @@ sub publishMessage {
 sub log {
   #my ( $self, $log_method, $msg ) = @_;
   #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
-  state $debugLog = AnyEvent::Log::logger("debug");
+  #state $debugLog = AnyEvent::Log::logger("debug");
 
+  #log a bunch of messages, helpful on ocassaion
+  if(ref $_[2] eq 'ARRAY') {
+    $_[2] = join('; ', $_[2]);
+  }
   #interestingly some kind of message bufferring occurs, such that
   #this will actually make it through to the rest of the tee_logger function
   #synchronous die
-  if ( $_[1] eq 'error' ) {
-    # state $errorLog = AnyEvent::Log::logger("error");
-    # return $errorLog->($_[2]);
-    return confess "\n$_[2]\n";
-  }
+  #TODO: Figure out if 'error' level actually quits the program
+  #if it does not, then we'll have to override $_[1] to fatal
+  # if ( $_[1] eq 'error' ) {
+  #   # state $errorLog = AnyEvent::Log::logger("error");
+  #   # return $errorLog->($_[2]);
+
+    
+  #   #return confess "\n$_[2]\n";
+  # }
 
   #we don't have any complicated logging support, just log if it's not an error
-  $debugLog->("$_[1]: $_[2]");
+  #$debugLog->("$_[1]: $_[2]");
   # $_[0]->_logger->${ $_[1] }( $_[2] ); # this is very slow, sync to disk
+  AnyEvent::Log::log $_[1], $_[2];
 
   #save some performance; could move this to anyevent as well
   goto &publishMessage; #re-use stack to save performance

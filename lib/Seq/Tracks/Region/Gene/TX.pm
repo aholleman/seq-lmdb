@@ -75,9 +75,28 @@ state $nonCodingBase = '0';
 state $spliceAcSite = '3';
 state $spliceDonSite = '4';
 
+
+# stores all of our individual sites
+# these can be used by the consumer to write per-reference-position
+# codon information
+# The only public variable
+has transcriptSites => (
+  is      => 'rw',
+  isa     => 'HashRef[HashRef]',
+  default => sub { [] },
+  traits  => ['Hash'],
+  handles => {
+    allTranscriptSitePos => 'keys',
+    getTranscriptSite => 'get',
+  },
+  lazy => 1,
+  init_arg => undef,
+  builder => '_buildTranscriptSites',
+);
+
 #used in writing peptide, which isn't done now,
-#and also to get the codon sequence
-has transcriptSequence => (
+#but also to get the codon sequence
+has _transcriptSequence => (
   is      => 'ro',
   isa     => 'Str',
   init_arg => undef,
@@ -94,7 +113,7 @@ has transcriptErrors => (
   isa     => 'ArrayRef',
   lazy    => 1,
   init_arg => undef,
-  builder => '_buildTranscriptErrors',
+  writer => '_writeTranscriptErrors',
   traits  => ['Array'],
   handles => {
     noTranscriptErrors   => 'is_empty',
@@ -102,15 +121,16 @@ has transcriptErrors => (
   },
 );
 
-# used in making the transcriptAnnotations as well as codon details
+#used in making the codon details in buildTranscriptSites
+#a map of positionInChr => position in $self->transcriptSequence
+my $txPositionMap;
 # has transcriptPositions => (
 #   is      => 'ro',
 #   init_arg => undef,
-#   isa     => 'ArrayRef[Int]',
-#   traits  => ['Array'],
+#   isa     => 'HashRef[Int]',
+#   traits  => ['Hash'],
 #   handles => {
 #     getTranscriptPos => 'get',
-#     allTranscriptPos => 'elements',
 #   },
 #   lazy    => 1,
 #   default => sub{ [] },
@@ -154,22 +174,7 @@ my $txAnnotationHref;
 #   }
 # )
 
-# stores all of our individual sites
-# these can be used by the consumer to write per-reference-position
-# codon information
-has transcriptSites => (
-  is      => 'rw',
-  isa     => 'HashRef[HashRef]',
-  default => sub { [] },
-  traits  => ['Hash'],
-  handles => {
-    allTranscriptSitePos => 'keys',
-    getTranscriptSite => 'get',
-  },
-  lazy => 1,
-  init_arg => undef,
-  builder => '_buildTranscriptSites',
-);
+
 
 #trying to move away from Seq::Site::Gene;
 #not certain if needed yet; I think to get data back
@@ -243,9 +248,9 @@ sub BUILD {
   #maybe if UCSC loses it's dominance
 
   # the by-product of _build_transcript_sites is to build the peptide
-  $self->_build_transcript_sites;
+  $self->_buildTranscriptSites;
 
-  #I assume flanking sites are used for nearest gene
+  #this is now handled as part of the buildTranscript process
   #$self->_build_flanking_sites;
 }
 
@@ -307,6 +312,17 @@ sub _buildTranscript {
     # }
   }
 
+  $self->_buildTranscriptErrors($seq);
+
+  #TODO: presumably we do something with errors, say don't continue?
+  #for now, yep that's what I'm doing
+  if($self->hasErrors) {
+    $self->tee_logger('error', $self->allErrors);
+    #eventually we'll get ride of any die's, not really necessary
+    #error logs should cause perl to die
+    die "Transcript building cancelled. Found errors. Check log";
+  }
+
   if ( $self->strand eq "-" ) {
     #reverse the sequence, just as in _build_transcript_db
     $seq = reverse $seq;
@@ -316,11 +332,10 @@ sub _buildTranscript {
     @exonPositions = reverse @exonPositions;
   }
 
-  #write these things
-  #I don't htink the transcript positions are needed
-  #we should map instead to annotation positions
-  #$self->_writeTranscriptPositions( \@exonPositions );
-  # $self->_writeTranscriptSequence( $seq );
+  
+  #write these things, which are used later in _buildTranscriptSites
+  #this is now done in buildTranscript Annotation $self->_writeTranscriptPositions( \@exonPositions );
+  $self->_writeTranscriptSequence( $seq );
 
   #now build the annotation, which uses the transcript string
   #we can re-use the same string, since that is no longer needed here
@@ -329,7 +344,7 @@ sub _buildTranscript {
 }
 
 sub _buildTranscriptAnnotation {
-  my ($self, $seq, $exonPositionsHref) = @_
+  my ($self, $seq, $exonPositionsAref) = @_
 
   my @exonStarts = $self->allExonStarts;
   my @exonEnds   = $self->allExonEnds;
@@ -342,17 +357,19 @@ sub _buildTranscriptAnnotation {
   #nope: http://genome.soe.ucsc.narkive.com/NHHMnfwF/cdsstart-cdsend-definition
   my $nonCoding = $self->cdsStart == $self->cdsEnd;
   
-  #Map locations to annotations
-  #I find it easier to work with hashes in this instances
-  my %positionMap;
-  my $posIdx;
+  #Create the initial txAnnotation array
+  #then we'll modify it to replace stuff with annotations
+  
   #posIdx corresponds to the place in the transcript sequence that we've stored
   #, whereas the $exonPos indicates the position in the chromosome.
   #this works because @exonPositionsHref stores positions in the same order
   #as $seq stores bases
   #exonPos is the position in the reference assembly
-  for my $exonPos (@exonPositionsHref) {
+  my $posIdx;
+  for my $exonPos (@exonPositionsAref) {
     $txAnnotationHref->{$exonPos} = substr($seq, $posIdx, 1);
+    #could also store in txAnnotationHref if perf is issue
+    $txPositionMap->{$exonPos} = $posIdx;
     $posIdx++;
   }
 
@@ -378,13 +395,12 @@ sub _buildTranscriptAnnotation {
         # last RANGE_LOOP;
 
         $txAnnotationHref->{$exonPos} = $nonCodingBase;
-        next;
+        next RANGE_LOOP;
       }
 
       #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
       #checking with Thomas
-      #was <, for now <=
-      if( $exonPos <= $codingEnd ) {
+      if( $exonPos < $codingEnd ) {
         if( $exonPos >= $codingStart ) {
           #not 5'UTR,3'UTR, or non-coding
           #we've alraedy gotten the ref base at this position in $seq
@@ -475,6 +491,8 @@ sub _buildTranscriptAnnotation {
 #The only goal here now is to store errors in an array
 sub _buildTranscriptErrors {
   my $self = shift;
+  my $codingSeq =  shift;
+
   state $atgRe = qr/\AATG/; #starts with ATG
   state $stopCodonRe = qr/(TAA|TAG|TGA)\Z/; #ends with a stop codon
 
@@ -485,15 +503,15 @@ sub _buildTranscriptErrors {
   #   3. Ends with stop codon
 
   # check coding sequence
-  my $codingSeq = $self->transcriptAnnotation;
+  #my $codingSeq = $self->transcriptAnnotation;
   #remove our annotations
   #Need to actually say to match 1 or more (or 0 or more)
   #wrong: https://ideone.com/CRZsKf
   #right: https://ideone.com/5ghTbk
-  $codingSeq =~ s/[$fivePrimeBase]*//xm;
-  $codingSeq =~ s/[$threePrimeBase]*//xm;
-  $codingSeq =~ s/[$spliceAcSite]*//xm;
-  $codingSeq =~ s/[$spliceDonSite]*//xm;
+  # $codingSeq =~ s/[$fivePrimeBase]*//xm;
+  # $codingSeq =~ s/[$threePrimeBase]*//xm;
+  # $codingSeq =~ s/[$spliceAcSite]*//xm;
+  # $codingSeq =~ s/[$spliceDonSite]*//xm;
 
   if ( $self->cdsStart == $self->cdsEnd ) {
     #it's a non-coding site, so it has no sequence information stored at all
@@ -507,12 +525,12 @@ sub _buildTranscriptErrors {
     #our regex doesn't need to account for those sites (hence removal of 
     #[$fivePrimeBase]* and [$threePrimeBase]* )
     # check begins with ATG
-    if ( $self->transcriptAnnotation !~ m/$atgRe/ ) {
+    if ( $codingSeq !~ m/$atgRe/ ) {
       push @errors, 'transcript does not begin with ATG';
     }
 
     # check stop codon
-    if ( $self->transcriptAnnotation !~ m/$stopCodonRe/ ) {
+    if ( $codingSeq !~ m/$stopCodonRe/ ) {
       push @errors, 'transcript does not end with stop codon';
     }
   }
@@ -552,6 +570,10 @@ sub _buildTranscriptErrors {
 
 =cut
 #was build_transcript_sites
+
+#TODO: double check that this works properly
+#TODO: think about whether we want to pack anything if no info
+#the problem with not packing something is we won't know how to unpack it apriori
 sub _buildTranscriptSites {
   my $self              = shift;
 
@@ -561,25 +583,22 @@ sub _buildTranscriptSites {
   my $codingBaseCount = 0;
   #my $lastCodonNumber = 0;
 
-  if ( $self->noTranscriptErrors ) {
-    $self->log('info', join( " ", $self->name, $self->chrom, $self->strand ) );
-  } else {
-    $self->log('warn', join( " ", $self->name, $self->chrom, $self->strand, 
-      $self->allTranscriptErrors ) );
-  }
+  # I'm just dying for now, in buildTranscript; could move back to here
+  # if ( $self->noTranscriptErrors ) {
+  #   $self->log('info', join( " ", $self->name, $self->chrom, $self->strand ) );
+  # } else {
+  #   $self->log('warn', join( " ", $self->name, $self->chrom, $self->strand, 
+  #     $self->allTranscriptErrors ) );
+  # }
 
   #( $self->allTranscriptPos ) is another way to say @{ $self->allTranscriptPos }
-  for ( my $i = 0; $i < ( $self->allTranscriptPos ); $i++ ) {
-    my (
-      $annotation_type, $codon_seq, $codon_number,
-      $codon_position,  %gene_site, $siteAnnotation,
-      $siteType, $referenceCodonSeq
-    );
+  for my $posInChr (keys $txAnnotationHref) {
+    my ($siteAnnotation, $siteType,);
 
-    $siteAnnotation = $self->getTranscriptAnnotation( $i, 1 );
+    $siteAnnotation = $txAnnotationHref->{$posInChr}
 
-    #maybe this should go in prepareCodonDetails (the -9 specific.)
-    my ($codonNumber, $codonPosition) = (-9, -9);
+    #maybe this should go in prepareCodonDetails (the -9 and 'NNN' specific.)
+    my ($codonNumber, $codonPosition, $referenceCodonSeq) = (-9, -9, 'NNN');
     
     # is site coding
     if ( $siteAnnotation =~ m/[ACGT]/ ) {
@@ -593,11 +612,12 @@ sub _buildTranscriptSites {
       #for ( my $j = $codonStart; $j <= $codonEnd; $j++ ) {
         #TODO: account for messed up transcripts that are truncated
         #$referenceCodonSeq .= $self->getTranscriptBases( $j, 1 );
-      }
+      #}
       #I think this is more efficient, also clearer (to me) because the 3 
       #is explicit, rather than implict through the +2 and for loop and 0 offset substr
       #https://ideone.com/lDRULc
-      $referenceCodonSeq = $self->getTranscriptBases( $codonStart, 3 );
+      $referenceCodonSeq = $self->getTranscriptBases( $txPositionMap->{$codonStart}, 3 );
+
       $codingBaseCount++;
 
       #since it's a coding site, call it that
@@ -627,7 +647,7 @@ sub _buildTranscriptSites {
     
     #this transcript sites are keyed on reference position
     #this is similar to what was done with Seq::Site::Gene before
-    $self->transcriptSites->{ $self->getTranscriptPos($i) } = $site;
+    $self->transcriptSites->{ $posInChr } = $site;
 
     # no longer doing this, spoke with Dave
     # can re-add once rest is up if needed
