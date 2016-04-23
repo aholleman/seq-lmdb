@@ -11,7 +11,7 @@ our $VERSION = '0.001';
 
 use Moose 2;
 #DBManager not used here, but let's make it accessible to those that inherit this class
-with 'Seq::Role::DBManager', 'Seq::Tracks::Base::Definition', 'Seq::Role::Message';
+with 'Seq::Tracks::Base::Types';
 # should be shared between all types
 # Since Seq::Tracks;:Base is extended by every Track, this is an ok place for it.
 # Could also use state, and not re-initialize it for every instance
@@ -28,6 +28,16 @@ has genome_chrs => (
     'chrIsWanted' => 'defined',
   },
   lazy_build => 1,
+);
+
+has name => ( is => 'ro', isa => 'Str', required => 1);
+
+#we internally store the name as an integer, to save db space
+#default is just the name itself; but see buildargs below
+#not meant to be set in YAML config; user could easily screw up mappings
+#and its an internal API consideration, no benefit for public
+has _dbName => ( reader => 'dbName', is => 'ro', isa => 'Str', lazy => 1,
+  default => sub { my $self = shift; return $self->name; }
 );
 
 #TODO: don't use YAML config to choose dbNames, do that internally, store in
@@ -74,46 +84,8 @@ has _featureDataTypes => (
   },
 );
 
-# I'm moving away from the required field thing
-#Required fields is a bit hacky, because they're not usually stored 
-#explicitly
-# has required_fields => (
-#   is => 'ro',
-#   isa => 'HashRef',
-#   traits => ['Hash'],
-#   lazy => 1,
-#   default => sub{ {} },
-#   handles => {
-#     allReqFieldNames => 'keys',
-#     getReqFieldDbName => 'get', 
-#     noRequiredFields  => 'is_empty',
-#   },
-# );
-
-# has _requiredFieldDataTypes => (
-#   is => 'ro',
-#   isa => 'HashRef[DataType]',
-#   traits => ['Hash'],
-#   lazy => 1,
-#   default => sub{ {} },
-#   handles => {
-#     getReqFieldType => 'get',
-#     noReqFieldTypes  => 'is_empty',
-#   },
-# );
-
-
-has name => ( is => 'ro', isa => 'Str', required => 1);
-
-#we internally store the name as an integer, to save db space
-#default is just the name itself; but see buildargs below
-#not meant to be set in YAML config; user could easily screw up mappings
-#and its an internal API consideration, no benefit for public
-has _dbName => ( reader => 'dbName', is => 'ro', isa => 'Str', lazy => 1,
-  default => sub { my $self = shift; return $self->name; }
-);
-
-has type => ( is => 'ro', isa => 'Str', required => 1);
+#TrackType exported from Tracks::Base::Type
+has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
@@ -167,7 +139,12 @@ around BUILDARGS => sub {
   }
   $data->{features} = \%featureLabels;
 
-  #now do the same for required_fields
+  #now do the same for required_fields, if specified
+  #This is currently not implemented
+  #The only goal here is to allow people to tell Seqant what their source file
+  #looks like, so that they don't have to manipulate large source file headers
+  #help them avoid using command lilne
+  #However, this is a relatively minor concern; few will be doing this
   if( !defined $data->{required_fields} ) {
     return $class->$orig($data);
   }
@@ -215,14 +192,6 @@ around BUILDARGS => sub {
   $class->$orig($data);
 };
 
-# sub get {
-#   my $self = shift;
-#   #the entire hash from the main database
-#   my $dataHref = shift;
-
-  
-}
-
 #TODO: we should allow casting of required_fields.
 #we'll expect that modules will constrain the hash ref values
 #to what they require
@@ -240,6 +209,34 @@ around BUILDARGS => sub {
 # Label is expected (for features, and required_fields) to map exactly to
 # what the user has in their db
 
+
+# I'm moving away from the required field thing
+#Required fields is a bit hacky, because they're not usually stored 
+#explicitly
+# has required_fields => (
+#   is => 'ro',
+#   isa => 'HashRef',
+#   traits => ['Hash'],
+#   lazy => 1,
+#   default => sub{ {} },
+#   handles => {
+#     allReqFieldNames => 'keys',
+#     getReqFieldDbName => 'get', 
+#     noRequiredFields  => 'is_empty',
+#   },
+# );
+
+# has _requiredFieldDataTypes => (
+#   is => 'ro',
+#   isa => 'HashRef[DataType]',
+#   traits => ['Hash'],
+#   lazy => 1,
+#   default => sub{ {} },
+#   handles => {
+#     getReqFieldType => 'get',
+#     noReqFieldTypes  => 'is_empty',
+#   },
+# );
 
 __PACKAGE__->meta->make_immutable;
 

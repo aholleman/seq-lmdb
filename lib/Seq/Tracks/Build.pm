@@ -107,6 +107,7 @@ sub prepareData {
 
 #We always return an array for anything split by multi-delim; arrays are implied by those
 #arrays are also more space efficient in msgpack
+#This is stored in Build.pm because this only needs to happen during insertion into db
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   # my ($self, $dataStr) = @_;

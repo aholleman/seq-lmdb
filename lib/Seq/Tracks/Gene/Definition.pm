@@ -40,6 +40,8 @@ with 'Seq::Tracks::Region::Definition';
  # key = valueInArrayAtThisPosition
 # and as usual each key is also stored as a number in the database
 # for now, since we're hardcoding, that database name will just be the index
+#order actually matters here, since we store the array index, rather than the
+#field name in the database
 state $ucscGeneAref = [
   'chrom',
   'strand',
@@ -71,7 +73,7 @@ has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] }
 #this is where we use the index values to get the "DbName"
 state $ucscGeneIdx;
 state $ucscGeneInvIdx;
-state $geneTrackRegionFeaturesAref;
+state $geneTrackRegionDatabaseFeaturesHref;
 for (my $i=0; $i < @$ucscGeneAref; $i++) {
 
   #the database name is stored, on the human readable name key
@@ -80,38 +82,41 @@ for (my $i=0; $i < @$ucscGeneAref; $i++) {
   $ucscGeneInvIdx->{ $i } =  $ucscGeneAref->[$i];
 
   if( $ucscGeneAref->[$i] ne 'exonStarts' && $ucscGeneAref->[$i] ne 'exonEnds') {
-    push @$geneTrackRegionFeaturesAref, $ucscGeneAref->[$i];
+    $geneTrackRegionDatabaseFeaturesHref->{ $ucscGeneAref->[$i] } = $i;
   }
 }
 
 #just the stuff meant for the region, above we exclude exonStarts and exonEnds
-has geneTrackFieldNamesForRegion => (
+has geneTrackFieldNamesForRegionDatabase => (
   is => 'ro',
   lazy => 1,
   init_arg => undef,
-  isa => 'ArrayRef',
-  default => sub{ $geneTrackRegionFeaturesAref },
+  isa => 'HashRef',
+  default => sub{ $geneTrackRegionDatabaseFeaturesHref },
   traits => ['Array'],
   handles => {
-    allGeneTrackRegionFeatureNames => 'elements',
-    
+    allRegionDatabaseFeatureNames => 'keys',
+    getRegionDatabaseFeatureDbName => 'get',
   },
 );
 
-sub getGeneTrackRegionFeatDbName {
+sub getGeneTrackRegionDatabaseFeatureDbName {
   my ($self, $name) = @_;
 
-  return $ucscGeneIdx->{$name};
+  return $self->getRegionDatabaseFeatureDbName($name);
 }
 
 sub getGeneTrackRegionFeatName {
   my ($self, $dbName) = @_;
 
-  return $ucscGeneIdx->{$dbName};
+  if( $self->getRegionDatabaseFeatureDbName( $ucscGeneInvIdx->{$dbName} ) ) {
+    return $ucscGeneInvIdx->{$dbName};
+  }
+  return;
 }
 
 #all of the keys
-has geneTrackFeatureNamesForRegionDatabase => (
+has geneTrackFeatureNames => (
   is => 'ro',
   lazy => 1,
   init_arg => undef,
@@ -131,61 +136,59 @@ has geneTrackFeatureNamesForRegionDatabase => (
 #codon is meant to hold some data that Gene::Site knows how to handle
 #and ngene is meant to hold some data the Gene::NearestGene knows how to handle
 
-state $ngeneDbName = 1;
-state $codonDbName = 2;
-state $ngeneName = 'ngene';
-state $codonName = 'site';
-has geneTrackFeaturesForMainDatabase => (
-  is => 'ro',
-  lazy => 1,
-  init_arg => undef,
-  isa => 'HashRef',
-  default => sub{ 
-    my $self = shift;
 
-    if($self->getRegionFeatureDbName != 0) {
-      $self->tee_logger('error', 'Region Feature Db Name should be 0');
-      die 'Region Feature Db Name should be 0';
-    }
+has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
+has siteFeatureDbName => (is => 'ro', init_arg => undef, lazy => 1, default => 1 );
 
-    return { 
-      $self->regionReferenceFeatureName => $self->regionReferenceFeatureDbName,
-      $ngeneName  => $ngeneDbName,
-      $codonName  => $codonDbName,
-    } 
-  },
-  traits => ['Hash'],
-  handles => {
-    #We could be even more verbose with this name, but no need
-    #because Gene Tracks only have a few features. One is the region reference
-    getGeneTrackFeatureDbName => 'get',
-  }
-);
+# has _geneTrackFeaturesForMainDbNameInverse => (
+#   is => 'ro',
+#   lazy => 1,
+#   init_arg => undef,
+#   isa => 'HashRef',
+#   default => sub{ 
+#     my $self = shift; 
 
-has _geneTrackFeaturesForMainDbNameInverse => (
-  is => 'ro',
-  lazy => 1,
-  init_arg => undef,
-  isa => 'HashRef',
-  default => sub{ 
-    my $self = shift; 
+#     if($self->regionReferenceFeatureDbName != 0) {
+#       $self->tee_logger('error', 'Region Feature Db Name should be 0');
+#       die 'Region Feature Db Name should be 0';
+#     }
 
-    if($self->getRegionFeatureDbName != 0) {
-      $self->tee_logger('error', 'Region Feature Db Name should be 0');
-      die 'Region Feature Db Name should be 0';
-    }
+#     return { 
+#       $self->regionReferenceFeatureDbName => $self->regionReferenceFeatureName,
+#       $self->siteFeatureDbName => $self->siteFeatureName,
+#     } 
+#   },
+#   traits => ['Hash'],
+#   handles => {
+#     getGeneTrackFeatureName => 'get',
+#   }
+# );
 
-    return { 
-      $self->regionReferenceFeatureDbName => $self->regionReferenceFeatureName,
-      $ngeneDbName => $ngeneName.
-      $codonDbName => $codonName,
-    } 
-  },
-  traits => ['Hash'],
-  handles => {
-    getGeneTrackFeatureName => 'get',
-  }
-);
+# has geneTrackFeaturesForMainDatabase => (
+#   is => 'ro',
+#   lazy => 1,
+#   init_arg => undef,
+#   isa => 'HashRef',
+#   default => sub{ 
+#     my $self = shift;
+
+#     if($self->getRegionFeatureDbName != 0) {
+#       $self->tee_logger('error', 'Region Feature Db Name should be 0');
+#       die 'Region Feature Db Name should be 0';
+#     }
+
+#     return { 
+#       $self->regionReferenceFeatureName => $self->regionReferenceFeatureDbName,
+#       $self->siteFeatureName  => $self->siteFeatureDbName,
+#     } 
+#   },
+#   traits => ['Hash'],
+#   handles => {
+#     #We could be even more verbose with this name, but no need
+#     #because Gene Tracks only have a few features. One is the region reference
+#     getGeneTrackFeatureDbName => 'get',
+#   }
+# );
 
 no Moose::Role;
 no Moose::Util::TypeConstraints;

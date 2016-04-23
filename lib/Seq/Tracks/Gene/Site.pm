@@ -10,6 +10,9 @@ use warnings;
 #except _get_gene_data moved to Seq::Tracks::GeneTrack::Build
 package Seq::Tracks::Gene::Site;
 use Moose 2;
+use List::Util qw/first/;
+use Scalar::Util qw/looks_like_number/;
+
 with 'Seq::Tracks::Gene::Site::Definition';
 
 #To save performance, we support arrays, making this a bit like a full TX
@@ -39,11 +42,10 @@ state $missing = -9; #some default value that is less than 0, which is a valid i
 sub packCodon {
   my ($self, $siteType, $strand, $codonPosition, $codonNumber, $codonSeq) = @_;
 
-  if( !($siteType && $strand) ) {
-    $self->tee_logger('fatal', 'packCodon requires site type and strand');
-  }
-
-  if(! first { $_ eq $strand } $self->allStrandTypes ) {
+  #used to require strand too, but that may go away
+  if( !$siteType ) {
+    $self->tee_logger('fatal', 'packCodon requires site type');
+  } elsif(! first { $_ eq $strand } $self->allStrandTypes ) {
     $self->tee_logger('fatal', 'strand must be of StrandType');
   }
 
@@ -58,7 +60,7 @@ sub packCodon {
   }
 
   if( defined $codonPosition && defined $codonNumber && 
-  !(looks_like_number($codonPosition) && looks_like_number( $codonNumber) ) ) {
+  !(looks_like_number( $codonPosition ) && looks_like_number( $codonNumber) ) ) {
     $self->tee_logger('fatal', 'codon position & Number must be numeric');
   }
 
@@ -103,6 +105,12 @@ sub getCodonNum {
 sub getCodonPos {
   return $unpackedCodon->[3];
 }
+
+#https://ideone.com/cNQfwv
+sub getCodonSeq {
+  return join('', @$unpackedCodon[4..6] );
+}
+
 # not in use yet
 # sub hasCodon {
 #   my ($self, $href) = @_;

@@ -52,7 +52,8 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 use List::MoreUtils::XS qw(firstidx);
 use DDP;
-use Hash::Merge::Simple qw(merge);
+
+use Seq::Tracks::Gene::Build::TX;
 
 extends 'Seq::Tracks::Build';
 with 'Seq::Role::IO';
@@ -60,7 +61,7 @@ with 'Seq::Role::IO';
 #TODO: make mapfield to index work
 #with 'Seq::Tracks::Build::MapFieldToIndex';
 
-#all of our required position-related fields are here;f
+#all of the fields that we expect for a UCSC gene track are here
 with 'Seq::Tracks::Gene::Definition';
 
 #unlike original GeneTrack, don't remap names
@@ -109,17 +110,13 @@ sub buildTrack {
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
       
       my %regionData;
-
-      #everything we are going to put into a site
-      my %siteData;
-
-      #collect unique gene names
-      my %genes = ();
       
       my $wantedChr;
       
       my $txNumber = 0; # this is what our key will be in the region track
-      my $count = 0;
+      #track how many region track records we've collected
+      #to gauge when to bulk insert
+      my $count = 0; 
 
       FH_LOOP: while (<$fh>) {
         chomp $_;
@@ -135,21 +132,8 @@ sub buildTrack {
               $allIdx{$field} = $idx;
               next ALL_LOOP; #label for clarity
             }
-          }
-
-          #check that we have all of the features that we want
-          #these are basically just required features, since
-          #gene tracks are completely hardcoded at build time
-          REQ_LOOP: for my $field ($self->allGeneTrackRegionFeatureNames) {
-            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
-            if(~$idx) { #bitwise complement, makes -1 0; this means we found
-              #don't need this due to above $regionIdx{$field} = $idx;
-              next ALL_LOOP; #label for clarity
-            }
             $self->tee_logger('error', 'Required $field missing in $file header');
-            die 'Required field $field missing in $file header';
           }
-
           next FH_LOOP;
         }
 
@@ -216,7 +200,7 @@ sub buildTrack {
           $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
           
           # if this is a field that we need to store in the region db
-          my $dbName = $self->getGeneTrackRegionFeatDbName($fieldName);
+          my $dbName = $self->getGeneTrackRegionDatabaseFeatureDbName($fieldName);
           if( defined( $dbName ) ) {
             $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
           }
@@ -257,7 +241,7 @@ sub buildTrack {
         # 2) Store this codon information at some key, which the Tracks::Region::Gene
         # will know how to fetch.
         # and then, of course, to actually insert that into the database
-        my $txInfo = Seq::Tracks::Region::Gene::TX->new( $allDataHref );
+        my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
 
         my $sHref;
         my $sCount;
@@ -265,13 +249,17 @@ sub buildTrack {
           $sHref->{$pos} = $self->prepareData({
             #remember, we always insert some very short name in the database
             #to save on space
-            $self->getGeneTrackFeatureDbName('region') => $txNumber,
-            $self->getGeneTrackFeatureDbName('site') 
-              => $txInfo->getTranscriptSite($pos),
+            #the reference to the region database entry
+            $self->regionReferenceFeatureDbName => $txNumber,
+            #every detail related to the gene that is specific to that site in the ref
+            #like codon sequence, codon number, codon position,
+            #strand also stored here, but only for convenience
+            #could be taken out later to save space
+            $self->siteFeatureDbName => $txInfo->getTranscriptSite($pos),
           });
 
           if($sCount > $self->commitEvery) {
-            $self->dbPatchBulk($self->regionTrackPath($wantedChr), $sHref);
+            $self->dbPatchBulk($wantedChr, $sHref);
             $sHref = {};
           }
 
@@ -279,7 +267,7 @@ sub buildTrack {
         }
 
         if(%$sHref) {
-          $self->dbPatchBulk($self->regionTrackPath($wantedChr), $sHref);
+          $self->dbPatchBulk($wantedChr, $sHref);
         }
 
         $count++; #track for commitEvery for the region db
@@ -299,57 +287,10 @@ sub buildTrack {
         $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
       }
 
-      #now we have this big hashref of gene stuff. well, let's pass it on 
-      #so that we can do all of the positional junk
-      $self->doPositionalStuff($wantedChr, \%regionData);
     $pm->finish;
   }
   $pm->wait_all_children;
 }
 
-
 __PACKAGE__->meta->make_immutable;
-
 1;
-
-
-# this should be called after Seq::Tracks::Build around BUILDARGS
-#http://search.cpan.org/dist/Moose/lib/Moose/Manual/Construction.pod
-#TODO: check that this works
-#We're adding the above specified hardcoded features to whatever the user provided
-
-#This is more applicable to region tracks
-#This needs to be finished, there
-# before BUILDARGS => sub {
-#   my ($self, $href) = @_;
-
-#   if (!href->{features} ) {
-#     $href->{features} = $features;
-#     return;
-#   }
-
-#   my 
-#   for my $name ( @{ $href->{features} } ) {
-#     if (ref $name eq 'HASH') {
-#       for my $f ( @$features ) {
-#         my $name = $f;
-#         if (ref $on eq 'HASH') {
-#           ($name) = %$on;
-#         }
-
-#       } 
-#     }
-#   }
-#   for my $name ( @$features ) {
-#     #TODO: finish
-#     # if(ref $name eq 'HASH') {
-#     #   if()
-#     # }
-#     #skip anything we've defined, because specify types
-#     #bitwise or, returns 0 for -Number only
-#     if(~firstidx{ $_ eq $name } @{ $href->{features} } ) {
-#       next;
-#     }
-#     push(@{ $href->{features} }, $name);
-#   }
-# };

@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Base::Definition;
+package Seq::Tracks::Base::Types;
 
 our $VERSION = '0.001';
 
@@ -17,23 +17,9 @@ use Scalar::Util qw/looks_like_number/;
 
 coerce 'HashRef', from 'ArrayRef', via { $_ => $_ };
 
-state $typeKey = 't';
-has typeKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$typeKey});
-
-
-state $dataKey = 'd';
-has dataKey => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$dataKey});
-
-# I've coupled this to gene
-# state $ngeneType = 'ngene';
-# has ngeneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$ngeneType});
-
+#What the types must be called in the config file
 state $refType = 'ref';
 has refType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$refType});
-
-# This is subsumed by region tracks
-# state $geneType = 'gene';
-# has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneType});
 
 state $scoreType = 'score';
 has scoreType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$scoreType});
@@ -44,7 +30,11 @@ has sparseType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$spa
 state $regionType = 'region';
 has regionType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$regionType});
 
-enum TrackType => [$refType, $scoreType, $sparseType, $regionType];
+state $geneType = 'gene';
+has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneType});
+
+
+enum TrackType => [$refType, $scoreType, $sparseType, $regionType, $geneType];
 
 #Convert types; Could move the conversion code elsewehre,
 #but I wanted types definition close to implementation

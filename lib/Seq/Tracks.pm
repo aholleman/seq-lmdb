@@ -17,14 +17,16 @@ use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
 use Seq::Tracks::Sparse;
 use Seq::Tracks::Region;
+use Seq::Tracks::Gene;
 
 use Seq::Tracks::Reference::Build;
 use Seq::Tracks::Score::Build;
 use Seq::Tracks::Sparse::Build;
 use Seq::Tracks::Region::Build;
+use Seq::Tracks::Gene::Build;
 
 extends 'Seq::Tracks::Base';
-with 'Seq::Role::ConfigFromFile';
+with 'Seq::Role::ConfigFromFile', 'Seq::Role::DBManager';
 
 #expect that this exists, since this is where any local files are supposed
 #to be kept
@@ -55,6 +57,7 @@ sub _buildTrackMap {
     $self->scoreType => 'Seq::Tracks::Score',
     $self->sparseType => 'Seq::Tracks::Sparse',
     $self->regionType => 'Seq::Tracks::Region',
+    $self->geneType => 'Seq::Tracks::Gene',
   }
 };
 
@@ -78,6 +81,7 @@ sub _buildTrackBuilderMap {
     $self->scoreType => 'Seq::Tracks::Score::Build',
     $self->sparseType => 'Seq::Tracks::Sparse::Build',
     $self->regionType => 'Seq::Tracks::Region::Build',
+    $self->geneType => 'Seq::Tracks::Gene::Build',
   }
 };
 
@@ -226,131 +230,20 @@ sub allScoreTrackBuilders {
   return $self->trackBuilders->{$self->scoreType};
 }
 
-sub allSparseTrackBuilder {
+sub allSparseTrackBuilders {
   my $self = shift;
   return $self->trackBuilders->{$self->sparseType};
+}
+
+sub allGeneTrackBuilders {
+  my $self = shift;
+  return $self->trackBuilders->{$self->geneType};
 }
 
 #returns hashRef; only one of the following tracks is allowed
 sub refTrackBuilder {
   my $self = shift;
   return $self->trackBuilders->{$self->refType}[0];
-}
-
-# sub insantiateRef {
-#   my ( $self, $href ) = @_;
-
-#   for my $maybeTrackType (keys %$href) {
-#     if($maybeTrackType eq $refType) {
-#       return $trackMap->{$refType}->new($href)
-#     }
-#   }
-# }
-
-# sub insantiateSparse {
-#   my ( $self, $href ) = @_;
-
-#   my @out;
-#   for my $maybeTrackType (keys %$href) {
-#     if($maybeTrackType eq $refType) {
-#       return $trackMap->{$spareType}->new($href)
-#     }
-#   }
-# }
-
-#Not certain if this is needed yet; if it is we should keep track of types
-#all* returns array ref
-
-# sub allRegionTracks {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->regionType};
-# }
-
-# sub allScoreTracks {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->scoreType};
-# }
-
-# sub allSparseTracks {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->sparseType};
-# }
-
-# #returns hashRef; only one of the following tracks is allowed
-# sub refTrack {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->refType}[0];
-# }
-
-# #we could think about relaxing this constraint.
-# #in that case, we should couple ngene and gene tracks as one type
-# sub geneTrack {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->geneType};
-# }
-
-#this has been coupled to gene
-# sub ngeneTrack {
-#   my $self = shift;
-#   return $self->dataTracks->{$self->ngeneType}[0];
-# }
-
-=method all_genome_chrs
-
-  Returns all of the elements of the @property {ArrayRef<str>} C<genome_chrs>
-  as an array (not an array reference).
-  $self->all_genome_chrs
-
-=cut
-
-
-
-# used to simplify process of detecting tracks
-# I think that Tracks.pm should know which features it has access to
-# and anything conforming to that interface should become an instance
-# of the appropriate class
-# and everythign else shouldn't, and should generate a warning
-# This is heavily inspired by Dr. Thomas Wingo's primer picking software design
-# expects structure to be {
-#  trackName : {typeStuff},
-#  typeName2 : {typeStuff2},
-#}
-# sub insantiateTracks {
-#   my ( $self, $href ) = @_;
-
-#   my @out;
-#   for my $maybeTrackType (keys %$href) {
-#     if(!$trackMap->{$maybeTrackType} ) {
-#       $self->log('warn', "Invalid track type $maybeTrackType");
-#       next;
-#     }
-#     push @out, $trackMap->{$maybeTrackType}->new( data => $href->{$maybeTrackType} );
-#   }
-# }
-
-# used to simplify process of detecting tracks
-# I think that Tracks.pm should know which features it has access to
-# and anything conforming to that interface should become an instance
-# of the appropriate class
-# and everythign else shouldn't, and should generate a warning
-# This is heavily inspired by Dr. Thomas Wingo's primer picking software design
-# expects structure to be {
-#  trackName : {typeStuff},
-#  typeName2 : {typeStuff2},
-#}
-
-
-
-#@param $data: {
-# type : {
-#  name: someName (optional),
-#  data: {
-#   feature1:   
-#}  
-#}
-#}
-sub getAllDataAsHref {
-
 }
 
 __PACKAGE__->meta->make_immutable;

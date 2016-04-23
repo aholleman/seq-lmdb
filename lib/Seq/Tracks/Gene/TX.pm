@@ -23,17 +23,13 @@ our $VERSION = '0.001';
 
 use Moose 2;
 
-use Carp qw/ confess /;
 use namespace::autoclean;
-use DDP;
 use List::Util qw/reduce/;
-use POSIX;
 
-#use Seq::Tracks::Reference;
+use Seq::Tracks::Reference;
+use Seq::Tracks::Gene::Site;
 
-with 'Seq::Role::Message', 
-#holds the packing method
-'Seq::Tracks::Gene::Site',
+with 'Seq::Role::Message',
 #all of the site types we can use
 'Seq::Site::Definition';
 
@@ -74,10 +70,6 @@ has transcriptErrors => (
     allTranscriptErrors => 'elements',
   },
 );
-
-has strand => (
-
-)
 
 ###private
 has _geneSite => (
@@ -142,8 +134,7 @@ sub _buildTranscript {
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
     if ( $exonStarts[$i] >= $exonEnds[$i] ) {
-      $self->tee_logger('error', "exon start $exonStarts[$i] >= end $exonEnds[$i]");
-      die;
+      $self->tee_logger('fatal', "exon start $exonStarts[$i] >= end $exonEnds[$i]");
     }
 
     #exonEnds is closed, so the actual exonEnd is - 1
@@ -156,6 +147,7 @@ sub _buildTranscript {
     #limitation of the below API; we need to copy $posHref
     #thankfully, we needed to do this anyway.
     #we push them in order, so the first position in the 
+    #https://ideone.com/wq0YJO (dereferencing not strictly necessary, but I think clearer)
     push @sequencePositions, @$exonPosHref;
 
     #dbGet modifies $posRange in place, accumulates the values in order
@@ -163,6 +155,7 @@ sub _buildTranscript {
     #but for now, until API is settled let's not rely on reference mutation
     my $dAref = $self->dbGet($self->chrom, $exonPosHref, 1); 
 
+    #https://ideone.com/1sJC69
     $txSequence .= reduce { $a . $refTrack->get($b) } @$dAref;
     # The above replaces this from _build_transcript_db; 
     # note that we still respect half-closed exonEnds range
@@ -258,6 +251,7 @@ sub _buildTranscriptAnnotation {
       }
 
       #inserting into a string https://ideone.com/LlAbeE
+      #TODO: why aren't we checking <= $codingEnd? I thought codingEnd was closed range
       $exonPos = $exonStarts[$i] + $n - 1;
       if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
         $txAnnotationHref->{$exonPos} = $posStrand ? 
@@ -289,6 +283,8 @@ sub _buildTranscriptSites {
   for my $chrPos (keys %$txAnnotationHref) {
     my $siteType =  $txAnnotationHref->{$chrPos};
 
+    #storing strand for now, could remove it later if we decided to 
+    #just get it from the region database entry for the transcript
     $tempTXsites{$chrPos} = [$siteType, $self->strand, undef, undef, undef];
   }
 
@@ -337,6 +333,7 @@ sub _buildTranscriptSites {
       #}
       #I think this is more efficient, also clearer (to me) because the 3 
       #is explicit, rather than implict through the +2 and for loop and 0 offset substr
+      
       #https://ideone.com/lDRULc
       $codonSeq = substr( $txSequence, $codonStart, 3 );
 
