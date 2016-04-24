@@ -1,89 +1,71 @@
-#TODO: Finish this
-# Synopsis: An abstract class for mapping field names in the input file
-# to required and optional features
-# (required being typically chrom chromStart chromEnd)
+#This package manages the mapping of any property stored in the database
+#Lets say that we have in the chr1 database position 1 million
+# 1e6 => { someField => someValue, someOtherField => otherValue}
+# this package is meant to translate some human readable someField
+# into a number, because numbers can be stored efficiently by serializers
+# like MessagePack
 
-#TODO: we could think about putting all feature code here
-#including feature type mapping, required field mapping
+#TODO: finish, to simplify name management
 use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Base::MapFields;
+package Seq::Tracks::Base::MapFieldNames;
 use Moose::Role;
 use List::MoreUtils::XS qw(firstidx);
-use POSIX;
+
 with 'Seq::Role::Message', 'Seq::Role::DBManager';
-
-requires 'allReqFieldNames';
-requires 'getReqFieldDbName';
-
-requires 'allFeatureNames';
-requires 'getFeatureDbName';
-
-requires 'userForcedNameMap';
 
 #the feature name
 requires 'name';
 
-#stores the list of all fields we've
-#modified from the provided name, to a number that takes less space to store
-state $fieldConvolutionMap;
-#the inverse of that
-state $fieldDeconvMap;
-#TODO: automate the storage of db names 
-# including the ability to add new ones implicitly (if not found)
+#the hash of names => dbName map
+state $fieldNamesMap;
+#the hash of dbNames => names
+state $fieldDbNamesMap;
 
-#@returns (<String> errorIfAny, <HashRef> required map, <HashRef> optional map)
-#has error-last "callbacks" strategy, used by golang
-#the consuming module defines the fields it requires
-sub mapFields {
-  my ($self, $inputFieldsAref, $wantedFieldsAref, $all, $returnDb) = @_;
+#For a $self->name (track name) get all the field names
+#If the field names aren't mapped, which we'll know because
+#1) no $self->name key exists in $fieldDbNamesMap
+#2) no $self->name => { $fieldName}
+sub getFieldDbName {
+  my ($self, $fieldName) = @_;
 
-  my %reqIdx;
-
-  for my $field ($self->allReqFieldNames) {
-    my $idx = firstidx { $_ eq $field } @$fieldsAref; #returns -1 if not found
-    #bitwise complement, makes -1 0
-    if( ~$idx ) {
-      if($returnDb) {
-        $reqIdx{ $self->getReqFieldDbName($field) } = $idx;
-        next;
-      }
-      $reqIdx{$field} = $idx;
-      next;  
-    }
-
-    return (undef, "Wanted field $field missing in header");
+  if (! exists $fieldDbNamesMap->{$self->name} ) {
+    $self->fetchMetaFields();
   }
-
-  return \%reqIdx;
+  if(! exists $fieldDbNamesMap->{$self->name}->{$fieldName} ) {
+    $self->addMetaField($fieldName);
+  }
+  return $fieldDbNamesMap->{$self->name}->{$fieldName};
 }
 
-#stores the meta data for this track
-state $trackFieldMeta;
-state $fieldMapMetaName = 'fieldMap';
-sub getDbName {
-  my ($self) = @_;
-  
-  if( !$trackFieldMeta || !$trackFieldMeta->{$self->name} ) {
-    goto &createTrackFieldMeta;
-  }
-  
-  if( !defined trackFieldMeta->{$fieldMapMetaName} ) {
+sub getFieldName {
+  my ($self, $fieldName) = @_;
 
+  if (! exists $fieldNamesMap->{$self->name} ) {
+    $self->fetchMetaFields();
   }
+  if(! exists $fieldNamesMap->{$self->name}->{$fieldName} ) {
+    $self->addMetaField($fieldName);
+  }
+  return $fieldNamesMap->{$self->name}->{$fieldName};
 }
 
-sub createTrackFieldMeta {
+state $dbKey = 'fields';
+sub fetchMetaFields {
   my $self = shift;
 
-  $trackFieldMeta = $self->dbGetMeta($self->name);
+  my $data = $self->dbGetMeta($self->name, $dbKey) ;
 
-  my $mapping
-  if(!$trackFieldMeta) {
-
+  #contineu...
+  if( $self->dbGetMeta($self->name, $dbKey) ) {
+    $
   }
+
+  # if(!$trackFieldMeta) {
+  #   $self->dbPatchMeta($self->name, $)
+  # }
 }
 #same as above, but optional, and we don't map within this
 #this takes up to 2 arguments, but requires 1: the fields we want to map

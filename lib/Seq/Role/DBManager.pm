@@ -56,7 +56,7 @@ sub setDbPath {
 #to store any records
 #For instance, here we can store our feature name mappings, our type mappings
 #whether or not a particular track has completed writing, etc
-state $metaDbName = 'meta';
+state $metaDbNamePart = '_meta';
 
 #Transaction size
 #Consumers can choose to ignore it, and use arbitrarily large commit sizes
@@ -432,20 +432,20 @@ sub dbGetLength {
 }
 
 sub dbGetMeta {
-  my ( $self, $trackName ) = @_;
+  my ( $self, $database, $key ) = @_;
   
   #dbGet always returns an array, so for a single "position" ($trackName)
   #we just give back the first (should be only) element
   #
-  return @{ $self->dbGet($metaDbName, $trackName) }[0];
+  return @{ $self->dbGet($database . $metaDbNamePart, $key) }[0];
 
   
 }
 
-sub dbPutMeta {
-  my ( $self, $trackName, $trackData ) = @_;
+sub dbPatchMeta {
+  my ( $self, $database, $key, $dataHref ) = @_;
   
-  $self->dbPut($metaDbName, $trackName, $trackData);
+  $self->dbPatch($database . $metaDbNamePart, $key, $dataHref);
   return;
 }
 
