@@ -51,7 +51,6 @@ use namespace::autoclean;
 
 use Parallel::ForkManager;
 use List::MoreUtils::XS qw(firstidx);
-use DDP;
 
 use Seq::Tracks::Gene::Build::TX;
 
