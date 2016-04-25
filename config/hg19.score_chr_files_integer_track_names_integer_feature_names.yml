@@ -219,27 +219,15 @@ tracks:
     snp: 4
   type: sparse
   features:
-    - name:
-        store: 0
-    - strand:
-        store: 1
-    - refUCSC:
-        store: 2
-    - observed:
-        store: 3
-    - func:
-        store: 4
-    - alleleFreqCount:
-        type: int
-        store: 5
-    - alleles:
-        store: 6
-    - alleleNs:
-        type: int
-        store: 7
-    - alleleFreqs:
-        store: 8
-        type: float
+    - name
+    - strand
+    - refUCSC
+    - observed
+    - func
+    - alleleFreqCount: int
+    - alleles
+    - alleleNs: int
+    - alleleFreqs: float
   local_files:
     - hg19.snp142.chr1.txt
     - hg19.snp142.chr2.txt

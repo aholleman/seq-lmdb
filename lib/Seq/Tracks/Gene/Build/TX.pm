@@ -82,8 +82,55 @@ has _geneSite => (
   default => sub { Seq::Tracks::Gene::Site->new() },
 );
 
+###All required arguments
+
+has exonStarts => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  handles => {
+    allExonStart => 'elements',
+  },
+  required => 1,
+);
+
+has exonEnds => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  handles => {
+    allExonEnds=> 'elements',
+  },
+  required => 1,
+);
+
+has cdsStart => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
+
+has cdsEnd => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
+
+has strand => (
+  is => 'ro',
+  isa => 'StrandType',
+  required => 1,
+);
 #how many bases away from exon bound we will call spliceAc or spliceDon site
 state $spliceSiteLength = 6;
+
+#coerce our exon starts and ends into an array
+around BUILDARGS => sub {
+  my ($class, $orig, $href) = @_;
+
+  $href->{exonStarts} = split(',', $href->{exonStarts} );
+  $href->{exonEnds} = split(',', $href->{exonEnds} );
+
+  $class->$orig($href);
+};
 #Each functino in build is responsible for 1 thing
 #and therefore can be tested separately
 #using Go-like error reporting
@@ -382,20 +429,20 @@ sub _buildTranscriptErrors {
   if ( $self->cdsStart == $self->cdsEnd ) {
     #it's a non-coding site, so it has no sequence information stored at all
     return;
-  } else {
-    if ( length $codingSeq % 3 ) {
-      push @errors, 'coding sequence not divisible by 3';
-    }
-
-    if ( $codingSeq !~ m/$atgRe/ ) {
-      push @errors, 'transcript does not begin with ATG';
-    }
-
-    if ( $codingSeq !~ m/$stopCodonRe/ ) {
-      push @errors, 'transcript does not end with stop codon';
-    }
   }
-  
+
+  if ( length $codingSeq % 3 ) {
+    push @errors, 'coding sequence not divisible by 3';
+  }
+
+  if ( $codingSeq !~ m/$atgRe/ ) {
+    push @errors, 'transcript does not begin with ATG';
+  }
+
+  if ( $codingSeq !~ m/$stopCodonRe/ ) {
+    push @errors, 'transcript does not end with stop codon';
+  }
+
   return \@errors;
 }
 

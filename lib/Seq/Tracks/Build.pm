@@ -13,10 +13,8 @@ use Moose 2;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
 
-use DDP;
-
 extends 'Seq::Tracks::Base';
-with 'Seq::Role::IO';
+with 'Seq::Role::IO'; #all build methods need to read files
 
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used

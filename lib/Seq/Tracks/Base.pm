@@ -10,8 +10,11 @@ package Seq::Tracks::Base;
 our $VERSION = '0.001';
 
 use Moose 2;
-#DBManager not used here, but let's make it accessible to those that inherit this class
-with 'Seq::Tracks::Base::Types';
+
+#specifies the allowed track types, and feature types
+with 'Seq::Tracks::Base::Types', 
+#specifies the way we go from feature name to their database names and back
+'Seq::Tracks::Base::MapFieldNames';
 # should be shared between all types
 # Since Seq::Tracks;:Base is extended by every Track, this is an ok place for it.
 # Could also use state, and not re-initialize it for every instance
@@ -32,37 +35,27 @@ has genome_chrs => (
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
-#we internally store the name as an integer, to save db space
-#default is just the name itself; but see buildargs below
-#not meant to be set in YAML config; user could easily screw up mappings
-#and its an internal API consideration, no benefit for public
+#if the user gives us a database name, we can store that as well
+#they would do that by :
+# name: 
+#   someName : someValue
 has _dbName => ( reader => 'dbName', is => 'ro', isa => 'Str', lazy => 1,
   default => sub { my $self = shift; return $self->name; }
 );
 
-#TODO: don't use YAML config to choose dbNames, do that internally, store in
-#a special config/info database, which contains information like
-#whether the feature finished building (per chr), and maybe how many entries it has
-#and the feature mappings (which update to accomodate new features specified in YAML)
-#and what the track db names are
-#we should also record a history of feature types, in case the user changes those
-#could be important for research reproducibility (float, int)
-#the "noFeatures", "noDataTypes" is really ugly; unfortunately
-#moose doesn't allow traits + Maybe or Undef types
-#could defined data types here,
-#but then getting feature names is more awkward
-#ArrayRef[Str | Maybe[HashRef[DataType] ] ]
+#We allow people to set a feature type for each feature
+#- feature : int
+#but we need to store those types separately from the featureName
+#since feature types are optional 
 has features => (
   is => 'ro',
-  isa => 'HashRef[Str]',
+  isa => 'ArrayRef',
   lazy => 1,
-  traits   => ['Hash'],
-  default  => sub{ {} },
+  traits   => ['Array'],
+  default  => sub{ [] },
   handles  => { 
-    allFeatureNames => 'keys',
-    getFeatureDbName => 'get',
+    allFeatureNames => 'elements',
     noFeatures  => 'is_empty',
-    featureNamesKv => 'kv',
   },
 );
 
@@ -100,6 +93,7 @@ around BUILDARGS => sub {
   }
 
   if( ref $data->{features} ne 'ARRAY') {
+    #Does this logging actually work? todo: test
     $class->tee_logger('error', 'features must be array');
     die 'features must be array';
   }
@@ -113,81 +107,44 @@ around BUILDARGS => sub {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
 
-      #users can explicilty tell us what they want
-      #-features:
-        # blah:
-          # - type : int
-          # - store : b
-      if(ref $type eq 'HASH') {
-        #must use defined to allow 0 values
-        if( defined $type->{store} ) {
-          $featureLabels{$name} = $type->{store};
-        }
-        #must use defined to allow 0 values (not as nec. here, because 0 type is weird)
-        if( defined $type->{type} ) {
-          #need to use the label, because that is the name that we use
-          #internally
-          $data->{_featureDataTypes}{$featureLabels{$name} } = $type->{type};
-        }
-
-        next;
-      }
-
       $featureLabels{$name} = $name;
       $data->{_featureDataTypes}{$name} = $type;
     }
   }
   $data->{features} = \%featureLabels;
 
+  if(ref $data->{name} eq 'HASH') {
+    ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
+  }
   #now do the same for required_fields, if specified
   #This is currently not implemented
   #The only goal here is to allow people to tell Seqant what their source file
   #looks like, so that they don't have to manipulate large source file headers
   #help them avoid using command lilne
   #However, this is a relatively minor concern; few will be doing this
-  if( !defined $data->{required_fields} ) {
-    return $class->$orig($data);
-  }
+    # if( !defined $data->{required_fields} ) {
+    #   return $class->$orig($data);
+    # }
 
-  if( ref $data->{required_fields} ne 'ARRAY') {
-    $class->tee_logger('error', 'required_fields must be array');
-    die 'required_fields must be array';
-  }
+    # if( ref $data->{required_fields} ne 'ARRAY') {
+    #   $class->tee_logger('error', 'required_fields must be array');
+    #   die 'required_fields must be array';
+    # }
 
-  #we convert the features into a hashRef
-  # {
-  #  featureNameAsAppearsInHeader => <Str> (what we store it as)
-  #}
-  my %reqFieldLabels;
-  for my $field (@{$data->{required_fields} } ) {
-    if (ref $field eq 'HASH') {
-      my ($name, $type) = %$field; #Thomas Wingo method
+    # #we convert the features into a hashRef
+    # # {
+    # #  featureNameAsAppearsInHeader => <Str> (what we store it as)
+    # #}
+    # my %reqFieldLabels;
+    # for my $field (@{$data->{required_fields} } ) {
+    #   if (ref $field eq 'HASH') {
+    #     my ($name, $type) = %$field; #Thomas Wingo method
 
-      #users can explicilty tell us what they want
-      #-features:
-        # blah:
-          # - type : int
-          # - store : b
-      if(ref $type eq 'HASH') {
-        #must use defined to allow 0 values
-        if( defined $type->{store} ) {
-          $reqFieldLabels{$name} = $type->{store};
-        }
-        #must use defined to allow 0 values (not as nec. here, because 0 type is weird)
-        if( defined $type->{type} ) {
-          #need to use the label, because that is the name that we use
-          #internally
-          $data->{_requiredFieldDataTypes}{$reqFieldLabels{$name} } = $type->{type};
-        }
-
-        next;
-      }
-
-      $reqFieldLabels{$name} = $name;
-      $data->{_requiredFieldDataTypes}{$name} = $type;
-    }
-  }
-  $data->{required_fields} = \%reqFieldLabels;
+    #     $reqFieldLabels{$name} = $name;
+    #     $data->{_requiredFieldDataTypes}{$name} = $type;
+    #   }
+    # }
+    # $data->{required_fields} = \%reqFieldLabels;
 
   $class->$orig($data);
 };

@@ -120,7 +120,7 @@ sub buildTrack {
           FEATURE_LOOP: for my $fname ($self->allFeatures) {
             my $idx = firstidx {$_ eq $fname} @fields;
             if(~$idx) { #only non-0 when non-negative, ~0 > 0
-              $featureIdxHref->{ $self->getFeatureDbName($fname) } = $idx;
+              $featureIdxHref->{ $self->getFieldDbName($fname) } = $idx;
               next FEATURE_LOOP;
             }
             $self->tee_logger('warn', "Feature $fname missing in $file header");

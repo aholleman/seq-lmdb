@@ -36,7 +36,7 @@ extends 'Seq::Tracks::Build';
 #We could think about how to meaningfully combine these two
 #they're extremely similar
 #extends 'Seq::Tracks::Reference::Build';
-with 'Seq::Tracks::Build::Interface';
+with 'Seq::Role::IO';
 
 has '+based' => (
   default => 1,

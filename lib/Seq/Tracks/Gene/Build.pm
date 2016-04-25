@@ -55,13 +55,46 @@ use List::MoreUtils::XS qw(firstidx);
 use Seq::Tracks::Gene::Build::TX;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO';
+with 'Seq::Tracks::Region::Definition';
 
-#TODO: make mapfield to index work
-#with 'Seq::Tracks::Build::MapFieldToIndex';
+#some default fields, some of which are required
+#TODO: allow people to remap the names of required fields if their source
+#file doesn't match (a bigger issue for sparse track than gene track)
+state $ucscGeneAref = [
+  'chrom',
+  'strand',
+  'txStart',
+  'txEnd',
+  'cdsStart',
+  'cdsEnd',
+  'exonCount',
+  'exonStarts',
+  'exonEnds',
+  'name',
+  'kgID',
+  'mRNA',
+  'spID',
+  'spDisplayID',
+  'geneSymbol',
+  'refseq',
+  'protAcc',
+  'description',
+  'rfamAcc',
+];
 
-#all of the fields that we expect for a UCSC gene track are here
-with 'Seq::Tracks::Gene::Definition';
+has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] } );
+
+#just the stuff meant for the region database, by default we exclude exonStarts and exonEnds
+#because they're long, and there's little reason to store anything other than
+#naming info in the region database, since we use starts and ends for site-specific stuff
+has '+features' => (
+  default => sub{ grep { $_ ne 'exonStarts' && $_ ne 'exonEnds'} @$ucscGeneAref; },
+  handles => {
+    allRegionDatabaseFeatureNames => 'keys',
+  },
+);
+
+has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
 
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
@@ -107,7 +140,7 @@ sub buildTrack {
 
       #allData holds everything. regionData holds what is meant for the region track
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
-      
+      my %regionIdx; #like allIdx, but only for features going into the region databae
       my %regionData;
       
       my $wantedChr;
@@ -122,17 +155,37 @@ sub buildTrack {
         my @fields = split("\t", $_);
 
         if($. == 1) {
-          # say "fields are";
-          # p @fields;
+          
+          
+          my $fieldIdx = 0;
 
-          ALL_LOOP: for my $field ($self->allGeneTrackFeatureNames) {
-            my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
-            if(~$idx) { #bitwise complement, makes -1 0; this means we found
-              $allIdx{$field} = $idx;
-              next ALL_LOOP; #label for clarity
+          #now store all the features, in the hopes that we have enough
+          #for the TX package, and anything else that we consume
+          #Notably: we avoid the dictatorship model: this pacakge doesn't need to
+          #know every last thing that the packages it consumes require
+          #those packages will tell us if they don't have what they need
+          for my $field (@fields) {
+            $allIdx{$field} = $fieldIdx;
+            $fieldIdx++;
+          }
+
+          #however, this package absolutely needs the chromosome field
+          if( !defined $allIdx{$self->chrFieldName} ) {
+            $self->tee_logger('error', 'must provide chromosome field');
+          }
+
+          #and there are some things that we need in the region database
+          #as defined by the features YAML config or our default above
+          REGION_FEATS: for my $field ($self->allFeatureNames) {
+            if(exists $allIdx{$field} ) {
+              $regionIdx{$field} = $allIdx{$field};
+              next REGION_FEATS; #label for clarity
             }
+
+            #should die here, so $fieldIdx++ not nec strictly
             $self->tee_logger('error', 'Required $field missing in $file header');
           }
+
           next FH_LOOP;
         }
 
@@ -160,14 +213,16 @@ sub buildTrack {
             if(%regionData) {
               #write that data
               $self->dbPatchBulk($self->regionTrackPath($chr), \%regionData);
+              #reset the regionData
               %regionData = ();
+              #and count of accumulated region sites
+              $count = 0;
             }
-            #and reset the chromosome
+            #lastly get the new chromosome
             $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
           }
         } else {
-          #and if not, we can check if the chromosome is wanted
-          #doing this here, allows us to avoid calling chrIsWanted for each line
+          #and if we don't we can just try to get a new chrom
           $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
         }
 
@@ -194,15 +249,18 @@ sub buildTrack {
         #what we want to write
         my $tRegionDataHref;
         my $allDataHref;
-        for my $fieldName (keys %allIdx) {
+        ACCUM_VALUES: for my $fieldName (keys %allIdx) {
           #store the field value
           $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
-          
-          # if this is a field that we need to store in the region db
-          my $dbName = $self->getGeneTrackRegionDatabaseFeatureDbName($fieldName);
-          if( defined( $dbName ) ) {
-            $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
+            
+          if(!defined $regionIdx->{$fieldName} ) {
+            next ACCUM_VALUES;
           }
+
+          # if this is a field that we need to store in the region db
+          my $dbName = $self->getFieldDbName($fieldName);
+          
+          $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
         }
 
         #we prepare the region data to store in the region database
@@ -249,27 +307,32 @@ sub buildTrack {
             #remember, we always insert some very short name in the database
             #to save on space
             #the reference to the region database entry
-            $self->regionReferenceFeatureDbName => $txNumber,
+            $self->getFieldDbName($self->regionReferenceFeatureName) => $txNumber,
             #every detail related to the gene that is specific to that site in the ref
             #like codon sequence, codon number, codon position,
             #strand also stored here, but only for convenience
             #could be taken out later to save space
-            $self->siteFeatureDbName => $txInfo->getTranscriptSite($pos),
+            $self->getFieldDbName($self->siteFeatureName) => $txInfo->getTranscriptSite($pos),
           });
 
           if($sCount > $self->commitEvery) {
             $self->dbPatchBulk($wantedChr, $sHref);
             $sHref = {};
+            $sCount = 0;
+          } else {
+            $sCount++;
           }
-
-          $sCount++;
         }
 
+        #if anything left over for the site, write it
         if(%$sHref) {
           $self->dbPatchBulk($wantedChr, $sHref);
         }
 
-        $count++; #track for commitEvery for the region db
+        #iterate how many region sites we've accumulated
+        #this will be off by 1 sometimes if we bulk write before getting here
+        #see above
+        $count++;
 
         #keep track of the transcript 0-indexed number
         #this becomes the key in the region database
@@ -279,6 +342,7 @@ sub buildTrack {
         $txNumber++;
       }
 
+      #after the FH_LOOP, if anything left over write it
       if(%regionData) {
         if(!$wantedChr) {
           return $self->log('error', 'data remains but no chr wanted');

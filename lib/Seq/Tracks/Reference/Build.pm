@@ -33,10 +33,6 @@ use DDP;
 
 use namespace::autoclean;
 extends 'Seq::Tracks::Build';
-with 'Seq::Tracks::Build::Interface';
-
-# TODO: globally manage forks, so we don't get some crazy resource use
-with 'Seq::Tracks::Build::Interface';
 
 my $pm = Parallel::ForkManager->new(25);
 
