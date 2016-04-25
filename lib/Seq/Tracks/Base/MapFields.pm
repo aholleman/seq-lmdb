@@ -12,7 +12,7 @@ use warnings;
 
 package Seq::Tracks::Base::MapFieldNames;
 use Moose::Role;
-use List::MoreUtils::XS qw(firstidx);
+use List::Util qw/max/;
 
 with 'Seq::Role::Message', 'Seq::Role::DBManager';
 
@@ -24,48 +24,81 @@ state $fieldNamesMap;
 #the hash of dbNames => names
 state $fieldDbNamesMap;
 
-#For a $self->name (track name) get all the field names
-#If the field names aren't mapped, which we'll know because
-#1) no $self->name key exists in $fieldDbNamesMap
-#2) no $self->name => { $fieldName}
+
+#For a $self->name (track name) get a specific field database name
+#Expected to be used during database building
+#If the fieldName doesn't have a corresponding database name, make one, store,
+#and return it
 sub getFieldDbName {
-  my ($self, $fieldName) = @_;
-
-  if (! exists $fieldDbNamesMap->{$self->name} ) {
-    $self->fetchMetaFields();
-  }
-  if(! exists $fieldDbNamesMap->{$self->name}->{$fieldName} ) {
-    $self->addMetaField($fieldName);
-  }
-  return $fieldDbNamesMap->{$self->name}->{$fieldName};
-}
-
-sub getFieldName {
   my ($self, $fieldName) = @_;
 
   if (! exists $fieldNamesMap->{$self->name} ) {
     $self->fetchMetaFields();
   }
+
   if(! exists $fieldNamesMap->{$self->name}->{$fieldName} ) {
     $self->addMetaField($fieldName);
   }
+
   return $fieldNamesMap->{$self->name}->{$fieldName};
 }
 
-state $dbKey = 'fields';
+#this function returns the human readable name
+#expected to be used during database reading operations
+#like annotation
+#@param <Number> $fieldNumber : the database name
+sub getFieldName {
+  my ($self, $fieldNumber) = @_;
+
+  if (! exists $fieldNamesMap->{$self->name} ) {
+    $self->fetchMetaFields();
+  }
+
+  if(! exists $fieldDbNamesMap->{$self->name}->{$fieldNumber} ) {
+    return;
+  }
+
+  return $fieldDbNamesMap->{$self->name}->{$fieldNumber};
+}
+
+state $metaKey = 'fields';
 sub fetchMetaFields {
   my $self = shift;
 
-  my $data = $self->dbGetMeta($self->name, $dbKey) ;
+  my $dataHref = $self->dbGetMeta($self->name, $metaKey) ;
 
-  #contineu...
-  if( $self->dbGetMeta($self->name, $dbKey) ) {
-    $
+  #if we don't find anything, just store a new hash reference
+  #to keep a consistent data type
+  if( !$dataHref ) {
+    $dataHref = {};
   }
 
-  # if(!$trackFieldMeta) {
-  #   $self->dbPatchMeta($self->name, $)
-  # }
+  $fieldNamesMap->{$self->name} = $dataHref;
+
+  #fieldNames map is name => dbName; dbNamesMap is the inverse
+  for my $fieldName (keys %$fieldNamesMap) {
+    $fieldDbNamesMap->{$self->name}->{$fieldNamesMap->{$fieldName} } = $fieldName;
+  }
+}
+
+sub addMetaField {
+  my $self = shift;
+  my $fieldName = shift;
+
+  #https://ideone.com/eX3dOh
+  my $fieldNumber = max(keys %$fieldDbNamesMap) + 1;
+
+  my $mapping = {$fieldNumber => $fieldName};
+
+  #need a way of checking if the insertion actually worked
+  #but that may be difficult with the currrent LMDB_File API
+  #I've had very bad performance returning errors from transactions
+  #which are exposed in the C api
+  #but I may have mistook one issue for another
+  $self->dbPatchMeta($self->name, $metaKey, $mapping);
+
+  $fieldNamesMap->{$self->name}->{$fieldName} = $fieldNumber;
+  $fieldDbNamesMap->{$self->name}->{$fieldNumber} = $fieldName;
 }
 #same as above, but optional, and we don't map within this
 #this takes up to 2 arguments, but requires 1: the fields we want to map

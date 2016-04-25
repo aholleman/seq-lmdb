@@ -1,3 +1,9 @@
+#TODO: needs to return errors if they're really errors and not
+#"something was missing" during patch operations for instance
+#but that may be difficult with the currrent LMDB_File API
+#I've had very bad performance returning errors from transactions
+#which are exposed in the C api
+#but I may have mistook one issue for another
 use 5.10.0;
 use strict;
 use warnings;
@@ -30,7 +36,6 @@ use LMDB_File qw(:all);
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 with 'Seq::Role::Message';
 
-use DDP;
 use Sort::XS;
 
 $LMDB_File::die_on_err = 0;
@@ -112,7 +117,7 @@ sub _getDbi {
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
       mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
       #maxdbs => 20, # Some databases
-      mode   => 0755,
+      mode   => 0600,
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
@@ -219,7 +224,7 @@ sub dbRead {
 }
 
 #$pos can be any string, identifies a key within the kv database
-#dataHref should be trackName => trackData
+#dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 #i.e some key in the hash found at the key in the kv database
 sub dbPatch {
   my ( $self, $chr, $pos, $dataHref, $noOverwrite) = @_;
@@ -235,43 +240,48 @@ sub dbPatch {
   my $json; #zero-copy
   my $href;
 
+  #First get the old data,
   $txn->get($dbi, $pos, $json);
+  #commit, because we don't want db inflation during the write stage
+  $txn->commit();
 
- # say "Last error is " . $LMDB_File::last_err;
-  if($json) {
-    #takes the key name of the data href
-    my ($featureID) = %{$dataHref};
-    #can't modify $json, read-only value, from memory map
-    $href = $mp->unpack($json);
-
-    # don't overwrite if the user doesn't want it
-    # just mark to skip
-    if($noOverwrite || !$self->overwrite) {
-      if(defined $href->{$featureID} ) {
-        #since we already have this feature, no need to write it
-        #since we don't want to overwrite
-        #requires us to check if $posHref->{$pos} is defined in 
-        return;
-      }
-    } 
-    # else we want to overwrite
-    $href->{$featureID} = $dataHref->{$featureID};
-    #update the stack copy of data to include everything found at the pos (key)
-    $dataHref = $href;
-    
-    next;
-  }
   #trigger this only if json isn't found, save on many if calls
   #unless is apparently a bit faster than if, when looking for negative conditions
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
   }
 
-  $txn->commit();
-
-  #reset the class error variable, to avoid crazy error reporting later
+  #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
+    
+  #If we have data, unpack it to get the hash ref treats
+  #And then replace the old data with $dataHref
+  if($json) {
+    #takes the key name of the data href
+    #expects only one, since this is not a bulk method
+    #can't modify $json, read-only value, from memory map
+    $href = $mp->unpack($json);
 
+    my $featureID = %{$dataHref};
+    # don't overwrite if the user doesn't want it
+    # just mark to skip
+    if( defined $href->{$featureID} ) {
+      if(defined $noOverwrite) {
+        if($noOverwrite) {
+          return;
+        }
+      } elsif(!$self->overwrite) {
+        return;
+      }
+    }
+    
+    # else we want to overwrite
+    $href->{$featureID} = $dataHref->{$featureID};
+    #update the stack copy of data to include everything found at the pos (key)
+    $dataHref = $href;
+  }
+  
+  #Then write the new data
   #re-use the stack for efficiency
   goto &dbPut;
 }
@@ -350,12 +360,12 @@ sub dbPatchBulk {
 }
 
 sub dbPut {
-  my ( $self, $chr, $pos, $data) = @_;
+  my ( $self, $chr, $pos, $dataHref) = @_;
 
   my $db = $self->_getDbi($chr);
   my $txn = $db->{env}->BeginTxn();
 
-  $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
+  $txn->put($db->{dbi}, $pos, $mp->pack( $dataHref ) );
 
   #should move logging to async
   #have the MDB_NOTFOUND thing becaues this could follow a get operation
@@ -431,21 +441,30 @@ sub dbGetLength {
   return $db->{env}->stat->{entries};
 }
 
+#We allow people to update special "Meta" databases
+#The difference here is that for each $databaseName, there is always
+#only one meta database. Makes storing multiple meta documents in a single
+#meta collection easy
+#For example, users may want to store field name mappings, how many rows inserted
+#whether building the database was a success, and more
 sub dbGetMeta {
-  my ( $self, $database, $key ) = @_;
+  my ( $self, $databaseName, $metaType ) = @_;
   
-  #dbGet always returns an array, so for a single "position" ($trackName)
-  #we just give back the first (should be only) element
-  #
-  return @{ $self->dbGet($database . $metaDbNamePart, $key) }[0];
-
-  
+  #dbGet always returns an array, so for a single "position" ($metaType)
+  #we just give back the first (should be only) element (could check > 1 as well
+  #but duplicate keys aren't allowed at the moment)
+  return @{ $self->dbGet($databaseName . $metaDbNamePart, $metaType) }[0];
 }
 
+#@param <String> $databaseName : whatever the user wishes to prefix the meta name with
+#@param <String> $metaType : this is our "position" in the meta database
+ # a.k.a the top-level key in that meta database, what type of meta data this is 
+#@param <HashRef> $dataHref : {someField => someValue}
 sub dbPatchMeta {
-  my ( $self, $database, $key, $dataHref ) = @_;
-  
-  $self->dbPatch($database . $metaDbNamePart, $key, $dataHref);
+  my ( $self, $databaseName, $metaType, $dataHref ) = @_;
+    
+  # 0 in last position to always overwrite, regardless of self->overwrite
+  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref, 0);
   return;
 }
 
