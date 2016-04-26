@@ -10,26 +10,13 @@ package Seq::Tracks;
 
 use Moose 2;
 use namespace::autoclean;
-use DDP;
+
 use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
-use Seq::Tracks::Reference;
-use Seq::Tracks::Score;
-use Seq::Tracks::Sparse;
-use Seq::Tracks::Region;
-use Seq::Tracks::Gene;
+with 'Seq::Role::ConfigFromFile',
+#holds a permanent record of all of the tracks
+'Seq::Tracks::SingletonTracks';
 
-use Seq::Tracks::Reference::Build;
-use Seq::Tracks::Score::Build;
-use Seq::Tracks::Sparse::Build;
-use Seq::Tracks::Region::Build;
-use Seq::Tracks::Gene::Build;
-
-with 'Seq::Role::ConfigFromFile', 'Seq::Role::DBManager',
-#defines refType, scoreType, etc
-'Seq::Tracks::Base::Types';
-
-use DDP;
 #expect that this exists, since this is where any local files are supposed
 #to be kept
 has files_dir => (
@@ -37,88 +24,6 @@ has files_dir => (
   isa => AbsDir,
   coerce => 1,
   required => 1,
-);
-
-has trackMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getDataTrackClass => 'get',
-  },
-  init_arg => undef,
-  builder => '_buildTrackMap',
-  lazy => 1,
-);
-
-sub _buildTrackMap {
-  my $self = shift;
-
-  return {
-    $self->refType => 'Seq::Tracks::Reference',
-    $self->scoreType => 'Seq::Tracks::Score',
-    $self->sparseType => 'Seq::Tracks::Sparse',
-    $self->regionType => 'Seq::Tracks::Region',
-    $self->geneType => 'Seq::Tracks::Gene',
-  }
-};
-
-has builderMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getBuilderTrackClass => 'get',
-  },
-  init_arg => undef,
-  builder => '_buildTrackBuilderMap',
-  lazy => 1,
-);
-
-sub _buildTrackBuilderMap {
-  my $self = shift;
-
-  return {
-    $self->refType => 'Seq::Tracks::Reference::Build',
-    $self->scoreType => 'Seq::Tracks::Score::Build',
-    $self->sparseType => 'Seq::Tracks::Sparse::Build',
-    $self->regionType => 'Seq::Tracks::Region::Build',
-    $self->geneType => 'Seq::Tracks::Gene::Build',
-  }
-};
-
-=property @public @required {Str} name
-
-  The track name. This is defined directly in the input config file.
-
-  @example:
-  =for :list
-  * gene
-  * snp
-
-=cut
-has trackBuilders =>(
-  is => 'ro',
-  isa => 'HashRef',
-  lazy => 1,
-  builder => '_buildTrackBuilders',
-  traits => ['Hash'],
-  handles => {
-    getBuilders => 'get',
-    getAllBuilders => 'values',
-  }
-);
-
-
-has dataTracks =>(
-  is => 'ro',
-  #isa => 'HashRef[ArrayRef]',
-  lazy => 1,
-  builder => '_buildDataTracks',
-  traits => ['Hash'],
-  handles => {
-    getDataTracks => 'get',
-  }
 );
 
 # comes from config file
@@ -169,90 +74,6 @@ sub BUILD {
   
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
-}
-
-sub _buildDataTracks {
-  my $self = shift;
-
-  my %out;
-  for my $trackHref (@{$self->tracks}) {
-    my $trackClass = $self->getDataTrackClass($trackHref->{type} );
-    if(!$trackClass) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
-      next;
-    }
-    if(exists $out{$trackHref->{name} } ) {
-      $self->log('error', "More than one track with the same name 
-        exists: $trackHref->{name}. Each track name must be unique
-      . Overriding the last object for this name, with the new")
-    }
-    $out{$trackHref->{name} } = $trackClass->new($trackHref);
-    #push @{$out{$trackHref->{type} } }, $trackClass->new($trackHref);
-  }
-  return \%out;
-}
-
-#different from Seq::Tracks in that we store class instances hashed on track type
-#this is to allow us to more easily build tracks of one type in a certain order
-sub _buildTrackBuilders {
-  my $self = shift;
-
-  my %out;
-  for my $trackHref (@{$self->tracks}) {
-    p %$trackHref;
-    my $className = $self->getBuilderTrackClass($trackHref->{type} );
-    if(!$className) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
-      next;
-    }
-    # a bit awkward;
-    $trackHref->{files_dir} = $self->files_dir;
-    $trackHref->{genome_chrs} = $self->genome_chrs;
-    $trackHref->{overwrite} = $self->overwrite;
-
-    say "about to new $className";
-    p $trackHref;
-    
-    push @{$out{$trackHref->{type} } }, $className->new($trackHref);
-  }
-
-  return \%out;
-}
-
-#like the original as_href this prepares a site for serialization
-#instead of introspecting, it uses the features defined in the config
-#This defines our schema, e.g how the data is stored in the kv database
-# {
-#  name (this is the track name) : {
-#   type: someType,
-#   data: {
-#     feature1: featureVal1, feature2: featureVal2, ...
-#} } } }
-
-sub allRegionTracksBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->regionType};
-}
-
-sub allScoreTrackBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->scoreType};
-}
-
-sub allSparseTrackBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->sparseType};
-}
-
-sub allGeneTrackBuilders {
-  my $self = shift;
-  return $self->trackBuilders->{$self->geneType};
-}
-
-#returns hashRef; only one of the following tracks is allowed
-sub refTrackBuilder {
-  my $self = shift;
-  return $self->trackBuilders->{$self->refType}[0];
 }
 
 __PACKAGE__->meta->make_immutable;
