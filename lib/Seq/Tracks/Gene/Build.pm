@@ -53,6 +53,7 @@ use Parallel::ForkManager;
 use List::MoreUtils::XS qw(firstidx);
 
 use Seq::Tracks::Gene::Build::TX;
+use DDP;
 
 extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::Definition';
@@ -133,7 +134,6 @@ sub buildTrack {
   for my $file ($self->all_local_files) {
     $pm->start and next;
       my $fh = $self->get_read_fh($file);
-      
 
       #allData holds everything. regionData holds what is meant for the region track
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}

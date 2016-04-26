@@ -13,6 +13,7 @@ use warnings;
 package Seq::Tracks::Base::MapFieldNames;
 use Moose::Role;
 use List::Util qw/max/;
+use DDP;
 
 with 'Seq::Role::Message', 'Seq::Role::DBManager';
 
@@ -24,7 +25,16 @@ state $fieldNamesMap;
 #the hash of dbNames => names
 state $fieldDbNamesMap;
 
-
+#Under which key fields are mapped in the meta database belonging to the
+#consuming class' $self->name
+#in roles that extend this role, this key's default can be overloaded
+has metaKey => (
+  is => 'ro',
+  isa => 'Str',
+  init_arg => undef,
+  lazy => 1,
+  default => 'fields',
+);
 #For a $self->name (track name) get a specific field database name
 #Expected to be used during database building
 #If the fieldName doesn't have a corresponding database name, make one, store,
@@ -61,41 +71,67 @@ sub getFieldName {
   return $fieldDbNamesMap->{$self->name}->{$fieldNumber};
 }
 
-state $metaKey = 'fields';
+
 sub fetchMetaFields {
   my $self = shift;
 
-  my $dataHref = $self->dbGetMeta($self->name, $metaKey) ;
+  my $dataHref = $self->dbReadMeta($self->name, $self->metaKey) ;
 
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
   if( !$dataHref ) {
     $dataHref = {};
   }
-
+  
   $fieldNamesMap->{$self->name} = $dataHref;
 
+  $fieldDbNamesMap->{$self->name} = {}; #new ref
+
   #fieldNames map is name => dbName; dbNamesMap is the inverse
-  for my $fieldName (keys %$fieldNamesMap) {
-    $fieldDbNamesMap->{$self->name}->{$fieldNamesMap->{$fieldName} } = $fieldName;
+  for my $fieldName (keys %{ $fieldNamesMap->{$self->name} } ) {
+    $fieldDbNamesMap->{$self->name}->{$fieldNamesMap->{$self->name}{$fieldName} } = $fieldName;
   }
+
+  # if($self->debug) {
+    # say "after fetchMetaFields, fieldNamesMap is";
+    # p $fieldNamesMap;
+    # say "and fieldNamesDbMap is";
+    # p $fieldDbNamesMap;
+  # }
 }
 
 sub addMetaField {
   my $self = shift;
   my $fieldName = shift;
 
-  #https://ideone.com/eX3dOh
-  my $fieldNumber = max(keys %$fieldDbNamesMap) + 1;
+  say "in addMetaField we want";
+  p $fieldName;
 
-  my $mapping = {$fieldNumber => $fieldName};
+  say "fieldDbNamesMap for ". $self->name . " is";
+  p $fieldDbNamesMap->{$self->name};
 
+  my @fieldKeys = keys %{ $fieldDbNamesMap->{$self->name} };
+  say "keys are";
+  p @fieldKeys;
+  my $fieldNumber;
+  if(! %{$fieldDbNamesMap->{$self->name} } ) {
+    $fieldNumber = 1;
+  } else {
+    #https://ideone.com/eX3dOh
+    $fieldNumber = max(keys %{ $fieldDbNamesMap->{$self->name} } ) + 1;
+  }
+  
+
+  my $mapping = {$fieldName => $fieldNumber};
+
+  say "mapping is";
+  p $mapping;
   #need a way of checking if the insertion actually worked
   #but that may be difficult with the currrent LMDB_File API
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
-  $self->dbPatchMeta($self->name, $metaKey, $mapping);
+  $self->dbPatchMeta($self->name, $self->metaKey, $mapping);
 
   $fieldNamesMap->{$self->name}->{$fieldName} = $fieldNumber;
   $fieldDbNamesMap->{$self->name}->{$fieldNumber} = $fieldName;

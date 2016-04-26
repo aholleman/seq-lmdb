@@ -134,6 +134,8 @@ has tracks => (
   required => 1,
 );
 
+# has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
+
 # used to simplify process of detecting tracks
 # I think that Tracks.pm should know which features it has access to
 # and anything conforming to that interface should become an instance

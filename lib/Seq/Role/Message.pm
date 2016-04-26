@@ -145,7 +145,6 @@ sub publishMessage {
 }
 
 sub log {
-  say "logging";
   #my ( $self, $log_method, $msg ) = @_;
   #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
   #state $debugLog = AnyEvent::Log::logger("debug");

@@ -65,7 +65,6 @@ has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
-  say "in buildargs in build.pm";
   my @localFiles;
   my $fileDir = $href->{files_dir};
 

@@ -26,6 +26,8 @@ use Moose 2;
 use namespace::autoclean;
 use List::Util qw/reduce/;
 
+use DDP;
+
 use Seq::Tracks::Reference;
 use Seq::Tracks::Gene::Site;
 
@@ -87,8 +89,9 @@ has _geneSite => (
 has exonStarts => (
   is => 'ro',
   isa => 'ArrayRef',
+  traits => ['Array'],
   handles => {
-    allExonStart => 'elements',
+    allExonStarts => 'elements',
   },
   required => 1,
 );
@@ -96,6 +99,7 @@ has exonStarts => (
 has exonEnds => (
   is => 'ro',
   isa => 'ArrayRef',
+  traits => ['Array'],
   handles => {
     allExonEnds=> 'elements',
   },
@@ -124,12 +128,12 @@ state $spliceSiteLength = 6;
 
 #coerce our exon starts and ends into an array
 around BUILDARGS => sub {
-  my ($class, $orig, $href) = @_;
+  my ($orig, $class, $href) = @_;
 
-  $href->{exonStarts} = split(',', $href->{exonStarts} );
-  $href->{exonEnds} = split(',', $href->{exonEnds} );
+  $href->{exonStarts} = [ split(',', $href->{exonStarts} ) ];
+  $href->{exonEnds} = [ split(',', $href->{exonEnds} ) ];
 
-  $class->$orig($href);
+  return $class->$orig($href);
 };
 #Each functino in build is responsible for 1 thing
 #and therefore can be tested separately

@@ -30,14 +30,17 @@ Used in:
 =cut
 
 use Moose::Role;
+with 'Seq::Role::Message';
 
 use Data::MessagePack;
 use LMDB_File qw(:all);
 use MooseX::Types::Path::Tiny qw/AbsPath/;
-with 'Seq::Role::Message';
-
 use Sort::XS;
 
+use DDP;
+
+#weird error handling in LMDB_FILE for the low level api
+#the most common errors mean nothign bad (ex: not found for get operations)
 $LMDB_File::die_on_err = 0;
 #needed so that we can initialize DBManager onces
 state $databaseDir;
@@ -188,6 +191,7 @@ sub dbRead {
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my $oAref;
+
   if(!ref $posAref) {
      $oAref = [$posAref];
   } else {
@@ -209,6 +213,8 @@ sub dbRead {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
         $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
       }
+      # if there's nothing, modify the item  in the array to reflect that
+      undef $pos;
       next;
     }
     #perl always gives us a reference to the item in the array
@@ -262,7 +268,8 @@ sub dbPatch {
     #can't modify $json, read-only value, from memory map
     $href = $mp->unpack($json);
 
-    my $featureID = %{$dataHref};
+    my ($featureID) = %{$dataHref};
+
     # don't overwrite if the user doesn't want it
     # just mark to skip
     if( defined $href->{$featureID} ) {
@@ -278,7 +285,8 @@ sub dbPatch {
     # else we want to overwrite
     $href->{$featureID} = $dataHref->{$featureID};
     #update the stack copy of data to include everything found at the pos (key)
-    $dataHref = $href;
+    #_[3] == $dataHref, but the actual reference to it
+    $_[3] = $href;
   }
   
   #Then write the new data
@@ -330,7 +338,8 @@ sub dbPatchBulk {
         }
       } # else we want to overwrite
       $href->{$featureID} = $posHref->{$pos}{$featureID};
-      #update the stack copy of data to include everything found at the key
+      #update the stack data to include everything found at the key
+      #this allows us to reuse the stack in a goto,
       $posHref->{$pos} = $href;
       
       #deep merge is much more robust, but I'm worried about performance, so trying alternative
@@ -433,7 +442,7 @@ sub dbWriteCleanCopy {
 }
 
 #TODO: check if this works
-sub dbGetLength {
+sub dbReadLength {
   my ( $self, $chr ) = @_;
 
   my $db = $self->_getDbi($chr);
@@ -447,13 +456,13 @@ sub dbGetLength {
 #meta collection easy
 #For example, users may want to store field name mappings, how many rows inserted
 #whether building the database was a success, and more
-sub dbGetMeta {
+sub dbReadMeta {
   my ( $self, $databaseName, $metaType ) = @_;
   
   #dbGet always returns an array, so for a single "position" ($metaType)
   #we just give back the first (should be only) element (could check > 1 as well
   #but duplicate keys aren't allowed at the moment)
-  return @{ $self->dbGet($databaseName . $metaDbNamePart, $metaType) }[0];
+  return @{ $self->dbRead($databaseName . $metaDbNamePart, $metaType) }[0];
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with
@@ -462,7 +471,7 @@ sub dbGetMeta {
 #@param <HashRef> $dataHref : {someField => someValue}
 sub dbPatchMeta {
   my ( $self, $databaseName, $metaType, $dataHref ) = @_;
-    
+  
   # 0 in last position to always overwrite, regardless of self->overwrite
   $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref, 0);
   return;

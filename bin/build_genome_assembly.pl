@@ -57,6 +57,9 @@ my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || 'a
 
 my $logPath = path(".")->child($log_name)->absolute->stringify;
 
+open(my $fh, '>>', $logPath);
+close $fh;
+
 my $builder_options_href = {
   configfile   => $yaml_config,
   wantedChr    => $wantedChr,

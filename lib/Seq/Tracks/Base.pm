@@ -12,7 +12,8 @@ our $VERSION = '0.001';
 use Moose 2;
 use DDP;
 #specifies the allowed track types, and feature types
-with 'Seq::Tracks::Base::Types';
+with 'Seq::Tracks::Base::Types',
+'Seq::Role::DBManager';
 # should be shared between all types
 # Since Seq::Tracks;:Base is extended by every Track, this is an ok place for it.
 # Could also use state, and not re-initialize it for every instance
@@ -24,8 +25,8 @@ has genome_chrs => (
   isa => 'HashRef',
   traits => ['Hash'],
   handles => {
-    'allWantedChrs' => 'keys',
-    'chrIsWanted' => 'defined',
+    allWantedChrs => 'keys',
+    chrIsWanted => 'defined', #hash over array because unwieldy firstidx
   },
   lazy_build => 1,
 );
@@ -77,8 +78,9 @@ has _featureDataTypes => (
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
+# has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
 #specifies the way we go from feature name to their database names and back
-#with 'Seq::Tracks::Base::MapFieldNames';
+with 'Seq::Tracks::Base::MapFieldNames';
 
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
@@ -88,8 +90,6 @@ has type => ( is => 'ro', isa => 'TrackType', required => 1);
 around BUILDARGS => sub {
   my ($orig, $class, $data) = @_;
 
-  say "in BUILDARGS Base.pm";
-  #for my ()
   if(ref $data->{name} eq 'HASH') {
     ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
   }
@@ -109,21 +109,21 @@ around BUILDARGS => sub {
     die 'features must be array';
   }
 
-  p $data;
-  #we convert the features into a hashRef
-  # {
-  #  featureNameAsAppearsInHeader => <Str> (what we store it as)
-  #}
-  my %featureLabels;
+  #If features are passed to as hashes (to accomodate their data type)
+  #get back to array
+  my @featureLabels;
   for my $feature (@{$data->{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
 
-      $featureLabels{$name} = $name;
+      push @featureLabels, $name;
       $data->{_featureDataTypes}{$name} = $type;
+
+      next;
     }
+    push @featureLabels, $feature;
   }
-  $data->{features} = \%featureLabels;
+  $data->{features} = \@featureLabels;
 
   #now do the same for required_fields, if specified
   #This is currently not implemented

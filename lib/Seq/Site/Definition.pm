@@ -32,12 +32,6 @@ use namespace::autoclean;
 
 enum reference_base_types => [qw( A C G T N )];
 
-has refBase => (
-  is       => 'ro',
-  isa      => 'reference_base_types',
-  required => 1,
-);
-
 # type 'GeneTrackPositionalKeys',
 #       where {
 #           IsHashRef(
