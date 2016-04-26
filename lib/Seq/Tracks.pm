@@ -162,7 +162,7 @@ sub BUILD {
     say "database dir doesnt exist";
     $self->database_dir->mkpath;
   } elsif (!$self->database_dir->is_dir) {
-    return $self->tee_logger('error', 'database_dir given is not a directory');
+    return $self->log('error', 'database_dir given is not a directory');
   }
   
   #needs to be initialized before dbmanager can be used
@@ -176,11 +176,11 @@ sub _buildDataTracks {
   for my $trackHref (@{$self->tracks}) {
     my $trackClass = $self->getDataTrackClass($trackHref->{type} );
     if(!$trackClass) {
-      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
+      $self->log('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     if(exists $out{$trackHref->{name} } ) {
-      $self->tee_logger('error', "More than one track with the same name 
+      $self->log('error', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
       . Overriding the last object for this name, with the new")
     }
@@ -200,14 +200,17 @@ sub _buildTrackBuilders {
     p %$trackHref;
     my $className = $self->getBuilderTrackClass($trackHref->{type} );
     if(!$className) {
-      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
+      $self->log('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     # a bit awkward;
     $trackHref->{files_dir} = $self->files_dir;
     $trackHref->{genome_chrs} = $self->genome_chrs;
     $trackHref->{overwrite} = $self->overwrite;
+
     say "about to new $className";
+    p $trackHref;
+    
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
 

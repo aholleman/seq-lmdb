@@ -103,11 +103,11 @@ sub BUILD {
   for my $bTypeAref (@builders) {
     for my $builder (@$bTypeAref) {
       $builder->buildTrack();
-      $self->tee_logger('debug', "finished building " . $builder->{name} );
+      $self->log('debug', "finished building " . $builder->{name} );
     }
   }
 
-  $self->tee_logger('debug', "finished building all requested tracks: " 
+  $self->log('debug', "finished building all requested tracks: " 
     . join(@builders, ', ') );
 }
 

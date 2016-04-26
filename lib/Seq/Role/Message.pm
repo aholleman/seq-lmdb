@@ -144,7 +144,7 @@ sub publishMessage {
   #   [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
 }
 
-sub tee_logger {
+sub log {
   say "logging";
   #my ( $self, $log_method, $msg ) = @_;
   #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
@@ -155,7 +155,7 @@ sub tee_logger {
     $_[2] = join('; ', $_[2]);
   }
   #interestingly some kind of message bufferring occurs, such that
-  #this will actually make it through to the rest of the tee_logger function
+  #this will actually make it through to the rest of the log function
   #synchronous die
   #TODO: Figure out if 'error' level actually quits the program
   #if it does not, then we'll have to override $_[1] to fatal

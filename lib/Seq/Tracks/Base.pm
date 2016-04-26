@@ -22,7 +22,6 @@ with 'Seq::Tracks::Base::Types';
 has genome_chrs => (
   is => 'ro',
   isa => 'HashRef',
-  coerce => 1,
   traits => ['Hash'],
   handles => {
     'allWantedChrs' => 'keys',
@@ -89,17 +88,28 @@ has type => ( is => 'ro', isa => 'TrackType', required => 1);
 around BUILDARGS => sub {
   my ($orig, $class, $data) = @_;
 
+  say "in BUILDARGS Base.pm";
   #for my ()
   if(ref $data->{name} eq 'HASH') {
     ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
   }
 
-  if( defined $data->{features} && ref $data->{features} ne 'ARRAY') {
+  if(defined $data->{genome_chrs} ) {
+    my %genome_chrs = map { $_ => 1 } @{$data->{genome_chrs} };
+    $data->{genome_chrs} = \%genome_chrs;
+  }
+  
+  if(! defined $data->{features} ) {
+    return $class->$orig($data);
+  }
+
+  if( ref $data->{features} ne 'ARRAY') {
     #Does this logging actually work? todo: test
-    $class->tee_logger('error', 'features must be array');
+    $class->log('error', 'features must be array');
     die 'features must be array';
   }
 
+  p $data;
   #we convert the features into a hashRef
   # {
   #  featureNameAsAppearsInHeader => <Str> (what we store it as)
@@ -126,7 +136,7 @@ around BUILDARGS => sub {
     # }
 
     # if( ref $data->{required_fields} ne 'ARRAY') {
-    #   $class->tee_logger('error', 'required_fields must be array');
+    #   $class->log('error', 'required_fields must be array');
     #   die 'required_fields must be array';
     # }
 
@@ -145,7 +155,7 @@ around BUILDARGS => sub {
     # }
     # $data->{required_fields} = \%reqFieldLabels;
 
-  $class->$orig($data);
+  return $class->$orig($data);
 };
 
 #TODO: we should allow casting of required_fields.

@@ -44,28 +44,28 @@ sub packCodon {
 
   #used to require strand too, but that may go away
   if( !$siteType ) {
-    $self->tee_logger('fatal', 'packCodon requires site type');
+    $self->log('fatal', 'packCodon requires site type');
   } elsif(! first { $_ eq $strand } $self->allStrandTypes ) {
-    $self->tee_logger('fatal', 'strand must be of StrandType');
+    $self->log('fatal', 'strand must be of StrandType');
   }
 
   my $siteTypeNum = $self->getSiteTypeNum( $siteType );
 
   if(!$siteTypeNum) {
-    $self->tee_logger('fatal', 'site type not recognized. Is it a GeneSite?');
+    $self->log('fatal', 'site type not recognized. Is it a GeneSite?');
   }
 
   if($codonNumber && !$codonPosition) {
-    $self->tee_logger('fatal', 'if codon number provided also need Position');
+    $self->log('fatal', 'if codon number provided also need Position');
   }
 
   if( defined $codonPosition && defined $codonNumber && 
   !(looks_like_number( $codonPosition ) && looks_like_number( $codonNumber) ) ) {
-    $self->tee_logger('fatal', 'codon position & Number must be numeric');
+    $self->log('fatal', 'codon position & Number must be numeric');
   }
 
   if(defined $codonSeq && length($codonSeq) % 3) {
-    $self->tee_logger('fatal', 'codon sequence')
+    $self->log('fatal', 'codon sequence')
   }
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data

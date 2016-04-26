@@ -168,7 +168,7 @@ sub buildTrack {
 
           #however, this package absolutely needs the chromosome field
           if( !defined $allIdx{$self->chrFieldName} ) {
-            $self->tee_logger('error', 'must provide chromosome field');
+            $self->log('error', 'must provide chromosome field');
           }
 
           #and there are some things that we need in the region database
@@ -180,7 +180,7 @@ sub buildTrack {
             }
 
             #should die here, so $fieldIdx++ not nec strictly
-            $self->tee_logger('error', 'Required $field missing in $file header');
+            $self->log('error', 'Required $field missing in $file header');
           }
 
           next FH_LOOP;

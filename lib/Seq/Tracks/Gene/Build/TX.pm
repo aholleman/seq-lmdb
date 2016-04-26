@@ -142,7 +142,7 @@ sub BUILD {
 
   #if errors
   if(@$errorsAref) {
-    $self->tee_logger('error', $errorsAref); #will die for us.
+    $self->log('error', $errorsAref); #will die for us.
   }
 
   my $txAnnotationHref = self->_buildTranscriptAnnotation();
@@ -181,7 +181,7 @@ sub _buildTranscript {
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
     if ( $exonStarts[$i] >= $exonEnds[$i] ) {
-      $self->tee_logger('fatal', "exon start $exonStarts[$i] >= end $exonEnds[$i]");
+      $self->log('fatal', "exon start $exonStarts[$i] >= end $exonEnds[$i]");
     }
 
     #exonEnds is closed, so the actual exonEnd is - 1
@@ -393,7 +393,7 @@ sub _buildTranscriptSites {
       next CODING_LOOP;
     }
 
-    $self->tee_logger('warn', substr($txSequence, $i, 1) . "at $chrPos not A|T|C|G");
+    $self->log('warn', substr($txSequence, $i, 1) . "at $chrPos not A|T|C|G");
   }
 
   #At this point, we have all of the codon information stored.

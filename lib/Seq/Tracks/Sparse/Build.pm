@@ -111,7 +111,7 @@ sub buildTrack {
               next REQ_LOOP; #label for clarity
             }
             
-            $self->tee_logger('error', 'Required field $field missing in $file header');
+            $self->log('error', 'Required field $field missing in $file header');
           }
 
           # say 'all features wanted are';
@@ -123,7 +123,7 @@ sub buildTrack {
               $featureIdxHref->{ $self->getFieldDbName($fname) } = $idx;
               next FEATURE_LOOP;
             }
-            $self->tee_logger('warn', "Feature $fname missing in $file header");
+            $self->log('warn', "Feature $fname missing in $file header");
           }
 
           next FH_LOOP;

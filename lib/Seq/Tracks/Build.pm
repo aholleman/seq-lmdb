@@ -65,15 +65,18 @@ has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
+  say "in buildargs in build.pm";
   my @localFiles;
   my $fileDir = $href->{files_dir};
 
   for my $localFile (@{$href->{local_files} } ) {
-    push @{ $href->{local_files} }, path($fileDir)->child($href->{type} )
+    push @localFiles, path($fileDir)->child($href->{type} )
       ->child($localFile)->absolute->stringify;
   }
 
-  $class->$orig($href);
+  $href->{local_files} = \@localFiles;
+
+  return $class->$orig($href);
 };
 
 #The role of this func is to wrap the data that each individual build method

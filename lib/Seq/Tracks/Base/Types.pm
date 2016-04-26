@@ -15,8 +15,6 @@ use Moose::Util::TypeConstraints;
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
 
-coerce 'HashRef', from 'ArrayRef', via { $_ => $_ };
-
 #What the types must be called in the config file
 state $refType = 'ref';
 has refType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$refType});
