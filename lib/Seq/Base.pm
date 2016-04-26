@@ -55,12 +55,17 @@ has logPath => (
   default => '',
 );
 
+has debug => (
+  is => 'ro',
+  lazy => 1,
+  default => 0,
+);
+
 #set up singleton stuff
 sub BUILD {
   my $self = shift;
   
   if(%{$self->messanger} && @{$self->publisherAddress} ) {
-    #p $self;
     $self->setPublisher($self->messanger, $self->publisherAddress);
   }
 
@@ -69,8 +74,8 @@ sub BUILD {
   }
 
   #todo: finisih ;for now we have only one level
-  if ( $self->debug ) {
-    $self->setLogLevel('info');
+  if ( $self->debug) {
+    $self->setLogLevel('debug');
   }
 }
 

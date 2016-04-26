@@ -12,6 +12,7 @@ use Moose::Role 2;
 #for more on AnyEvent::Log
 #http://search.cpan.org/~mlehmann/AnyEvent-7.12/lib/AnyEvent/Log.pm
 use AnyEvent;
+use AnyEvent::Log;
 
 use Redis::hiredis;
 
@@ -19,7 +20,7 @@ use namespace::autoclean;
 #with 'MooX::Role::Logger';
 
 use Cpanel::JSON::XS;
-
+use DDP;
 #TODO: figure out how to not need peopel to do if $self->debug
 #instead just use noop
 
@@ -33,7 +34,7 @@ has debug => (
 sub setLogPath {
   my ($self, $path) = @_;
 
-  $AnyEvent::Log::LOG->log_to_file($path);
+  $AnyEvent::Log::LOG->log_to_file ($path);
 }
 
 sub setLogLevel {
@@ -143,7 +144,8 @@ sub publishMessage {
   #   [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
 }
 
-sub log {
+sub tee_logger {
+  say "logging";
   #my ( $self, $log_method, $msg ) = @_;
   #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
   #state $debugLog = AnyEvent::Log::logger("debug");

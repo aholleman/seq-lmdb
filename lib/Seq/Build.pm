@@ -37,7 +37,7 @@ Extended in: None
 
 use Moose 2;
 use namespace::autoclean;
-
+use DDP;
 extends 'Seq::Base';
 
 has genome_chrs => (
@@ -70,6 +70,9 @@ has wantedType => (
 sub BUILD {
   my $self = shift;
 
+
+  say "HELLO!";
+
   #$self->log('info', "wanted_chr: " . $self->wanted_chr || 'all' );
 
   # not working yet
@@ -80,7 +83,10 @@ sub BUILD {
 
   my @builders;
   if($self->wantedType) {
+    say "getting builders";
     @builders = $self->getBuilders($self->wantedType);
+    say "builders are";
+    p @builders;
   } else {
     @builders = $self->getAllBuilders();
   }
@@ -89,15 +95,19 @@ sub BUILD {
     say "requested builders are";
     p @builders;
   }
+
+  say "requested builders are";
+    p @builders;
+  exit;
   
   for my $bTypeAref (@builders) {
     for my $builder (@$bTypeAref) {
       $builder->buildTrack();
-      $self->log('debug', "finished building " . $builder->{name} );
+      $self->tee_logger('debug', "finished building " . $builder->{name} );
     }
   }
 
-  $self->log('debug', "finished building all requested tracks: " 
+  $self->tee_logger('debug', "finished building all requested tracks: " 
     . join(@builders, ', ') );
 }
 

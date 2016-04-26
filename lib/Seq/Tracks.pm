@@ -25,9 +25,11 @@ use Seq::Tracks::Sparse::Build;
 use Seq::Tracks::Region::Build;
 use Seq::Tracks::Gene::Build;
 
-extends 'Seq::Tracks::Base';
-with 'Seq::Role::ConfigFromFile', 'Seq::Role::DBManager';
+with 'Seq::Role::ConfigFromFile', 'Seq::Role::DBManager',
+#defines refType, scoreType, etc
+'Seq::Tracks::Base::Types';
 
+use DDP;
 #expect that this exists, since this is where any local files are supposed
 #to be kept
 has files_dir => (
@@ -160,7 +162,7 @@ sub BUILD {
     say "database dir doesnt exist";
     $self->database_dir->mkpath;
   } elsif (!$self->database_dir->is_dir) {
-    return $self->log('error', 'database_dir given is not a directory');
+    return $self->tee_logger('error', 'database_dir given is not a directory');
   }
   
   #needs to be initialized before dbmanager can be used
@@ -174,11 +176,11 @@ sub _buildDataTracks {
   for my $trackHref (@{$self->tracks}) {
     my $trackClass = $self->getDataTrackClass($trackHref->{type} );
     if(!$trackClass) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
+      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     if(exists $out{$trackHref->{name} } ) {
-      $self->log('warn', "More than one track with the same name 
+      $self->tee_logger('error', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
       . Overriding the last object for this name, with the new")
     }
@@ -195,15 +197,17 @@ sub _buildTrackBuilders {
 
   my %out;
   for my $trackHref (@{$self->tracks}) {
+    p %$trackHref;
     my $className = $self->getBuilderTrackClass($trackHref->{type} );
     if(!$className) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
+      $self->tee_logger('warn', "Invalid track type $trackHref->{type}");
       next;
     }
     # a bit awkward;
     $trackHref->{files_dir} = $self->files_dir;
     $trackHref->{genome_chrs} = $self->genome_chrs;
     $trackHref->{overwrite} = $self->overwrite;
+    say "about to new $className";
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
 

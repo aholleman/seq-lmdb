@@ -8,7 +8,7 @@ use lib './lib';
 
 use Carp qw/ croak /;
 use Getopt::Long;
-use Path::Tiny;
+use Path::Tiny qw/path/;
 use Pod::Usage;
 use Log::Any::Adapter;
 use YAML::XS qw/ LoadFile /;
@@ -28,12 +28,12 @@ $debug = 0;
 GetOptions(
   'c|config=s'   => \$yaml_config,
   't|type=s'     => \$wantedType,
-  'n|name=s'     => \$wantedName,
+  #'n|name=s'     => \$wantedName,
   'v|verbose'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite'  => \$overwrite,
-  'chr|wantedChr=s' => \$wantedChr,
+  'chr|wanted_chr=s' => \$wantedChr,
 );
 
 if ($help) {
@@ -52,10 +52,10 @@ my $config_href = LoadFile($yaml_config);
 $yaml_config = path($yaml_config)->absolute->stringify;
 
 #   # set log file
-my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || $wantedName,
-  $wantedChr || 'all', 'log';
+my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || 'allTypes',
+  $wantedChr || 'allChr', 'log';
 
-my $logPath = path(".")->child($log_name)->mkpath->absolute->stringify;
+my $logPath = path(".")->child($log_name)->absolute->stringify;
 
 my $builder_options_href = {
   configfile   => $yaml_config,

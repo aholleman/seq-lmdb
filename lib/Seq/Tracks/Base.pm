@@ -10,7 +10,7 @@ package Seq::Tracks::Base;
 our $VERSION = '0.001';
 
 use Moose 2;
-
+use DDP;
 #specifies the allowed track types, and feature types
 with 'Seq::Tracks::Base::Types';
 # should be shared between all types
@@ -79,7 +79,7 @@ has _featureDataTypes => (
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
 #specifies the way we go from feature name to their database names and back
-with 'Seq::Tracks::Base::MapFieldNames';
+#with 'Seq::Tracks::Base::MapFieldNames';
 
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
@@ -89,11 +89,12 @@ with 'Seq::Tracks::Base::MapFieldNames';
 around BUILDARGS => sub {
   my ($orig, $class, $data) = @_;
 
-  if(!defined $data->{features} ) {
-    return $class->$orig($data);
+  #for my ()
+  if(ref $data->{name} eq 'HASH') {
+    ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
   }
 
-  if( ref $data->{features} ne 'ARRAY') {
+  if( defined $data->{features} && ref $data->{features} ne 'ARRAY') {
     #Does this logging actually work? todo: test
     $class->tee_logger('error', 'features must be array');
     die 'features must be array';
@@ -114,9 +115,6 @@ around BUILDARGS => sub {
   }
   $data->{features} = \%featureLabels;
 
-  if(ref $data->{name} eq 'HASH') {
-    ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
-  }
   #now do the same for required_fields, if specified
   #This is currently not implemented
   #The only goal here is to allow people to tell Seqant what their source file
