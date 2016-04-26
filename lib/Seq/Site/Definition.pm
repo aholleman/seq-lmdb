@@ -142,8 +142,7 @@ has strandTypes => (
 
 enum StrandType   => $strandTypes;
 
-subtype 'GeneSites'=> as 'ArrayRef[GeneSiteType]';
+#subtype 'GeneSites'=> as 'ArrayRef[GeneSiteType]';
 
-__PACKAGE__->meta->make_immutable;
-
+no Moose::Role;
 1;

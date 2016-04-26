@@ -46,8 +46,6 @@ use Data::Dump qw/ dump /;
 
 use Seq::Site::Gene;
 
-with 'Seq::Gene::Definition';
-
 #TODO: make this, this is the getter
 
 #The only job of this package is to ovload the base get method, and return

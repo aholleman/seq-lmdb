@@ -12,9 +12,7 @@ our $VERSION = '0.001';
 use Moose 2;
 
 #specifies the allowed track types, and feature types
-with 'Seq::Tracks::Base::Types', 
-#specifies the way we go from feature name to their database names and back
-'Seq::Tracks::Base::MapFieldNames';
+with 'Seq::Tracks::Base::Types';
 # should be shared between all types
 # Since Seq::Tracks;:Base is extended by every Track, this is an ok place for it.
 # Could also use state, and not re-initialize it for every instance
@@ -79,6 +77,9 @@ has _featureDataTypes => (
 
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
+
+#specifies the way we go from feature name to their database names and back
+with 'Seq::Tracks::Base::MapFieldNames';
 
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't

@@ -60,3 +60,4 @@ sub regionPath {
 }
 
 no Moose::Role;
+1;

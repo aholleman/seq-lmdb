@@ -88,13 +88,13 @@ sub unpackCodon {
 }
 
 #save some computation by not shifting $self (and storing deconv as simple array ref)
-sub getSiteType {
+sub getCodonSiteType {
   #my $self = shift;
   #$self == $_[0] , skipping assignment for performance
   return $_[0]->siteTypeMap->{ $unpackedCodon->[0] };
 }
 
-sub getStrand {
+sub getCodonStrand {
   return $unpackedCodon->[1];
 }
 

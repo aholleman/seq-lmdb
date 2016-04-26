@@ -10,65 +10,6 @@ our $VERSION = '0.001';
 use Moose 2;
 extends 'Seq::Tracks::Base';
 
-
-# Needed in order to go from the database name to the label the user wants to see
-# dbName => featureNameAsItAppearsInInputFile
-has _invertedFeatures => (
-  is => 'ro',
-  isa => 'HashRef[Str]',
-  lazy => 1,
-  traits => ['Hash'],
-  handles  => {
-    invertedFeatureNamesKv => 'kv',
-  },
-  _builder => '_buildInvertedFeatures',
-);
-
-sub _buildInvertedFeatures {
-  my $self = shift;
-
-  if($self->noFeatures) {
-    return {};
-  }
-  
-  my %invertedIdx;
-  for my $pair ($self->featureNamesKv) {
-    # my $name = $pair->[0]; aka -feature: name
-    # my $storedAs = $pair->[1]; aka dbName
-    $invertedIdx{ $pair->[1] } = $pair->[0];
-  }
-  return \%invertedIdx;
-}
-
-# has _invertedRequiredFields => (
-#   is => 'ro',
-#   isa => 'HashRef[Str]',
-#   lazy => 1,
-#   traits => ['Hash'],
-#   handles  => {
-#     getFeatureName => 'get',
-#     allFeatureDbNames => 'keys',
-#     invertedFeatureNamesKv => 'kv',
-#   },
-#   _builder => '_buildInvertedFeatures',
-# );
-
-# sub _buildInvertedFeatures {
-#   my $self = shift;
-
-#   if($self->noFeatures) {
-#     return {};
-#   }
-  
-#   my %invertedIdx;
-#   for my $pair ($self->featureNamesKv) {
-#     # my $name = $pair->[0]; aka -feature: name
-#     # my $storedAs = $pair->[1]; aka dbName
-#     $invertedIdx{ $pair->[1] } = $pair->[0];
-#   }
-#   return \%invertedIdx;
-# }
-
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 
 #they need to query for items held in the main database
@@ -97,7 +38,7 @@ sub get {
 
   #as stated above some features simply don't have any features, just a scalar
   #like scores
-  if(!ref $href->{ $self->dbName } ) {
+  if(!exists $href->{ $self->dbName } ) {
     return $href->{ $self->dbName };
   }
 
@@ -113,13 +54,13 @@ sub get {
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]
-  for my $pair ($self->invertedFeatureNamesKv) {
+  for my $name ($self->allFeatureNames) {
     #First, we want to get the 
     #reads: $href->{$self->dbName}{ $pair->[0] } where $pair->[0] == feature dbName
-    my $val = $href->{ $self->dbName }{ $pair->[0] }; 
+    my $val = $href->{ $self->dbName }{ $self->getFieldDbName($name) }; 
     if ($val) {
       #pair->[1] == feature name (what the user specified as -feature: name
-      $out{ $pair->[1] } = $val;
+      $out{ $name } = $val;
     }
   }
   return \%out;

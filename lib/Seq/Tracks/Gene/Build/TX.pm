@@ -45,15 +45,14 @@ with 'Seq::Role::Message',
 has transcriptSites => (
   is      => 'ro',
   isa     => 'HashRef[HashRef]',
-  default => sub { [] },
   traits  => ['Hash'],
   handles => {
     allTranscriptSitePos => 'keys',
     getTranscriptSite => 'get',
   },
   lazy => 1,
+  default => sub { {} },
   init_arg => undef,
-  builder => '_buildTranscriptSites',
 );
 
 # Also public (for now)
@@ -61,14 +60,15 @@ has transcriptSites => (
 has transcriptErrors => (
   is      => 'rw',
   isa     => 'ArrayRef',
-  lazy    => 1,
-  init_arg => undef,
   writer => '_writeTranscriptErrors',
   traits  => ['Array'],
   handles => {
     noTranscriptErrors   => 'is_empty',
     allTranscriptErrors => 'elements',
   },
+  lazy    => 1,
+  default => sub { [] },
+  init_arg => undef,
 );
 
 ###private

@@ -122,3 +122,6 @@ sub _buildSiteTypeMapInverse {
   #   $self->spliceDoSite => 5,
   # }
 }
+
+no Moose::Role;
+1;

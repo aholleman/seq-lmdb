@@ -89,9 +89,6 @@ has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] }
 #naming info in the region database, since we use starts and ends for site-specific stuff
 has '+features' => (
   default => sub{ grep { $_ ne 'exonStarts' && $_ ne 'exonEnds'} @$ucscGeneAref; },
-  handles => {
-    allRegionDatabaseFeatureNames => 'keys',
-  },
 );
 
 has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
@@ -253,7 +250,7 @@ sub buildTrack {
           #store the field value
           $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
             
-          if(!defined $regionIdx->{$fieldName} ) {
+          if(!defined $regionIdx{$fieldName} ) {
             next ACCUM_VALUES;
           }
 
