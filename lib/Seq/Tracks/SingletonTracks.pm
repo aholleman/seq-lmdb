@@ -8,10 +8,11 @@ use warnings;
 
 package Seq::Tracks::SingletonTracks;
 
-use Moose::Role 2;
+use Moose::Role;
+use DDP;
 
 #defines refType, scoreType, etc
-with 'Seq::Tracks::Base::Types';
+with 'Seq::Tracks::Base::Types', 'Seq::Role::Message';
 
 use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
@@ -24,6 +25,10 @@ use Seq::Tracks::Score::Build;
 use Seq::Tracks::Sparse::Build;
 use Seq::Tracks::Region::Build;
 use Seq::Tracks::Gene::Build;
+
+after BUILDARGS => sub {
+  say 'HELLLLLOOOO WORLD';
+};
 
 has trackMap => (
   is => 'ro',
@@ -147,7 +152,6 @@ sub _buildTrackBuilders {
 
   my %out;
   for my $trackHref (@{$self->tracks}) {
-    p %$trackHref;
     my $className = $self->getBuilderTrackClass($trackHref->{type} );
     if(!$className) {
       $self->log('warn', "Invalid track type $trackHref->{type}");
@@ -157,9 +161,6 @@ sub _buildTrackBuilders {
     $trackHref->{files_dir} = $self->files_dir;
     $trackHref->{genome_chrs} = $self->genome_chrs;
     $trackHref->{overwrite} = $self->overwrite;
-
-    say "about to new $className";
-    p $trackHref;
     
     push @{$out{$trackHref->{type} } }, $className->new($trackHref);
   }
@@ -199,14 +200,14 @@ sub allGeneTrackBuilders {
 }
 
 #returns hashRef; only one of the following tracks is allowed
-sub refTrackBuilder {
+sub getRefTrackBuilder {
   my $self = shift;
   return $self->trackBuilders->{$self->refType}[0];
 }
 
 #Now same for 
 #returns hashRef; only one of the following tracks is allowed
-sub refTrackGetter {
+sub getRefTrackGetter {
   my $self = shift;
   return $self->trackGetters->{$self->refType}[0];
 }

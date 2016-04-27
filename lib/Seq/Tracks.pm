@@ -15,7 +15,9 @@ use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
 with 'Seq::Role::ConfigFromFile',
 #holds a permanent record of all of the tracks
-'Seq::Tracks::SingletonTracks';
+'Seq::Tracks::SingletonTracks',
+#we configure the db manager here
+'Seq::Role::DBManager';
 
 #expect that this exists, since this is where any local files are supposed
 #to be kept

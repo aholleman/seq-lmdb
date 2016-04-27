@@ -22,18 +22,18 @@ package Seq::Tracks::Gene::Build::TX;
 our $VERSION = '0.001';
 
 use Moose 2;
+with 'Seq::Role::Message',
+#all of the site types we can use
+'Seq::Site::Definition',
+#we have pre-configured reference track in this
+'Seq::Tracks::SingletonTracks';
 
 use namespace::autoclean;
 use List::Util qw/reduce/;
 
 use DDP;
 
-use Seq::Tracks::Reference;
 use Seq::Tracks::Gene::Site;
-
-with 'Seq::Role::Message',
-#all of the site types we can use
-'Seq::Site::Definition';
 
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite
@@ -141,6 +141,7 @@ around BUILDARGS => sub {
 sub BUILD {
   my $self = shift;
 
+  p $self->getDataTrackClass('ref');
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref, $errorsAref) = $self->_buildTranscript();
 
@@ -180,8 +181,8 @@ sub _buildTranscript {
   my $codingEnd = $self->cdsEnd;
 
   my (@sequencePositions, $txSequence);
-
-  my $refTrack = Seq::Tracks::Reference->new();
+  p $self->trackMap;
+  my $refTrack = $self->getRefTrackGetter();
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
     if ( $exonStarts[$i] >= $exonEnds[$i] ) {
