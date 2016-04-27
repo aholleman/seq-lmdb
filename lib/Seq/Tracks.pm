@@ -1,3 +1,6 @@
+#Initializes SingletonTracks, which constructs all of our tracks according to the
+#config file
+#and also sets the database path, which is also a singleton
 use 5.10.0;
 use strict;
 use warnings;
@@ -13,33 +16,12 @@ use namespace::autoclean;
 
 use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
 
-with 'Seq::Role::ConfigFromFile',
 #holds a permanent record of all of the tracks
-'Seq::Tracks::SingletonTracks',
+extends 'Seq::Tracks::SingletonTracks';
+
+with 'Seq::Role::ConfigFromFile',
 #we configure the db manager here
 'Seq::Role::DBManager';
-
-#expect that this exists, since this is where any local files are supposed
-#to be kept
-has files_dir => (
-  is => 'ro',
-  isa => AbsDir,
-  coerce => 1,
-  required => 1,
-);
-
-# comes from config file
-# expects: {
-  # typeName : {
-  #  name: someName (optional),
-  #  data: {
-  #   feature1:   
-#} } }
-has tracks => (
-  is => 'ro',
-  isa => 'ArrayRef[HashRef]',
-  required => 1,
-);
 
 # has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
 
@@ -76,6 +58,9 @@ sub BUILD {
   
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
+
+  #This is not strictly necessary, but shows intent and wastes little time
+  $self->initializeTrackBuildersAndGetters();
 }
 
 __PACKAGE__->meta->make_immutable;

@@ -46,6 +46,12 @@ has configfile => (
   traits    => ['Getopt'],
 );
 
+state $tracksKey = 'tracks';
+#The only "Trick" added here is that we take everything that is outside the
+#"tracks" key, and push that stuff in each tracks array item
+#THe logic is that our YAML config file has 2 levels of content
+#1) Global : key => value pairs that apply to every track
+#2) Track-level : key => value pairs that only apply to that track
 sub new_with_config {
   state $check = compile( Str, HashRef );
   my ( $class, $opts ) = $check->(@_);
@@ -64,7 +70,21 @@ sub new_with_config {
     croak "new_with_config() expects configfile";
   }
 
-  if ( $opts->{debug} ) {
+  #Now push every single global option into each individual track
+  #Since they are meant to operate as independent units
+  my @nonTrackKeys = grep { $_ ne $tracksKey } keys %opts;
+
+  if( ref $opts{$tracksKey} ne 'ARRAY') {
+    croak "expect $tracksKey to contain an array of data";
+  }
+
+  for my $trackHref ( @{ $opts{$tracksKey} } ) {
+    for my $key (@nonTrackKeys) {
+      $trackHref->{$key} = $opts{$key};
+    }
+  }
+
+  if ( $opts{debug} ) {
     say "Data for Role::ConfigFromFile::new_with_config()";
     p %opts;
   }

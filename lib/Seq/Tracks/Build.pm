@@ -13,12 +13,33 @@ use Moose 2;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
 
+use MooseX::Types::Path::Tiny qw/AbsDir/;
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO'; #all build methods need to read files
 
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
 #during building should be defined here
+has genome_chrs => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    allWantedChrs => 'keys',
+    chrIsWanted => 'defined', #hash over array because unwieldy firstidx
+  },
+  required => 1,
+);
+
+has wantedChr => (
+  is => 'ro',
+  isa => 'Maybe[Str]',
+  lazy => 1,
+  default => undef,
+);
+
+has files_dir => ( is => 'ro', isa => AbsDir, coerce => 1 );
+
 has local_files => (
   is      => 'ro',
   isa     => 'ArrayRef',
@@ -65,6 +86,8 @@ has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
+  my %data = %$href;
+
   my @localFiles;
   my $fileDir = $href->{files_dir};
 
@@ -73,9 +96,23 @@ around BUILDARGS => sub {
       ->child($localFile)->absolute->stringify;
   }
 
-  $href->{local_files} = \@localFiles;
+  $data{local_files} = \@localFiles;
 
-  return $class->$orig($href);
+  if(defined $data{genome_chrs} &&  ref $data{genome_chrs} eq 'ARRAY') {
+    my %genome_chrs = map { $_ => 1 } @{$data{genome_chrs} };
+    $data{genome_chrs} = \%genome_chrs;
+  }
+
+  if(defined $data{wantedChr} ) {
+    if (exists $data{genome_chrs}->{$data{wantedChr} } ) {
+      $data{genome_chrs} = {
+        $data{wantedChr} => 1,
+      };
+    } else {
+      die 'Wanted chromosome not listed in genome_chrs in YAML config';
+    }
+  }
+  return $class->$orig(\%data);
 };
 
 #The role of this func is to wrap the data that each individual build method

@@ -22,11 +22,14 @@ package Seq::Tracks::Gene::Build::TX;
 our $VERSION = '0.001';
 
 use Moose 2;
+
+#we have pre-configured reference track in this
+use Seq::Tracks::SingletonTracks;
+
 with 'Seq::Role::Message',
 #all of the site types we can use
 'Seq::Site::Definition',
-#we have pre-configured reference track in this
-'Seq::Tracks::SingletonTracks';
+'Seq::Role::DBManager';
 
 use namespace::autoclean;
 use List::Util qw/reduce/;
@@ -34,6 +37,9 @@ use List::Util qw/reduce/;
 use DDP;
 
 use Seq::Tracks::Gene::Site;
+
+#how many bases away from exon bound we will call spliceAc or spliceDon site
+state $spliceSiteLength = 6;
 
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite
@@ -73,18 +79,12 @@ has transcriptErrors => (
   init_arg => undef,
 );
 
-###private
-has _geneSite => (
-  is => 'ro',
-  isa => 'Seq::Tracks::Gene::Site',
-  handles => {    
-    packCodon => 'packCodon',
-  },
-  init_arg => undef,
-  default => sub { Seq::Tracks::Gene::Site->new() },
-);
-
 ###All required arguments
+has chrom => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
 
 has exonStarts => (
   is => 'ro',
@@ -123,8 +123,28 @@ has strand => (
   isa => 'StrandType',
   required => 1,
 );
-#how many bases away from exon bound we will call spliceAc or spliceDon site
-state $spliceSiteLength = 6;
+
+###private
+has _geneSite => (
+  is => 'ro',
+  isa => 'Seq::Tracks::Gene::Site',
+  handles => {    
+    packCodon => 'packCodon',
+  },
+  init_arg => undef,
+  default => sub { Seq::Tracks::Gene::Site->new() },
+);
+
+has _trackBuildersAndGetters => (
+  is => 'ro',
+  isa => 'Seq::Tracks::SingletonTracks',
+  handles => {
+    getRefTrackGetter => 'getRefTrackGetter',
+  },
+  lazy => 1,
+  init_arg => undef,
+  default => sub { Seq::Tracks::SingletonTracks->new() },
+);
 
 #coerce our exon starts and ends into an array
 around BUILDARGS => sub {
@@ -141,7 +161,6 @@ around BUILDARGS => sub {
 sub BUILD {
   my $self = shift;
 
-  p $self->getDataTrackClass('ref');
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref, $errorsAref) = $self->_buildTranscript();
 
@@ -181,8 +200,9 @@ sub _buildTranscript {
   my $codingEnd = $self->cdsEnd;
 
   my (@sequencePositions, $txSequence);
-  p $self->trackMap;
+
   my $refTrack = $self->getRefTrackGetter();
+
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
     if ( $exonStarts[$i] >= $exonEnds[$i] ) {
@@ -196,6 +216,8 @@ sub _buildTranscript {
     #https://ideone.com/AKKpfC
     my $exonPosHref = [ $exonStarts[$i] .. $exonEnds[$i] - 1 ];
 
+    say "exonPosHref";
+    p $exonPosHref;
     #limitation of the below API; we need to copy $posHref
     #thankfully, we needed to do this anyway.
     #we push them in order, so the first position in the 
@@ -205,8 +227,10 @@ sub _buildTranscript {
     #dbGet modifies $posRange in place, accumulates the values in order
     #we accumulate values into $posRange, 1 tells us not to sort $posRange first
     #but for now, until API is settled let's not rely on reference mutation
-    my $dAref = $self->dbGet($self->chrom, $exonPosHref, 1); 
-
+    my $dAref = $self->dbRead($self->chrom, $exonPosHref, 1); 
+    say "data aref is";
+    p $dAref;
+    exit;
     #https://ideone.com/1sJC69
     $txSequence .= reduce { $a . $refTrack->get($b) } @$dAref;
     # The above replaces this from _build_transcript_db; 

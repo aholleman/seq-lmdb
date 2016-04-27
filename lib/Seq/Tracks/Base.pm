@@ -20,18 +20,11 @@ with 'Seq::Tracks::Base::Types',
 # as stated in Seq::Tracks::Definition coercision here gives us chr => chr
 # this saves us doing a scan of the entire array to see if we want a chr
 # all this is used for is doing that check, so coercsion is appropriate
-has genome_chrs => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    allWantedChrs => 'keys',
-    chrIsWanted => 'defined', #hash over array because unwieldy firstidx
-  },
-  lazy_build => 1,
-);
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
+
+#TrackType exported from Tracks::Base::Type
+has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
 #if the user gives us a database name, we can store that as well
 #they would do that by :
@@ -42,9 +35,10 @@ has _dbName => ( reader => 'dbName', is => 'ro', isa => 'Str', lazy => 1,
 );
 
 #We allow people to set a feature type for each feature
+#But not all tracks must have a feature
 #- feature : int
 #but we need to store those types separately from the featureName
-#since feature types are optional 
+#since feature types are optional as well
 has features => (
   is => 'ro',
   isa => 'ArrayRef',
@@ -75,9 +69,6 @@ has _featureDataTypes => (
   },
 );
 
-#TrackType exported from Tracks::Base::Type
-has type => ( is => 'ro', isa => 'TrackType', required => 1);
-
 # has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
 #specifies the way we go from feature name to their database names and back
 with 'Seq::Tracks::Base::MapFieldNames';
@@ -88,22 +79,19 @@ with 'Seq::Tracks::Base::MapFieldNames';
 #if they don't required attributes won't be found
 #so the messages won't be any uglier
 around BUILDARGS => sub {
-  my ($orig, $class, $data) = @_;
+  my ($orig, $class, $dataHref) = @_;
 
-  if(ref $data->{name} eq 'HASH') {
-    ( $data->{name}, $data->{_dbName} ) = %{ $data->{name} };
-  }
-
-  if(defined $data->{genome_chrs} ) {
-    my %genome_chrs = map { $_ => 1 } @{$data->{genome_chrs} };
-    $data->{genome_chrs} = \%genome_chrs;
+  #don't mutate the input data
+  my %data = %$dataHref;
+  if(ref $data{name} eq 'HASH') {
+    ( $data{name}, $data{_dbName} ) = %{ $data{name} };
   }
   
-  if(! defined $data->{features} ) {
-    return $class->$orig($data);
+  if(! defined $data{features} ) {
+    return $class->$orig(\%data);
   }
 
-  if( ref $data->{features} ne 'ARRAY') {
+  if( ref $data{features} ne 'ARRAY') {
     #Does this logging actually work? todo: test
     $class->log('error', 'features must be array');
     die 'features must be array';
@@ -112,18 +100,18 @@ around BUILDARGS => sub {
   #If features are passed to as hashes (to accomodate their data type)
   #get back to array
   my @featureLabels;
-  for my $feature (@{$data->{features} } ) {
+  for my $feature (@{$data{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
 
       push @featureLabels, $name;
-      $data->{_featureDataTypes}{$name} = $type;
+      $data{_featureDataTypes}{$name} = $type;
 
       next;
     }
     push @featureLabels, $feature;
   }
-  $data->{features} = \@featureLabels;
+  $data{features} = \@featureLabels;
 
   #now do the same for required_fields, if specified
   #This is currently not implemented
@@ -131,11 +119,11 @@ around BUILDARGS => sub {
   #looks like, so that they don't have to manipulate large source file headers
   #help them avoid using command lilne
   #However, this is a relatively minor concern; few will be doing this
-    # if( !defined $data->{required_fields} ) {
+    # if( !defined $data{required_fields} ) {
     #   return $class->$orig($data);
     # }
 
-    # if( ref $data->{required_fields} ne 'ARRAY') {
+    # if( ref $data{required_fields} ne 'ARRAY') {
     #   $class->log('error', 'required_fields must be array');
     #   die 'required_fields must be array';
     # }
@@ -145,17 +133,17 @@ around BUILDARGS => sub {
     # #  featureNameAsAppearsInHeader => <Str> (what we store it as)
     # #}
     # my %reqFieldLabels;
-    # for my $field (@{$data->{required_fields} } ) {
+    # for my $field (@{$data{required_fields} } ) {
     #   if (ref $field eq 'HASH') {
     #     my ($name, $type) = %$field; #Thomas Wingo method
 
     #     $reqFieldLabels{$name} = $name;
-    #     $data->{_requiredFieldDataTypes}{$name} = $type;
+    #     $data{_requiredFieldDataTypes}{$name} = $type;
     #   }
     # }
-    # $data->{required_fields} = \%reqFieldLabels;
+    # $data{required_fields} = \%reqFieldLabels;
 
-  return $class->$orig($data);
+  return $class->$orig(\%data);
 };
 
 #TODO: we should allow casting of required_fields.

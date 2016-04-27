@@ -40,13 +40,6 @@ use namespace::autoclean;
 use DDP;
 extends 'Seq::Base';
 
-has genome_chrs => (
-  is       => 'ro',
-  isa      => 'ArrayRef[Str]',
-  traits   => ['Array'],
-  required => 1,
-  handles  => { all_genome_chrs => 'elements', },
-);
 
 # #this isn't used yet.
 # has wanted_chr => (
@@ -58,13 +51,17 @@ has genome_chrs => (
 has wantedType => (
   is => 'ro',
   isa => 'Maybe[TrackType]',
+  lazy => 1,
+  default => undef,
 );
 
 #TODO: allow building just one track, identified by name
-# has wantedName => (
-#   is => 'ro',
-#   isa => 'Maybe[Str]',
-# );
+has wantedName => (
+  is => 'ro',
+  isa => 'Maybe[Str]',
+  lazy => 1,
+  default => undef,
+);
 
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 
@@ -74,12 +71,11 @@ sub BUILD {
 
   my @builders;
   if($self->wantedType) {
-    say "getting builders";
-    @builders = $self->getBuilders($self->wantedType);
-    say "builders are";
-    p @builders;
+    @builders = $self->getTrackBuildersByType($self->wantedType);
+  } elsif($self->wantedName) {
+    @builders = $self->getTrackBuilderByName($self->wantedName);
   } else {
-    @builders = $self->getAllBuilders();
+    @builders = $self->getAllTrackBuilders();
   }
 
   if($self->debug) {
@@ -90,7 +86,7 @@ sub BUILD {
   for my $bTypeAref (@builders) {
     for my $builder (@$bTypeAref) {
       $builder->buildTrack();
-      $self->log('debug', "finished building " . $builder->{name} );
+      $self->log('debug', "finished building " . $builder->name );
     }
   }
 

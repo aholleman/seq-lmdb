@@ -38,15 +38,16 @@ has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
 
 has messanger => (
   is => 'ro',
-  isa => 'HashRef',
-  default => sub{ {} },
+  isa => 'Maybe[HashRef]',
+  default => undef,
+  lazy => 1,
 );
 
 has publisherAddress => (
   is => 'ro',
-  isa => 'ArrayRef',
+  isa => 'Maybe[ArrayRef]',
   lazy => 1,
-  default => sub{ [] },
+  default => undef,
 );
 
 has logPath => (
@@ -65,7 +66,7 @@ has debug => (
 sub BUILD {
   my $self = shift;
   
-  if(%{$self->messanger} && @{$self->publisherAddress} ) {
+  if($self->messanger && $self->publisherAddress) {
     $self->setPublisher($self->messanger, $self->publisherAddress);
   }
 
