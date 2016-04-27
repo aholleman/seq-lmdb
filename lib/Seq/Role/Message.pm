@@ -151,7 +151,7 @@ sub log {
 
   #log a bunch of messages, helpful on ocassaion
   if(ref $_[2] eq 'ARRAY') {
-    $_[2] = join('; ', $_[2]);
+    $_[2] = join('; ', @{$_[2]} );
   }
   #interestingly some kind of message bufferring occurs, such that
   #this will actually make it through to the rest of the log function

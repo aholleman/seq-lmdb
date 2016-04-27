@@ -131,6 +131,9 @@ has strandTypes => (
   init_arg => undef,
   isa => 'ArrayRef',
   traits => ['Array'],
+  handles => {
+    allStrandTypes => 'elements',
+  },
   default => sub {$strandTypes},
 );
 

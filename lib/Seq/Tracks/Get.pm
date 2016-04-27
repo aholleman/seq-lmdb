@@ -8,6 +8,7 @@ package Seq::Tracks::Get;
 our $VERSION = '0.001';
 
 use Moose 2;
+use DDP;
 extends 'Seq::Tracks::Base';
 
 #The only track that needs to modify this function is RegionTrack
@@ -38,8 +39,12 @@ sub get {
 
   #as stated above some features simply don't have any features, just a scalar
   #like scores
-  if(!exists $href->{ $self->dbName } ) {
-    return $href->{ $self->dbName };
+  if($self->noFeatures) {
+    if(ref $href->{$self->dbName}) {
+      say "this entry has a ref";
+      p $href;
+    }
+    return $href->{$self->dbName};
   }
 
   #we have features, so let's grab only those; user can change after they build
@@ -51,6 +56,7 @@ sub get {
 
   my %out;
 
+  
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]

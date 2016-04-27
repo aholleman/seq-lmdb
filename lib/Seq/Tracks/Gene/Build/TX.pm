@@ -123,6 +123,7 @@ has strand => (
   isa => 'StrandType',
   required => 1,
 );
+##End required arguments
 
 ###private
 has _geneSite => (
@@ -169,7 +170,7 @@ sub BUILD {
     $self->log('error', $errorsAref); #will die for us.
   }
 
-  my $txAnnotationHref = self->_buildTranscriptAnnotation();
+  my $txAnnotationHref = $self->_buildTranscriptAnnotation();
   #We no longer strictly need to set 'abs_pos' for each exon_end
   #We *could* subtract $based from each position, but skipping for now because
   #it seems unlikely that we'll start accepting 1-based gene tracks
@@ -214,25 +215,43 @@ sub _buildTranscript {
     #http://genomewiki.ucsc.edu/index.php/Coordinate_Transforms
     #perl range is always closed
     #https://ideone.com/AKKpfC
+    # my @fragmentPositions;
+
     my $exonPosHref = [ $exonStarts[$i] .. $exonEnds[$i] - 1 ];
 
-    say "exonPosHref";
-    p $exonPosHref;
+    # say "exon start was " . $exonStarts[$i];
+    # say "exon end was " . ($exonEnds[$i] - 1);
+    # say "from that we got exonPosHref";
+    # p $exonPosHref;
     #limitation of the below API; we need to copy $posHref
     #thankfully, we needed to do this anyway.
     #we push them in order, so the first position in the 
     #https://ideone.com/wq0YJO (dereferencing not strictly necessary, but I think clearer)
     push @sequencePositions, @$exonPosHref;
-
-    #dbGet modifies $posRange in place, accumulates the values in order
-    #we accumulate values into $posRange, 1 tells us not to sort $posRange first
+    
+    # say "sequence positions are";
+    # p @sequencePositions;
+    
+    #dbGet modifies $exonPosHref in place, accumulates the values in order
+    #we accumulate values into $exonPosHref, 1 tells us not to sort $posRange first
     #but for now, until API is settled let's not rely on reference mutation
     my $dAref = $self->dbRead($self->chrom, $exonPosHref, 1); 
-    say "data aref is";
-    p $dAref;
-    exit;
+
+    #Now get the base for each item found in $dAref;
+    #This is handled by the refTrack of course
+    #Each track has its own "get" method, which fetches its data
+    #That can be a scalar or a hashRef
+    #Ref tracks always return a scalar, a single base, since that's the only
+    #thing that they could return
+
+    #This doesn't work for some reason.
     #https://ideone.com/1sJC69
-    $txSequence .= reduce { $a . $refTrack->get($b) } @$dAref;
+    #$txSequence .= reduce { ref $a ? $refTrack->get($a) : $a . $refTrack->get($b) } @$dAref;
+
+    foreach my $href (@$dAref) {
+      $txSequence .= $refTrack->get($href);
+    }
+    
     # The above replaces this from _build_transcript_db; 
     # note that we still respect half-closed exonEnds range
     # for ( my $i = 0; $i < @exon_starts; $i++ ) { #half closed
@@ -245,8 +264,6 @@ sub _buildTranscript {
     # }
   }
 
-  my $errorsAref = $self->_buildTranscriptErrors($txSequence);
-
   if ( $self->strand eq "-" ) {
     #reverse the sequence, just as in _build_transcript_db
     $txSequence = reverse $txSequence;
@@ -255,6 +272,8 @@ sub _buildTranscript {
     #reverse the positions, just as done in _build_transcript_abs_position
     @sequencePositions = reverse @sequencePositions;
   }
+
+  my $errorsAref = $self->_buildTranscriptErrors($txSequence, \@sequencePositions);
 
   return ($txSequence, \@sequencePositions, $errorsAref);
 }
@@ -370,7 +389,7 @@ sub _buildTranscriptSites {
   #Example (informal test): #https://ideone.com/a9NYhb
   CODING_LOOP: for (my $i = 0; $i < length($txSequence); $i++ ) {
     #get the genomic position
-    my $chrPos = $seqPosMapAref->{$i};
+    my $chrPos = $seqPosMapAref->[$i];
 
     #not that we could store codons for annotated sites (which are everything 
     # but coding sites)
@@ -448,7 +467,8 @@ sub _buildTranscriptSites {
 #   3. Ends with stop codon
 sub _buildTranscriptErrors {
   my $self = shift;
-  my $codingSeq =  shift;
+  my $exonSeq =  shift;
+  my $exonPosAref = shift;
 
   state $atgRe = qr/\AATG/; #starts with ATG
   state $stopCodonRe = qr/(TAA|TAG|TGA)\Z/; #ends with a stop codon
@@ -459,8 +479,21 @@ sub _buildTranscriptErrors {
     #it's a non-coding site, so it has no sequence information stored at all
     return;
   }
+  
+  #I now see why Thomas replaced bases in the exon seq with 5 and 3
+  my $codingSeq;
+  for(my $i = 0; $i < length($exonSeq); $i++) {
+    if($exonPosAref->[$i] < $self->cdsStart || $exonPosAref->[$i] >= $self->cdsEnd) {
+      next;
+    }
+    $codingSeq .= substr($exonSeq, $i, 1);
+  }
+  say "transcriptSeq";
+  p $exonSeq;
+  say "coding Seq is";
+  p $codingSeq;
 
-  if ( length $codingSeq % 3 ) {
+  if ( length($codingSeq) % 3 ) {
     push @errors, 'coding sequence not divisible by 3';
   }
 
@@ -472,6 +505,19 @@ sub _buildTranscriptErrors {
     push @errors, 'transcript does not end with stop codon';
   }
 
+  if(@errors) {
+    say "coding start is ";
+    p $self->cdsStart;
+    say "coding end is";
+    p $self->cdsEnd;
+    say "errors are";
+    p @errors;
+    p $codingSeq;
+    say "length of codingSeq is";
+    my $length = length($codingSeq);
+    p $length;
+  }
+  
   return \@errors;
 }
 

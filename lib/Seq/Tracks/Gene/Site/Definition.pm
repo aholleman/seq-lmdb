@@ -81,8 +81,8 @@ sub _buildSiteTypeMap {
     $self->codingBase => $self->codingSiteType,
     $self->fivePrimeBase => $self->codingSiteType,
     $self->threePrimeBase => $self->threePrimeSiteType,
-    $self->spliceAcSite => $self->spliceAcSite,
-    $self->spliceDonSite => $self->spliceDonSite,
+    $self->spliceAcBase => $self->spliceAcSiteType,
+    $self->spliceDonBase => $self->spliceDonSiteType,
   };
 }
 

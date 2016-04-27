@@ -12,12 +12,13 @@ package Seq::Tracks::Gene::Site;
 use Moose 2;
 use List::Util qw/first/;
 use Scalar::Util qw/looks_like_number/;
+use DDP;
 
-with 'Seq::Tracks::Gene::Site::Definition';
+with 'Seq::Tracks::Gene::Site::Definition', 'Seq::Role::Message';
 
 #To save performance, we support arrays, making this a bit like a full TX
 #writer, but on a site by site basis
-state $missing = -9; #some default value that is less than 0, which is a valid idx
+state $missingNumber = -9; #some default value that is less than 0, which is a valid idx
 
 #expects a single href, which contains everything associated with the 
 #transcript at a particular site
@@ -40,7 +41,7 @@ state $missing = -9; #some default value that is less than 0, which is a valid i
 # }
 
 sub packCodon {
-  my ($self, $siteType, $strand, $codonPosition, $codonNumber, $codonSeq) = @_;
+  my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   #used to require strand too, but that may go away
   if( !$siteType ) {
@@ -52,10 +53,13 @@ sub packCodon {
   my $siteTypeNum = $self->getSiteTypeNum( $siteType );
 
   if(!$siteTypeNum) {
-    $self->log('fatal', 'site type not recognized. Is it a GeneSite?');
+    p @_;
+    $self->log('fatal', "site type $siteType not recognized. Is it a GeneSite?");
   }
 
-  if($codonNumber && !$codonPosition) {
+  if(defined $codonNumber && !defined $codonPosition) {
+    say "found codonNumber but not position";
+    p @_;
     $self->log('fatal', 'if codon number provided also need Position');
   }
 
@@ -64,14 +68,19 @@ sub packCodon {
     $self->log('fatal', 'codon position & Number must be numeric');
   }
 
-  if(defined $codonSeq && length($codonSeq) % 3) {
-    $self->log('fatal', 'codon sequence')
+  if(defined $codonSeq && (!defined $codonPosition || !defined $codonNumber) ) {
+    $self->log('fatal', 'codon sequence requires codonPosition or codonNumber');
   }
+
+  say 'arguments are';
+  p @_;
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
   #(say -9, or whatever the consumer wants)
   return pack('cAlcZZZ', $siteTypeNum, $strand,
-    $codonNumber, $codonPosition, split ('', $codonSeq) );
+    defined $codonNumber ? $codonNumber : $missingNumber,
+    defined $codonPosition ? $codonPosition : $missingNumber,
+    defined $codonSeq ? split ('', $codonSeq) : ' ' x 3);
 }
 
 #Purpose of the following functions is to internally store the unpacked

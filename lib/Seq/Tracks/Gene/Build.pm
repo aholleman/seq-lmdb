@@ -321,6 +321,8 @@ sub buildTrack {
           }
         }
 
+        say "Ok, we made our first site href in Seq::Tracks::Gene::Build. It is";
+        p $sHref;
         #if anything left over for the site, write it
         if(%$sHref) {
           $self->dbPatchBulk($wantedChr, $sHref);
