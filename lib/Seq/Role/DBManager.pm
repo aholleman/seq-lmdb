@@ -134,6 +134,7 @@ sub _getDbi {
   $dbis->{$name} = {
     env => $envs->{$name},
     dbi => $DB->dbi,
+    DB => $DB,
   };
 
   return $dbis->{$name};
@@ -444,6 +445,22 @@ sub dbReadLength {
   return $db->{env}->stat->{entries};
 }
 
+sub dbReadAll {
+  my ( $self, $chr ) = @_;
+
+  my $db = $self->_getDbi($chr);
+  my $cursor = $db->{DB}->Cursor;
+
+  my ($key, $value, %out);
+  while($key) {
+    $cursor->get($key, $value, MDB_NEXT);
+    $out{$key} = $value;
+  }
+
+  say "at end of dbReadAll we have";
+  p %out;
+  return \%out;
+}
 #We allow people to update special "Meta" databases
 #The difference here is that for each $databaseName, there is always
 #only one meta database. Makes storing multiple meta documents in a single

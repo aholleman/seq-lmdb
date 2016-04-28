@@ -20,6 +20,15 @@ with 'Seq::Tracks::Gene::Site::Definition', 'Seq::Role::Message';
 #writer, but on a site by site basis
 state $missingNumber = -9; #some default value that is less than 0, which is a valid idx
 
+#we expect the following features. lets give them some human readable names
+state $siteTypeKey = 'siteType';
+state $strandKey = 'strand';
+state $codonNumberKey = 'codonNumber';
+state $codonPositionKey = 'codonPosition';
+state $codonSequenceKey = 'codon';
+
+#and we make one feature of interest to us, the peptide
+state $peptideKey = 'aminoAcid';
 #expects a single href, which contains everything associated with the 
 #transcript at a particular site
 # sub getTXsite {
@@ -85,38 +94,69 @@ sub packCodon {
 #so I'm not returning the raw unpacked array
 #The goal of this class is to fill $unpackedCodon, but consumer 
 #can also use $unpackedCodon directly
-my $unpackedCodon;
+
+#if all fields are filled then we will return
+# {
+#   $siteTypeKey => val,
+#   $strandKey => val,
+#   $codonNumberKey => val,
+#   $codonPositionKey => val,
+#   $codonSequenceKey => val,
+#   $peptideKey => val,
+# }
+my $unpackedCodonHref;
 sub unpackCodon {
   #my ($self, $codonStr) = @_;
   #$codonStr == $_[1] 
   #may be called a lot, so not using arg assignment
   #https://ideone.com/TFGjte
-  $unpackedCodon = unpack('cAlcAAA', $_[1]);
-  return $unpackedCodon;
+  my @unpackedCodon = unpack('cAlcAAA', $_[1]);
+  $unpackedCodonHref->{$siteTypeKey} = $_[0]->siteTypeMap->{ $unpackedCodon[0] };
+  $unpackedCodonHref->{$strandKey} = $unpackedCodon[1];
+
+  if( $unpackedCodon[2] >= 0 ) {
+    $unpackedCodonHref->{$codonNumberKey} = $unpackedCodon[2];
+  }
+
+  if( $unpackedCodon[3] >= 0 ) {
+    $unpackedCodonHref->{$codonPositionKey} = $unpackedCodon[3];
+  }
+
+  my $unpackedCodonSeq = join('', @unpackedCodon[4..6] );
+
+  if( $unpackedCodonSeq ne '' ) {
+    $unpackedCodonHref->{$codonSequenceKey} = $unpackedCodonSeq;
+
+    $unpackedCodonHref->{$peptideKey} = $_[0]->codon2aa($unpackedCodonSeq)
+  }
+
+  return $unpackedCodonHref;
 }
 
 #save some computation by not shifting $self (and storing deconv as simple array ref)
 sub getCodonSiteType {
-  #my $self = shift;
-  #$self == $_[0] , skipping assignment for performance
-  return $_[0]->siteTypeMap->{ $unpackedCodon->[0] };
+  return $unpackedCodonHref->{$siteTypeKey};
 }
 
 sub getCodonStrand {
-  return $unpackedCodon->[1];
+  return $unpackedCodonHref->{$strandKey};
 }
 
-sub getCodonNum {
-  return $unpackedCodon->[2];
+sub getCodonNumber {
+  return $unpackedCodonHref->{$codonNumberKey};
 }
 
-sub getCodonPos {
-  return $unpackedCodon->[3];
+sub getCodonPosition {
+  return $unpackedCodonHref->{$codonPositionKey};
 }
 
 #https://ideone.com/cNQfwv
-sub getCodonSeq {
-  return join('', @$unpackedCodon[4..6] );
+sub getCodonSequence {
+  return $unpackedCodonHref->{$codonSequenceKey};
+}
+
+sub getCodonAAresidue {
+  return $unpackedCodonHref->{$peptideKey};
 }
 
 # not in use yet

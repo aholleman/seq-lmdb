@@ -58,39 +58,15 @@ use DDP;
 extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::Definition', 'Seq::Tracks::Gene::Definition';
 
-#some default fields, some of which are required
-#TODO: allow people to remap the names of required fields if their source
-#file doesn't match (a bigger issue for sparse track than gene track)
-state $ucscGeneAref = [
-  'chrom',
-  'strand',
-  'txStart',
-  'txEnd',
-  'cdsStart',
-  'cdsEnd',
-  'exonCount',
-  'exonStarts',
-  'exonEnds',
-  'name',
-  'kgID',
-  'mRNA',
-  'spID',
-  'spDisplayID',
-  'geneSymbol',
-  'refseq',
-  'protAcc',
-  'description',
-  'rfamAcc',
-];
-
-has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] } );
+#what the chromosome field name is in the source file
+#know that we would need to update the ucscGeneAref in 
+#Seq::Tracks::Gene::Definition if this was ever not "chrom"
+has chrFieldName => (is => 'ro', lazy => 1, default => 'chrom' );
 
 #just the stuff meant for the region database, by default we exclude exonStarts and exonEnds
 #because they're long, and there's little reason to store anything other than
 #naming info in the region database, since we use starts and ends for site-specific stuff
-has '+features' => (
-  default => sub{ grep { $_ ne 'exonStarts' && $_ ne 'exonEnds'} @$ucscGeneAref; },
-);
+
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
 #Rather than implement our own.
