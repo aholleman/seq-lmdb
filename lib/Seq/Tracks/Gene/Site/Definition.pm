@@ -79,7 +79,7 @@ sub _buildSiteTypeMap {
   return {
     $self->nonCodingBase => $self->ncRNAsiteType,
     $self->codingBase => $self->codingSiteType,
-    $self->fivePrimeBase => $self->codingSiteType,
+    $self->fivePrimeBase => $self->fivePrimeSiteType,
     $self->threePrimeBase => $self->threePrimeSiteType,
     $self->spliceAcBase => $self->spliceAcSiteType,
     $self->spliceDonBase => $self->spliceDonSiteType,

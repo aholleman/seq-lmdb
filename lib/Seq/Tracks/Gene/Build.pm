@@ -298,7 +298,7 @@ sub buildTrack {
         my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
 
         my $sHref;
-        my $sCount;
+        my $sCount = 0;
         for my $pos ($txInfo->allTranscriptSitePos) {
           $sHref->{$pos} = $self->prepareData({
             #remember, we always insert some very short name in the database
@@ -321,8 +321,6 @@ sub buildTrack {
           }
         }
 
-        say "Ok, we made our first site href in Seq::Tracks::Gene::Build. It is";
-        p $sHref;
         #if anything left over for the site, write it
         if(%$sHref) {
           $self->dbPatchBulk($wantedChr, $sHref);

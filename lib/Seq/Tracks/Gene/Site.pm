@@ -52,14 +52,11 @@ sub packCodon {
 
   my $siteTypeNum = $self->getSiteTypeNum( $siteType );
 
-  if(!$siteTypeNum) {
-    p @_;
+  if(!defined $siteTypeNum) {
     $self->log('fatal', "site type $siteType not recognized. Is it a GeneSite?");
   }
 
   if(defined $codonNumber && !defined $codonPosition) {
-    say "found codonNumber but not position";
-    p @_;
     $self->log('fatal', 'if codon number provided also need Position');
   }
 
@@ -72,15 +69,13 @@ sub packCodon {
     $self->log('fatal', 'codon sequence requires codonPosition or codonNumber');
   }
 
-  say 'arguments are';
-  p @_;
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
-  #(say -9, or whatever the consumer wants)
-  return pack('cAlcZZZ', $siteTypeNum, $strand,
+  #https://ideone.com/TFGjte
+  return pack('cAlcAAA', $siteTypeNum, $strand,
     defined $codonNumber ? $codonNumber : $missingNumber,
     defined $codonPosition ? $codonPosition : $missingNumber,
-    defined $codonSeq ? split ('', $codonSeq) : ' ' x 3);
+    defined $codonSeq ? split ('', $codonSeq) : ('','','') );
 }
 
 #Purpose of the following functions is to internally store the unpacked
@@ -88,12 +83,16 @@ sub packCodon {
 #the convoluted codon detail string
 #I like the idea of hiding the implementation of the api
 #so I'm not returning the raw unpacked array
+#The goal of this class is to fill $unpackedCodon, but consumer 
+#can also use $unpackedCodon directly
 my $unpackedCodon;
 sub unpackCodon {
   #my ($self, $codonStr) = @_;
   #$codonStr == $_[1] 
   #may be called a lot, so not using arg assignment
-  $unpackedCodon = unpack('cAlcZZZ', $_[1]);
+  #https://ideone.com/TFGjte
+  $unpackedCodon = unpack('cAlcAAA', $_[1]);
+  return $unpackedCodon;
 }
 
 #save some computation by not shifting $self (and storing deconv as simple array ref)

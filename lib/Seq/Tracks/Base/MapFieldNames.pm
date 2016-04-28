@@ -104,15 +104,16 @@ sub addMetaField {
   my $self = shift;
   my $fieldName = shift;
 
-  say "in addMetaField we want";
-  p $fieldName;
-
-  say "fieldDbNamesMap for ". $self->name . " is";
-  p $fieldDbNamesMap->{$self->name};
+  # say "in addMetaField we want";
+  # p $fieldName;
+  # say "fieldDbNamesMap for ". $self->name . " is";
+  # p $fieldDbNamesMap->{$self->name};
 
   my @fieldKeys = keys %{ $fieldDbNamesMap->{$self->name} };
-  say "keys are";
-  p @fieldKeys;
+  
+  # say "keys are";
+  # p @fieldKeys;
+  
   my $fieldNumber;
   if(! %{$fieldDbNamesMap->{$self->name} } ) {
     $fieldNumber = 1;
@@ -124,8 +125,9 @@ sub addMetaField {
 
   my $mapping = {$fieldName => $fieldNumber};
 
-  say "mapping is";
-  p $mapping;
+  # say "mapping is";
+  # p $mapping;
+
   #need a way of checking if the insertion actually worked
   #but that may be difficult with the currrent LMDB_File API
   #I've had very bad performance returning errors from transactions

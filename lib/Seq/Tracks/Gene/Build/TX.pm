@@ -147,6 +147,13 @@ has _trackBuildersAndGetters => (
   default => sub { Seq::Tracks::SingletonTracks->new() },
 );
 
+has debug => (
+  is => 'ro',
+  isa => 'Int',
+  default => 0,
+  lazy => 1,
+);
+
 #coerce our exon starts and ends into an array
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
@@ -167,7 +174,7 @@ sub BUILD {
 
   #if errors
   if(@$errorsAref) {
-    $self->log('error', $errorsAref); #will die for us.
+    $self->log('fatal', $errorsAref); #will die for us.
   }
 
   my $txAnnotationHref = $self->_buildTranscriptAnnotation();
@@ -473,11 +480,11 @@ sub _buildTranscriptErrors {
   state $atgRe = qr/\AATG/; #starts with ATG
   state $stopCodonRe = qr/(TAA|TAG|TGA)\Z/; #ends with a stop codon
 
-  my @errors;
+  my @errors = ();
 
   if ( $self->cdsStart == $self->cdsEnd ) {
     #it's a non-coding site, so it has no sequence information stored at all
-    return;
+    return \@errors;
   }
   
   #I now see why Thomas replaced bases in the exon seq with 5 and 3
@@ -488,10 +495,6 @@ sub _buildTranscriptErrors {
     }
     $codingSeq .= substr($exonSeq, $i, 1);
   }
-  say "transcriptSeq";
-  p $exonSeq;
-  say "coding Seq is";
-  p $codingSeq;
 
   if ( length($codingSeq) % 3 ) {
     push @errors, 'coding sequence not divisible by 3';
@@ -505,13 +508,16 @@ sub _buildTranscriptErrors {
     push @errors, 'transcript does not end with stop codon';
   }
 
-  if(@errors) {
+  if(@errors && $self->debug) {
     say "coding start is ";
     p $self->cdsStart;
     say "coding end is";
     p $self->cdsEnd;
     say "errors are";
     p @errors;
+    say "transcriptSeq";
+    p $exonSeq;
+    say "coding Seq is";
     p $codingSeq;
     say "length of codingSeq is";
     my $length = length($codingSeq);

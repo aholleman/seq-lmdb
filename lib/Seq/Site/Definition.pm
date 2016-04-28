@@ -77,17 +77,17 @@ sub codon2aa {
 }
 
 state $codingSite = 'Coding';
-has codingSiteType => (is=> 'ro', lazy => 1, default => sub{$codingSite} );
+has codingSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$codingSite} );
 state $fivePrimeSite = '5UTR';
-has fivePrimeSiteType => (is=> 'ro', lazy => 1, default => sub{$fivePrimeSite} );
+has fivePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$fivePrimeSite} );
 state $threePrimeSite = '3UTR';
-has threePrimeSiteType => (is=> 'ro', lazy => 1, default => sub{$threePrimeSite} );
+has threePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$threePrimeSite} );
 state $spliceAcSite = 'Splice Acceptor';
-has spliceAcSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceAcSite} );
+has spliceAcSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceAcSite} );
 state $spliceDonSite = 'Splice Donor';
-has spliceDonSiteType => (is=> 'ro', lazy => 1, default => sub{$spliceDonSite} );
+has spliceDonSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceDonSite} );
 state $ncRNAsite = 'non-coding RNA';
-has ncRNAsiteType => (is=> 'ro', lazy => 1, default => sub{$ncRNAsite} );
+has ncRNAsiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$ncRNAsite} );
 
 =type {Str} VariantTypes, was SiteTypes, renamed to avoid confusion
 =cut
