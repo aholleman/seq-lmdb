@@ -172,9 +172,14 @@ sub BUILD {
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref, $errorsAref) = $self->_buildTranscript();
 
-  #if errors
+  #if errors warn; some transcripts will be malformed
+  #we could pass an array reference to log, but let's give some additional 
+  #context
   if(@$errorsAref) {
-    $self->log('warn', $errorsAref);  
+    my $error = ' for the tx on ' . $self->chrom . ' with cdsStart ' . $self->cdsStart
+    . ' and cdsEnd ' . $self->cdsEnd . ' on strand ' . $self->strand . 
+    ' : ' . join('; ', @$errorsAref);
+    $self->log('warn', $error);  
   }
 
   my $txAnnotationHref = $self->_buildTranscriptAnnotation();
@@ -415,11 +420,10 @@ sub _buildTranscriptSites {
 
     my ($siteType, $codonNumber, $codonPosition, $codonSeq);
     
-    # check if site is coding; all should be at this point since we're
-    # just checking the reference string built from exon coord (in _buildTranscript)
-    # the regex is purely for safety in case weirdness in source file that 
-    # wasn't caught earlier (say if this function used outside this class)
-    
+    # Next check any remaining sites. These should be coding sites.
+    # We check the base composition (ATCG) to make sure no oddiities slipped by
+    # At this point, any remaining sites should be in the coding region
+    # Since we've accounted for non-coding, UTR, and ~ splice sites
     if ( substr($txSequence, $i, 1) =~ m/[ACGT]/ ) {
       #the codon number ; POSIX::floor safer than casting int for rounding
       #but we just want to truncate; http://perldoc.perl.org/functions/int.html
@@ -428,15 +432,13 @@ sub _buildTranscriptSites {
       $codonPosition = $codingBaseCount % 3;
 
       my $codonStart = $i - $codonPosition;
-      #my $codonEnd   = $codonStart + 2;
-      #say "codon_start: $codon_start, codon_end: $codon_end, i = $i, coding_bp = $coding_base_count";
+      #I think this is more efficient, also clearer (to me) because the 3 
+      #is explicit, rather than implict through the +2 and for loop and 0 offset substr
+      #compared to
       #for ( my $j = $codonStart; $j <= $codonEnd; $j++ ) {
         #TODO: account for messed up transcripts that are truncated
         #$referenceCodonSeq .= $self->getTranscriptBases( $j, 1 );
       #}
-      #I think this is more efficient, also clearer (to me) because the 3 
-      #is explicit, rather than implict through the +2 and for loop and 0 offset substr
-      
       #https://ideone.com/lDRULc
       $codonSeq = substr( $txSequence, $codonStart, 3 );
 
@@ -502,32 +504,14 @@ sub _buildTranscriptErrors {
   }
 
   if ( $codingSeq !~ m/$atgRe/ ) {
-    push @errors, 'transcript does not begin with ATG';
+    push @errors, 'coding sequence doesn\'t start with ATG';
   }
 
   if ( $codingSeq !~ m/$stopCodonRe/ ) {
-    push @errors, 'transcript does not end with stop codon';
+    push @errors, 'coding sequnce doesn\'t end with TAA, TAG, or TGA';
   }
-
-  if(@errors) {
-    say "coding start is ";
-    p $self->cdsStart;
-    say "coding end is";
-    p $self->cdsEnd;
-    say "errors are";
-    p @errors;
-    say "transcriptSeq";
-    p $exonSeq;
-    say "coding Seq is";
-    p $codingSeq;
-    say "length of codingSeq is";
-    my $length = length($codingSeq);
-    p $length;
-    say "length of exonSeq is";
-     $length = length($exonSeq);
-     p $length;
-  }
-  
+    
+  $self->_writeTranscriptErrors(\@errors);
   return \@errors;
 }
 

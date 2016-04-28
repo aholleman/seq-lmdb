@@ -56,7 +56,7 @@ use Seq::Tracks::Gene::Build::TX;
 use DDP;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Tracks::Region::Definition';
+with 'Seq::Tracks::Region::Definition', 'Seq::Tracks::Gene::Definition';
 
 #some default fields, some of which are required
 #TODO: allow people to remap the names of required fields if their source
@@ -91,9 +91,6 @@ has chrFieldName => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref->[0] }
 has '+features' => (
   default => sub{ grep { $_ ne 'exonStarts' && $_ ne 'exonEnds'} @$ucscGeneAref; },
 );
-
-has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
-
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
 #Rather than implement our own.
@@ -168,7 +165,7 @@ sub buildTrack {
 
           #however, this package absolutely needs the chromosome field
           if( !defined $allIdx{$self->chrFieldName} ) {
-            $self->log('error', 'must provide chromosome field');
+            $self->log('fatal', 'must provide chromosome field');
           }
 
           #and there are some things that we need in the region database
@@ -180,7 +177,7 @@ sub buildTrack {
             }
 
             #should die here, so $fieldIdx++ not nec strictly
-            $self->log('error', 'Required $field missing in $file header');
+            $self->log('fatal', 'Required $field missing in $file header');
           }
 
           next FH_LOOP;
@@ -259,7 +256,21 @@ sub buildTrack {
           
           $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
         }
+        # The responsibility of this BUILD class, as a superset of the Region build class
+        # Is to
+        # 1) Store a reference to the corresponding entry in the gene database (region database)
+        # 2) Store this codon information at some key, which the Tracks::Region::Gene
+        # 3) Store transcript errors, if any
+        my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
 
+        #since some errors could have been generated, lets capture those
+        #and store them in the region database portion
+        my @txErrors = $txInfo->allTranscriptErrors;
+        if(@txErrors) {
+          my $dbName = $self->getFieldDbName($self->geneTrackRegionDatabaseTXerrorName);
+          $tRegionDataHref->{$dbName} = \@txErrors;
+        }
+        
         #we prepare the region data to store in the region database
         #we key on transcript so that we can match our region reference 
         #entry in the main database
@@ -288,15 +299,6 @@ sub buildTrack {
         # So from the TX class, we can get this data, and it is stored
         # and fetched by that class. We don't need to know exactly how it's stored
         # but for our amusement, it's packed into a single string
-
-        # The responsibility of this BUILD class, as a superset of the Region build class
-        # Is to
-        # 1) Store a reference to the corresponding entry in the gene database (region database)
-        # 2) Store this codon information at some key, which the Tracks::Region::Gene
-        # will know how to fetch.
-        # and then, of course, to actually insert that into the database
-        my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
-
         my $sHref;
         my $sCount = 0;
         for my $pos ($txInfo->allTranscriptSitePos) {
@@ -304,6 +306,7 @@ sub buildTrack {
             #remember, we always insert some very short name in the database
             #to save on space
             #the reference to the region database entry
+            #Region tracks also do this, so we get the name from Region::Definition
             $self->getFieldDbName($self->regionReferenceFeatureName) => $txNumber,
             #every detail related to the gene that is specific to that site in the ref
             #like codon sequence, codon number, codon position,
@@ -342,7 +345,7 @@ sub buildTrack {
       #after the FH_LOOP, if anything left over write it
       if(%regionData) {
         if(!$wantedChr) {
-          return $self->log('error', 'data remains but no chr wanted');
+          return $self->log('fatal', 'data remains but no chr wanted');
         }
         $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
       }
