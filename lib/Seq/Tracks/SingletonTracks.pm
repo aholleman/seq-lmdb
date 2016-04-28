@@ -298,16 +298,6 @@ sub _buildTrackGetters {
 
   $self->_writeTrackGettersByName($trackGetters);
   $self->_writeTrackGettersByType($trackGettersByType);
-
-  say "trackGetters are";
-  p $self->trackGettersByName;
-
-  say "trackGettersByName keys are";
-  my @keys = keys %{ $self->trackGettersByName };
-  p @keys;
-
-  say "phastCons";
-  p $trackGetters->{'phastCons'};
 }
 
 #different from Seq::Tracks in that we store class instances hashed on track type
