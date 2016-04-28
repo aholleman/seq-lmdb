@@ -53,7 +53,7 @@ use namespace::autoclean;
 has regionReferenceFeatureName => (is => 'ro', lazy => 1, default => 'region' );
 
 
-sub regionPath {
+sub regionTrackPath {
   my ($self, $chr) = @_;
 
   return $self->name . "/$chr";
