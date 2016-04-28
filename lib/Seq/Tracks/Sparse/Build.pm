@@ -117,7 +117,7 @@ sub buildTrack {
           # say 'all features wanted are';
           # p @{[$self->allFeatures]};
           
-          FEATURE_LOOP: for my $fname ($self->allFeatures) {
+          FEATURE_LOOP: for my $fname ($self->allFeatureNames) {
             my $idx = firstidx {$_ eq $fname} @fields;
             if(~$idx) { #only non-0 when non-negative, ~0 > 0
               $featureIdxHref->{ $self->getFieldDbName($fname) } = $idx;

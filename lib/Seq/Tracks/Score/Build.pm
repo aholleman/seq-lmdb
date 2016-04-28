@@ -50,7 +50,6 @@ sub buildTrack{
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  $self->log('info', "starting to build " . $self->name );
 
   my $fStep = 'fixedStep';
   my $vStep = 'variableStep';
@@ -67,7 +66,7 @@ sub buildTrack{
   #my $based = $self->based;
   for my $file ( $self->all_local_files ) {
     unless ( -f $file ) {
-      return $self->log('error', "ERROR: cannot find $file");
+      return $self->log('fatal', "ERROR: cannot find $file");
     }
     #simple forking; could do something more involvd if we had guarantee
     #that a single file would be in order of chr
@@ -110,12 +109,12 @@ sub buildTrack{
           my $start = $3;
           
           if(!$chr && $step && $start && $stepType) {
-           return $self->log('error', 'Require chr, step, start, 
+           return $self->log('fatal', 'Require chr, step, start, 
               and step type fields in wig header');
           }
 
           if($stepType eq $vStep) {
-            return $self->log('error', 'variable step not currently supported');
+            return $self->log('fatal', 'variable step not currently supported');
           }
 
           #set the chrPosition early, because otherwise we need to do 2x
@@ -126,8 +125,8 @@ sub buildTrack{
             next;
           }
 
-          #ok, we found something new, so let's write whatever we have for the
-          #previous chr
+          #ok, we found something new, or this is our first time getting a $wantedChr
+          #so let's write whatever we have for the previous wanted chr
           if($wantedChr && $wantedChr ne $chr) {
             $self->dbPatchBulk($wantedChr, \%data );
           }
@@ -144,7 +143,6 @@ sub buildTrack{
           }
 
           # chr isn't wanted if we got here
-          $self->log('warn', "skipping unrecognized chromsome: $chr");
 
           #so let's erase the remaining data associated with this chr
           undef $wantedChr;
@@ -186,7 +184,7 @@ sub buildTrack{
       #we're done with the input file, and we could still have some data to write
       if( %data ) {
         if(!$wantedChr) { #sanity check, 'error' will die
-          return $self->log('error', "@ end of $file no wantedChr && data found");
+          return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
         $self->dbPatchBulk($wantedChr, \%data );
@@ -196,8 +194,6 @@ sub buildTrack{
     $pm->finish;
   }
   $pm->wait_all_children;
-
-  $self->log('info', 'finished building score track: ' . $self->name);
 };
 
 __PACKAGE__->meta->make_immutable;
