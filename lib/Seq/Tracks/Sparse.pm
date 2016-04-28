@@ -43,7 +43,7 @@ Used in:
 use Moose 2;
 use namespace::autoclean;
 
-extends 'Seq::Base';
+extends 'Seq::Tracks::Get';
 
 =type SparseTrackType
 

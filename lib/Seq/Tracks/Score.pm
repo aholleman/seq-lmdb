@@ -43,8 +43,7 @@ use namespace::autoclean;
 use Scalar::Util qw/ reftype /;
 
 # enum BinType => [ 'C', 'n' ];
-extends 'Seq::Tracks::Base';
-with 'Seq::Role::IO', 'Seq::Role::Genome';
+extends 'Seq::Tracks::Get';
 
 
 =property @public {StrRef} bin_seq

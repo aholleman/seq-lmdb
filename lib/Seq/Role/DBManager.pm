@@ -36,7 +36,7 @@ use Data::MessagePack;
 use LMDB_File qw(:all);
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 use Sort::XS;
-
+use Scalar::Util qw/looks_like_number/;
 use DDP;
 
 #weird error handling in LMDB_FILE for the low level api
@@ -90,21 +90,15 @@ has overwrite => (
   default => 0,
   lazy => 1,
 );
-#using state to make implicit singleton for the state that we want
-#shared across all instances, without requiring exposing to public
-#at the moment we generate a new environment for each $name
-#because we can only have one writer per environment,
-#across all threads
-#and because there is some minor overhead with opening many named databases
-
-# sub BUILD {
-#   my $self = shift;
-
-#   say "Overwrite is" .  int($self->overwrite);
-# }
 
 sub _getDbi {
   my ($self, $name) = @_;
+  #using state to make implicit singleton for the state that we want
+  #shared across all instances, without requiring exposing to public
+  #at the moment we generate a new environment for each $name
+  #because we can only have one writer per environment,
+  #across all threads
+  #and because there is some minor overhead with opening many named databases
   state $dbis;
   state $envs;
 
@@ -190,19 +184,19 @@ sub dbRead {
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  my $oAref;
-
-  if(!ref $posAref) {
-     $oAref = [$posAref];
-  } else {
-    if (!$noSort) {
-      #carries less than a .2s penalty for sorting 1M records (for already in order records)
-      $oAref = xsort($posAref);
-    } else {
-      #don't modify the original reference
-      #this doesn't work: \@$posAref;
-      $oAref = [@$posAref];
-    }
+  #don't modify the original reference
+  #this also allows us to seamlessly allow for a scalar $posAref,
+  #ex: the user calls $self->dbRead('someChr', 200)
+  #this doesn't work for getting a new reference: \@$posAref
+  #because we really want a new array
+  my $oAref = !ref $posAref ? [$posAref] : [@$posAref];
+    
+  #sort only if numeric, and only if the array is longer than 1
+  #assumes that if the first item is numeric so are the rest
+  #TODO: this assumption could get us into trouble
+  if (!$noSort && @$oAref > 1 && looks_like_number($oAref->[0] ) ) {
+    #carries less than a .2s penalty for sorting 1M records (for already in order records)
+    $oAref = xsort($oAref);
   }
 
   #modify $oAref in place, to save one array assignment;
@@ -213,7 +207,9 @@ sub dbRead {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
         $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
       }
+
       # if there's nothing, modify the item  in the array to reflect that
+      # but don't shorten the array; user expects info for every $pos
       undef $pos;
       next;
     }
@@ -226,7 +222,8 @@ sub dbRead {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  return $oAref;
+  #will return a single value if we were passed one value
+  return @$oAref == 1 ? $oAref->[0] : $oAref;
 }
 
 #$pos can be any string, identifies a key within the kv database
@@ -319,14 +316,11 @@ sub dbPatchBulk {
 
     $txn->get($dbi, $pos, $json);
 
-   # say "Last error is " . $LMDB_File::last_err;
     if($json) {
       my ($featureID) = %{$posHref->{$pos} };
       #can't modify $json, read-only value, from memory map
       $href = $mp->unpack($json);
 
-      # say "previous href was";
-      # p $previous_href;
       if(!$tOverWrite) {
         if(defined $href->{$featureID} ) {
           #since we already have this feature, no need to write it
@@ -459,10 +453,12 @@ sub dbReadLength {
 sub dbReadMeta {
   my ( $self, $databaseName, $metaType ) = @_;
   
-  #dbGet always returns an array, so for a single "position" ($metaType)
-  #we just give back the first (should be only) element (could check > 1 as well
-  #but duplicate keys aren't allowed at the moment)
-  return @{ $self->dbRead($databaseName . $metaDbNamePart, $metaType) }[0];
+  #dbGet returns an array only when it's given an array
+  #so for a single "position"/key (in our case $metaType)
+  #only a single value should be returned (whether a hash, or something else
+  # based on caller's expectations)
+  #don't sort 
+  return $self->dbRead($databaseName . $metaDbNamePart, $metaType, 1);
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with

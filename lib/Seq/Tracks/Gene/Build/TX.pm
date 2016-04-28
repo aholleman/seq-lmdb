@@ -244,9 +244,6 @@ sub _buildTranscript {
     # say "sequence positions are";
     # p @sequencePositions;
     
-    #dbGet modifies $exonPosHref in place, accumulates the values in order
-    #we accumulate values into $exonPosHref, 1 tells us not to sort $posRange first
-    #but for now, until API is settled let's not rely on reference mutation
     my $dAref = $self->dbRead($self->chrom, $exonPosHref, 1); 
 
     #Now get the base for each item found in $dAref;

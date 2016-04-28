@@ -163,8 +163,6 @@ sub initializeTrackBuildersAndGetters {
   if(!%$trackGetters) {
     $self->_buildTrackGetters;
   }
-  say "trackBuilders are";
-    p $trackBuilders;
 }
 
 sub BUILD {
@@ -279,18 +277,37 @@ sub _buildTrackGetters {
       $self->log('warn', "Invalid track type $trackHref->{type}");
       next;
     }
-    if(exists $trackGetters->{$trackHref->{name} } ) {
+
+    my $track = $trackClass->new($trackHref);
+
+    if(exists $trackGetters->{$track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
       . Overriding the last object for this name, with the new")
     }
-    $trackGetters->{$trackHref->{name} } = $trackClass->new($trackHref);
-    push @{$trackGettersByType->{$trackHref->{type} } }, $trackGetters->{$trackHref->{name} };
+
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
+    #TODO: make this go away
+    $trackGetters->{$track->{name} } = $track;
+    push @{$trackGettersByType->{$trackHref->{type} } }, $trackGetters->{$track->{name} };
     #push @{$out{$trackHref->{type} } }, $trackClass->new($trackHref);
   }
-  
+
   $self->_writeTrackGettersByName($trackGetters);
   $self->_writeTrackGettersByType($trackGettersByType);
+
+  say "trackGetters are";
+  p $self->trackGettersByName;
+
+  say "trackGettersByName keys are";
+  my @keys = keys %{ $self->trackGettersByName };
+  p @keys;
+
+  say "phastCons";
+  p $trackGetters->{'phastCons'};
 }
 
 #different from Seq::Tracks in that we store class instances hashed on track type

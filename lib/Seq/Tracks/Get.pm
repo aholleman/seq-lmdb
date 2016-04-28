@@ -21,6 +21,9 @@ sub get {
   my ($self, $href) = @_;
   # so $_[0] is $self, $_[1] is $href; 
 
+  if(ref $href eq 'ARRAY') {
+    goto &getBulk;
+  }
   #this won't work well for Region tracks, so those should override this method
   #internally the feature data is store keyed on the dbName not name, to save space
   # 'some dbName' => someData
@@ -40,23 +43,21 @@ sub get {
   #as stated above some features simply don't have any features, just a scalar
   #like scores
   if($self->noFeatures) {
-    if(ref $href->{$self->dbName}) {
-      say "this entry has a ref";
-      p $href;
-    }
     return $href->{$self->dbName};
+  }
+
+  if(!exists $href->{ $self->dbName } ) {
+    return;
   }
 
   #we have features, so let's grab only those; user can change after they build
   #to reduce how much is put into the output file
-  if(ref $href->{ $self->dbName } ne 'HASH') {
-    return $self->log('error', "Expected data to be HASH reference, got " 
-      . ref $href->{ $self->dbName } );
-  }
+  # if(ref $href->{ $self->dbName } ne 'HASH') {
+  #   return $self->log('error', "Expected data to be HASH reference, got " 
+  #     . ref $href->{ $self->dbName } );
+  # }
 
   my %out;
-
-  
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]
@@ -72,6 +73,18 @@ sub get {
   return \%out;
 }
 
+sub getBulk {
+  my ($self, $aRefOfDataHrefs) = @_;
+  if(ref $aRefOfDataHrefs eq 'HASH') {
+    goto &get;
+  }
+  # == $_[0], $_[1]
+  my @out;
+  for my $href ( @$aRefOfDataHrefs ) {
+    push @out, $self->get($href);
+  }
+  return \@out;
+}
 # use the existing method to munge stuff here
 # sub toString {
 #   my $self = shift; 

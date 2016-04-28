@@ -44,7 +44,7 @@ use Carp qw/ confess /;
 use namespace::autoclean;
 use Data::Dump qw/ dump /;
 
-use Seq::Site::Gene;
+extends 'Seq::Tracks::Get';
 
 #TODO: make this, this is the getter
 
