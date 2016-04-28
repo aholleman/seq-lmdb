@@ -174,7 +174,7 @@ sub BUILD {
 
   #if errors
   if(@$errorsAref) {
-    $self->log('fatal', $errorsAref); #will die for us.
+    $self->log('warn', $errorsAref);  
   }
 
   my $txAnnotationHref = $self->_buildTranscriptAnnotation();
@@ -310,6 +310,7 @@ sub _buildTranscriptAnnotation {
 
       #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
       #checking with Thomas
+      #On second thought, it looks fine. codingEnd is treated as closed here
       if( $exonPos < $codingEnd ) {
         if( $exonPos >= $codingStart ) {
           #not 5'UTR,3'UTR, or non-coding
@@ -508,7 +509,7 @@ sub _buildTranscriptErrors {
     push @errors, 'transcript does not end with stop codon';
   }
 
-  if(@errors && $self->debug) {
+  if(@errors) {
     say "coding start is ";
     p $self->cdsStart;
     say "coding end is";
@@ -522,6 +523,9 @@ sub _buildTranscriptErrors {
     say "length of codingSeq is";
     my $length = length($codingSeq);
     p $length;
+    say "length of exonSeq is";
+     $length = length($exonSeq);
+     p $length;
   }
   
   return \@errors;
