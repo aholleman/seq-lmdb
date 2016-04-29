@@ -6,10 +6,9 @@ package Interface;
 use File::Basename;
 
 use Moose;
-extends 'Seq';
+
 use MooseX::Types::Path::Tiny qw/Path File AbsFile AbsPath/;
 use Moose::Util::TypeConstraints;
-use Log::Any::Adapter;
 
 use namespace::autoclean;
 
@@ -19,6 +18,8 @@ use YAML::XS qw/LoadFile/;
 use Path::Tiny;
 
 use Getopt::Long::Descriptive;
+
+use Seq;
 with 'MooseX::Getopt::Usage','MooseX::Getopt::Usage::Role::Man', 'Seq::Role::Message';
 
 #without this, Getopt won't konw how to handle AbsFile, AbsPath, and you'll get
@@ -59,7 +60,7 @@ has out_file => (
   documentation => qq{Where you want your output.},
 );
 
-has config_file => (
+has configfile => (
   is          => 'ro',
   isa         => AbsFile,
   coerce      => 1,
@@ -68,7 +69,7 @@ has config_file => (
     configfilePath => 'stringify',
   },
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/config/],
+  cmd_aliases   => [qw/config configfile/],
   documentation => qq{Yaml config file path.},
 );
 
@@ -150,13 +151,40 @@ has logPath => (
   builder   => '_buildLogPath',
 );
 
+has _annotator => (
+  is => 'ro',
+  isa => 'Seq',
+  handles => {
+    annotate => 'annotate_snpfile',
+  },
+  init_arg => undef,
+  lazy => 1,
+  builder => '_buildAnnotator',
+);
+
 sub _buildLogPath {
   my $self = shift;
 
+  say "in _buildLogPath";
   my $config_href = LoadFile( $self->configfilePath )
     || die "ERROR: Cannot read YAML file at " . $self->configfilePath . ": $!\n";
 
   return join '.', $self->output_path, 'annotation', $self->assembly, 'log';
+}
+
+sub _buildAnnotator {
+  my $self = shift;
+  return Seq->new_with_config({
+    configfile => $self->configfilePath,
+    snpfile => $self->snpfilePath,
+    out_file => $self->output_path,
+    debug => $self->debug,
+    ignore_unknown_chr => $self->ignore_unknown_chr,
+    overwrite => $self->overwrite,
+    logPath => $self->logPath,
+    messanger => $self->messanger,
+    publisherAddress => $self->publisherAddress,
+  })
 }
 
 with 'Interface::Validator';

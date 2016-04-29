@@ -3,12 +3,17 @@
 use 5.10.0;
 use strict;
 use warnings;
-
+use lib './lib';
 use Interface;
 use Getopt::Long;
+use DDP;
 
+
+say "Hello world";
 my $app = Interface->new_with_options();
-$app->annotate_snpfile;
+say "app has";
+p $app;
+$app->annotate;
 =head1 NAME
 
 snpfile_annotate_mongo_command_line.pl
