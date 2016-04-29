@@ -228,6 +228,8 @@ tracks:
     - alleles
     - alleleNs: int
     - alleleFreqs: float
+  annotation_exclude_features:
+    - strand
   local_files:
     - hg19.snp142.chr1.txt
     - hg19.snp142.chr2.txt

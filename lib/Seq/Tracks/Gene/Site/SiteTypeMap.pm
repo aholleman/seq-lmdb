@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Gene::Site::Definition;
+package Seq::Tracks::Gene::Site::SiteTypeMap;
 
 use Moose::Role 2;
 with 'Seq::Site::Definition';
@@ -56,7 +56,7 @@ has spliceDonBase => (
 );
 
 #TODO: should constrain values to GeneSiteType
-has _siteTypeMap => (
+has siteTypeMap => (
   is => 'ro',
   isa => 'HashRef',
   traits => ['Hash'],
@@ -108,8 +108,8 @@ sub _buildSiteTypeMapInverse {
   my $self = shift;
 
   my $href;
-  for my $num (keys %{$self->_siteTypeMap} ) {
-    $href->{ $self->_siteTypeMap->{$num} } = $num;
+  for my $num (keys %{$self->siteTypeMap} ) {
+    $href->{ $self->siteTypeMap->{$num} } = $num;
   }
 
   return $href;

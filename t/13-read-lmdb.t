@@ -16,8 +16,8 @@ package TestRead;
 use DDP;
 
 use Test::More;
-
-plan tests => 26;
+use List::Util qw/reduce/;
+plan tests => 27;
 
 my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
@@ -268,6 +268,19 @@ $snpValHref = $snpTrack->get($dataAref);
 $rsNumber = $snpValHref->{name};
 p $dataAref;
 ok($rsNumber eq 'rs148698006', "snp142 sparse track ok at chr22:22452926");
+
+my $dataHref = $tracks->dbRead('chr22', 29445184 - 1 );
+
+say "dataHref is";
+p $dataHref;
+#UCSC: chr22:19,999,999 == ‘A' on hg19
+#https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
+my $geneTrackData = $geneTrack->get($dataHref, 'chr22');
+say "geneTrack data is";
+p $geneTrackData;
+
+my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
+ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct (ZNRF3)');
 
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs

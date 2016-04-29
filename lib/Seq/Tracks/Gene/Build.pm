@@ -59,9 +59,17 @@ extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::Definition', 'Seq::Tracks::Gene::Definition';
 
 #what the chromosome field name is in the source file
-#know that we would need to update the ucscGeneAref in 
-#Seq::Tracks::Gene::Definition if this was ever not "chrom"
+#know that we would need to update the ucscGeneAref as well
 has chrFieldName => (is => 'ro', lazy => 1, default => 'chrom' );
+
+#this is a hardcoded track for which we don't really expect the user
+#to know to specify features they want in the region database
+#so let's give them a sensible default
+#not storing chrom because we store the region per-chr below
+#And we can't do this inside of a role unfortunately
+has '+features' => (
+  default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
+);
 
 #just the stuff meant for the region database, by default we exclude exonStarts and exonEnds
 #because they're long, and there's little reason to store anything other than
@@ -98,6 +106,10 @@ has chrFieldName => (is => 'ro', lazy => 1, default => 'chrom' );
 # main, genome-wide database (which has sparse stuff)
 # but also a special sparse database, the region database
 # for this, we need
+
+#NOTE: each site can have one or more codons and one or more transcript references
+#(we expect to always have the same number of each, but don't currently expliclty check for this)
+#This means that when moving to Golang, need to use a type that is either
 my $pm = Parallel::ForkManager->new(26);
 sub buildTrack {
   my $self = shift;
@@ -112,14 +124,14 @@ sub buildTrack {
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
       my %regionIdx; #like allIdx, but only for features going into the region databae
       my %regionData;
+      my %perSiteData;
       
       my $wantedChr;
       
       my $txNumber = 0; # this is what our key will be in the region track
       #track how many region track records we've collected
       #to gauge when to bulk insert
-      my $count = 0; 
-
+      my $regionCount = 0; 
       FH_LOOP: while (<$fh>) {
         chomp $_;
         my @fields = split("\t", $_);
@@ -186,7 +198,7 @@ sub buildTrack {
               #reset the regionData
               %regionData = ();
               #and count of accumulated region sites
-              $count = 0;
+              $regionCount = 0;
             }
             #lastly get the new chromosome
             $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
@@ -209,10 +221,10 @@ sub buildTrack {
         #but we also need to keep track of the rest, to calculate 
         #position-dependent features for the main database
 
-        if($count >= $self->commitEvery) {
+        if($regionCount >= $self->commitEvery) {
           $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
 
-          $count = 0;
+          $regionCount = 0;
           %regionData = (); #just breaks the reference to allData
         }
         
@@ -275,10 +287,8 @@ sub buildTrack {
         # So from the TX class, we can get this data, and it is stored
         # and fetched by that class. We don't need to know exactly how it's stored
         # but for our amusement, it's packed into a single string
-        my $sHref;
-        my $sCount = 0;
-        for my $pos ($txInfo->allTranscriptSitePos) {
-          $sHref->{$pos} = $self->prepareData({
+        POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
+          my $dataHref = {
             #remember, we always insert some very short name in the database
             #to save on space
             #the reference to the region database entry
@@ -289,26 +299,30 @@ sub buildTrack {
             #strand also stored here, but only for convenience
             #could be taken out later to save space
             $self->getFieldDbName($self->siteFeatureName) => $txInfo->getTranscriptSite($pos),
-          });
+          };
 
-          if($sCount > $self->commitEvery) {
-            $self->dbPatchBulk($wantedChr, $sHref);
-            $sHref = {};
-            $sCount = 0;
-          } else {
-            $sCount++;
+          if(defined $perSiteData{$wantedChr}->{$pos} ) {
+            for my $key (keys %$dataHref) {
+              if(defined $perSiteData{$wantedChr}->{$pos}{$key} ) {
+                if(!ref $perSiteData{$wantedChr}->{$pos}{$key} ||
+                ref $perSiteData{$wantedChr}->{$pos}{$key} ne 'ARRAY') {
+                  $perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
+                }
+                push @{ $perSiteData{$wantedChr}->{$pos}{$key} }, $dataHref->{$key};
+              } else {
+                $perSiteData{$wantedChr}->{$pos}{$key} = $dataHref->{$key};
+              }
+            }
+
+            next POS_DATA;
           }
-        }
-
-        #if anything left over for the site, write it
-        if(%$sHref) {
-          $self->dbPatchBulk($wantedChr, $sHref);
+          $perSiteData{$wantedChr}->{$pos} = $dataHref;
         }
 
         #iterate how many region sites we've accumulated
         #this will be off by 1 sometimes if we bulk write before getting here
         #see above
-        $count++;
+        $regionCount++;
 
         #keep track of the transcript 0-indexed number
         #this becomes the key in the region database
@@ -324,6 +338,28 @@ sub buildTrack {
           return $self->log('fatal', 'data remains but no chr wanted');
         }
         $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
+      }
+
+      #we could also do this in a more granular way, at every $wantedChr
+      #but that wouldn't completely guarantee the proper accumulation
+      #for out of order multi-chr files
+      #so we wait until the end
+      for my $chr (keys %perSiteData) {
+        my $accumDataHref;
+        my $accumCount;
+        for my $pos (keys %{ $perSiteData{$chr} } ) {
+          $accumDataHref->{$pos} = $self->prepareData( $perSiteData{$chr}{$pos} );
+          $accumCount++;
+          if($accumCount > $self->commitEvery) {
+            $self->dbPatchBulk($chr, $accumDataHref);
+            $accumDataHref = {};
+            $accumCount = 0;
+          }
+        }
+        #leftovers
+        if(%$accumDataHref) {
+          $self->dbPatchBulk($chr, $accumDataHref);
+        }
       }
 
     $pm->finish;

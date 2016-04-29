@@ -23,6 +23,11 @@ with 'Seq::Tracks::Base::Types',
 
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
+# has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
+#specifies the way we go from feature name to their database names and back
+#requires name
+with 'Seq::Tracks::Base::MapFieldNames';
+
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
@@ -69,10 +74,6 @@ has _featureDataTypes => (
   },
 );
 
-# has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
-#specifies the way we go from feature name to their database names and back
-with 'Seq::Tracks::Base::MapFieldNames';
-
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
 #note that by not shifting we're implying that the user is submitting an href
@@ -92,14 +93,14 @@ around BUILDARGS => sub {
   }
 
   if( ref $data{features} ne 'ARRAY') {
-    #Does this logging actually work? todo: test
-    $class->log('error', 'features must be array');
-    die 'features must be array';
+    #This actually works :)
+    $class->log('fatal', 'features must be array');
   }
 
   #If features are passed to as hashes (to accomodate their data type)
   #get back to array
   my @featureLabels;
+
   for my $feature (@{$data{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
@@ -109,6 +110,7 @@ around BUILDARGS => sub {
 
       next;
     }
+    
     push @featureLabels, $feature;
   }
   $data{features} = \@featureLabels;

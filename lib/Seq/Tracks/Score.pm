@@ -45,7 +45,23 @@ use Scalar::Util qw/ reftype /;
 # enum BinType => [ 'C', 'n' ];
 extends 'Seq::Tracks::Get';
 
+override 'BUILD' => sub {
+  my $self = shift;
 
+  $self->addFeaturesToHeader($self->name);
+
+  super();
+};
+#Every track needs to have a feature name for each of the values it returns
+#(values can be scalar, hashRef, arrayRef)
+#for a score track, that is simply the name of the track itself
+#ex: cadd, phyloP, phastCons, etc
+# has '+features' => (
+#   default => sub {
+#     my $self = shift;
+#     return $self->name;
+#   }
+# );
 =property @public {StrRef} bin_seq
 
   Stores one binary genome sized track as a scalar reference (reference to a

@@ -33,13 +33,17 @@ state $ucscGeneAref = [
   'description',
   'rfamAcc',
 ];
-has ucscGeneAref => (is => 'ro', lazy => 1, default => sub{ $ucscGeneAref } );
-
-#this is a hardcoded track for which we don't really expect the user
-#to know to specify features they want in the region database
-#so let's give them a sensible default
-has '+features' => (
-  default => sub{ grep { $_ ne 'exonStarts' && $_ ne 'exonEnds'} @$ucscGeneAref; },
+has ucscGeneAref => (
+  is => 'ro', 
+  init_arg => undef, 
+  lazy => 1, 
+  default => sub { 
+    return grep { $_ ne 'chrom' && $_ ne 'exonStarts' && $_ ne 'exonEnds' } @$ucscGeneAref; 
+  },
+  traits => ['Array'],
+  handles => {
+    defaultUCSCgeneFeatures => 'elements',
+  }
 );
 
 no Moose::Role;

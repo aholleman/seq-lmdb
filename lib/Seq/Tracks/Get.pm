@@ -9,8 +9,59 @@ our $VERSION = '0.001';
 
 use Moose 2;
 use DDP;
-extends 'Seq::Tracks::Base';
+use List::Util qw/first/;
 
+extends 'Seq::Tracks::Base';
+with 'Seq::Role::Header';
+
+#TODO: figure out how to neatly add feature exclusion
+# has annotation_exclude_features => (
+#   is => 'ro',
+#   isa => 'ArrayRef',
+#   lazy => 1,
+#   default => sub { [] },
+# );
+
+# my @featureLabels;
+#   my @exludedFeatures = defined $data{annotation_exclude_features} 
+#     ? @{$data{annotation_exclude_features} } : ();
+
+#   for my $feature (@{$data{features} } ) {
+#     if (ref $feature eq 'HASH') {
+#       my ($name, $type) = %$feature; #Thomas Wingo method
+
+#       if(@exludedFeatures && first { $_ eq $name } @exludedFeatures ) {
+#         next;
+#       }
+#       push @featureLabels, $name;
+#       $data{_featureDataTypes}{$name} = $type;
+
+#       next;
+#     }
+
+#     if(@exludedFeatures && first { $_ eq $feature } @exludedFeatures ) {
+#       next;
+#     }
+#     push @featureLabels, $feature;
+#   }
+
+sub BUILD {
+  my $self = shift;
+
+  #once feature exclusion is ready 
+  # my @includedFeatures;
+
+  # for my $feature ($self->allFeatureNames) {
+  #   if(!first{ $_ eq $feature } @{$self->annotation_exclude_features} ) {
+  #     push @includedFeatures, $feature;
+  #   }
+  # } 
+  # $self->addFeaturesToHeader(\@includedFeatures $self->name);
+
+  #register all features for this track
+  #@params $parent, $child
+  $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);;
+}
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 
 #they need to query for items held in the main database
@@ -40,14 +91,16 @@ sub get {
   #and protects against users using really funky long feature names
   #dbName defined in Seq::Tracks::Base
 
-  #as stated above some features simply don't have any features, just a scalar
-  #like scores
-  if($self->noFeatures) {
-    return $href->{$self->dbName};
-  }
-
   if(!exists $href->{ $self->dbName } ) {
     return;
+  }
+
+  #as stated above some features simply don't have any features, just a scalar
+  #like scores
+  #on the other hand, sometimes we just want all features returned if the user
+  #doesn't specify. this takes care of both cases : return whatever we have
+  if($self->noFeatures) {
+    return $href->{$self->dbName};
   }
 
   #we have features, so let's grab only those; user can change after they build
@@ -61,14 +114,11 @@ sub get {
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]
+  #and if we can't find the feature, it's ok, leave as undefined
   for my $name ($self->allFeatureNames) {
     #First, we want to get the 
     #reads: $href->{$self->dbName}{ $pair->[0] } where $pair->[0] == feature dbName
-    my $val = $href->{ $self->dbName }{ $self->getFieldDbName($name) }; 
-    if ($val) {
-      #pair->[1] == feature name (what the user specified as -feature: name
-      $out{ $name } = $val;
-    }
+    $out{ $name } = $href->{ $self->dbName }{ $self->getFieldDbName($name) };
   }
   return \%out;
 }

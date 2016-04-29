@@ -42,18 +42,38 @@ use Moose 2;
 
 use Carp qw/ confess /;
 use namespace::autoclean;
-use Data::Dump qw/ dump /;
+use DDP;
 
 extends 'Seq::Tracks::Get';
 
-with 'Seq::Tracks::Region::Definition';
-with 'Seq::Role::DBManager';
+use Seq::Tracks::Gene::Site;
+#regionReferenceFeatureName and regionTrackPath
+with 'Seq::Tracks::Region::Definition',
+#siteFeatureName
+'Seq::Tracks::Gene::Definition',
+#site feature keys
+'Seq::Tracks::Gene::Site::SiteKeys',
+#dbReadAll
+'Seq::Role::DBManager';
+
+has '+features' => (
+  default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
+);
+
+override 'BUILD' => sub {
+  my $self = shift;
+
+  super();
+
+  $self->addFeaturesToHeader([$self->allSiteKeys], $self->name);
+};
 
 #In order to get from gene track, we  need to get the values from
 #the region track portion as well as from the main database
 #we'll cache the region track portion to avoid wasting time
 my $geneTrackRegionDataHref;
 
+my $codonUnpacker = Seq::Tracks::Gene::Site->new();
 #we simply replace the get method from Seq::Tracks:Get
 #because we also need to get ther region portion
 #TODO: when we implement region tracks just override their method
@@ -71,59 +91,76 @@ sub get {
   my %out;
 
   #a single position may cover one or more sites
-  my $siteDetailsRef = $geneData->{$self->siteFeatureName};
+  #we expect either a single value (href in this case) or an array of them
+  my $siteDetailsRef = $geneData->{$self->getFieldDbName($self->siteFeatureName) };
   #first let's get the site details
-
-  if(ref $siteDetailsRef eq 'ARRAY') {
-    for my $siteDetail (@$siteDetailsRef) {
-      my $siteDetailsHref = $self->unpackCodon($siteDetail);
-      for my $key (keys %$siteDetailsHref) {
-        if(exists $out{$key} ) {
-          push @{ $out{$key} }, $siteDetailsHref;
-        }
-      }
-    }
-  } else {
-    #put all key => value pairs into %out;
-    %out = (%$siteDetailsRef);
+  if(!ref $siteDetailsRef) {
+    $siteDetailsRef = [$siteDetailsRef];
   }
 
+  if (!ref $siteDetailsRef eq 'ARRAY') {
+    $self->log('fatal', 'site details expected to be number or array, got ' .
+      ref $siteDetailsRef);
+  }
+
+  for my $siteDetail (@$siteDetailsRef) {
+    my $siteDetailsHref = $codonUnpacker->unpackCodon($siteDetail);
+
+    for my $key (keys %$siteDetailsHref) {
+      if(exists $out{$key} ) {
+        if(!ref $out{$key} || ref $out{$key} ne 'ARRAY') {
+          $out{$key} = [$out{$key}];
+        }
+        push @{ $out{$key} }, $siteDetailsHref->{$key};
+        next;
+      }
+      $out{$key} = $siteDetailsHref->{$key};
+    }
+  }
+  
   #Now get all of the region stuff
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
   }
 
-  my $geneRegionNumberRef = $geneData->{$self->regionReferenceFeatureName};
-    
-  my %geneData;
-  if(ref $geneRegionNumberRef) {
-    if(ref $geneRegionNumberRef ne 'ARRAY') {
-      $self->log('warn', 'Don\'t know what to do with a gene region db referene 
-        that isn\'t a scalar or array');
-    } else {
-      for my $geneRegionNumber (@$geneRegionNumberRef) {
-        %geneData = $geneTrackRegionDataHref->{$geneRegionNumber};
-      }
-    }
-  }
-  
+  my $geneRegionNumberRef = $geneData->{ $self->getFieldDbName($self->regionReferenceFeatureName) };
 
+  #we expect either a single number or an array ref
+  if (!ref $geneRegionNumberRef) {
+    $geneRegionNumberRef = [$geneRegionNumberRef];
+  }
+
+  if (ref $geneRegionNumberRef ne 'ARRAY') {
+    $self->log('fatal', 'gene region number expected to be number or array, got ' .
+      ref $geneRegionNumberRef);
+  }
+
+  #will die if there was a different ref passed
+  my @geneData;
+  for my $geneRegionNumber (@$geneRegionNumberRef) {
+    push @geneData, $geneTrackRegionDataHref->{$chr}->{$geneRegionNumber}->{$self->dbName};
+  }
   
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]
-  for my $name ($self->allFeatureNames) {
-    #First, we want to get the 
-    #reads: $href->{$self->dbName}{ $pair->[0] } where $pair->[0] == feature dbName
-    my $val = $geneData->{ $self->getFieldDbName($name) }; 
-    if ($val) {
-      #pair->[1] == feature name (what the user specified as -feature: name
-      $out{ $name } = $val;
+  #and if we don't have the feature, that's ok, we'll leave it as undefined
+  #also, if no features specified, then just get all of them
+  #better too much than too little
+  for my $featureName ($self->allFeatureNames) {
+    INNER: for my $geneDataHref (@geneData) {
+      if(defined $out{$featureName} ) {
+        if(!ref $out{$featureName} || ref $out{$featureName} ne 'ARRAY') {
+          $out{$featureName} = [ $out{$featureName} ];
+        }
+        push @{ $out{$featureName} }, $geneDataHref->{ $self->getFieldDbName($featureName) };
+        next INNER;
+      }
+      $out{ $featureName } = $geneDataHref->{ $self->getFieldDbName($featureName) };
     }
   }
 
-  say "at end of get in Gene.pm, we have";
-  p %out;
+  return \%out;
 };
 
 #TODO: make this, this is the getter

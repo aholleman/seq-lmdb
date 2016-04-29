@@ -11,17 +11,42 @@ use 5.10.0;
 use strict;
 use warnings;
 use namespace::autoclean;
-
+use DDP;
 state $headerKeysHref;
 
-sub addHeaderKey {
-  if(!exists $headerKeysHref->{$_[1] } ) {
-    $headerKeysHref->{ $_[1] } = 1;
-  }
+sub getHeaderHref {
+  return $headerKeysHref;
 }
 
-sub getAllHeaderKeys {
-  return keys %$headerKeysHref;
+#not all children will have parents
+sub addFeaturesToHeader {
+  if(ref $_[1] eq 'ARRAY') {
+    goto &_addFeaturesToHeaderBulk;
+  }
+
+  #$self == $_[0], $child == $_[1]
+  my ($self, $child, $parent) = @_;
+
+  if(defined $parent) {
+    $headerKeysHref->{$parent}->{$child} = 1;
+    return;
+  }
+
+  $headerKeysHref->{$child} = 1;
+}
+
+sub _addFeaturesToHeaderBulk {
+  if(!ref $_[1]) {
+    goto &addFeaturesToHeaderBulk;
+  }
+
+  #$self == $_[0], $childrenAref == $_[1]
+  my ($self, $childrenAref, $parent) = @_;
+
+  for my $child (@$childrenAref) {
+    $self->addFeaturesToHeader($child, $parent);
+  }
+  return;
 }
 
 use Moose::Role;

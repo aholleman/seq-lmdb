@@ -127,6 +127,8 @@ sub _getDbi {
  
   my $DB = $self->_openDB($txn);
 
+  #unfortunately if we close the transaction, cursors stop working
+  #a limitation of the current API
   $txn->commit(); #now db is open
 
   my $status = $envs->{$name}->stat;
@@ -134,7 +136,6 @@ sub _getDbi {
   $dbis->{$name} = {
     env => $envs->{$name},
     dbi => $DB->dbi,
-    DB => $DB,
   };
 
   return $dbis->{$name};
@@ -445,20 +446,49 @@ sub dbReadLength {
   return $db->{env}->stat->{entries};
 }
 
+#if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]
+#but we don't always expect keys to be numeric
+#and am not certain this is meaningfully slower
+#only difference is overhead for checking whether txn is alive in LMDB_File
 sub dbReadAll {
   my ( $self, $chr ) = @_;
 
   my $db = $self->_getDbi($chr);
-  my $cursor = $db->{DB}->Cursor;
+
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  #unfortunately if we close the transaction, cursors stop working
+  #a limitation of the current API
+  #and since dbi wouldn't be available to the rest of this package unless
+  #that transaction was comitted
+  #we need to re-open the database for dbReadAll transactions
+  my $DB = $self->_openDB($txn);
+  my $cursor = $DB->Cursor;
 
   my ($key, $value, %out);
-  while($key) {
+  while(1) {
     $cursor->get($key, $value, MDB_NEXT);
-    $out{$key} = $value;
+      
+    #because this error is generated right after the get
+    #we want to capture it before the next iteration 
+    #hence this is not inside while( )
+    if($LMDB_File::last_err == MDB_NOTFOUND) {
+      last;
+    }
+
+    if($LMDB_FILE::last_err) {
+      $self->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+        $LMDB_FILE::last_err );
+      next;
+    }
+
+    $out{$key} = $mp->unpack($value);
   }
 
-  say "at end of dbReadAll we have";
-  p %out;
+  $txn->commit();
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
+
   return \%out;
 }
 #We allow people to update special "Meta" databases
