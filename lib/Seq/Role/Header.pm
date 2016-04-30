@@ -12,22 +12,12 @@ use strict;
 use warnings;
 use namespace::autoclean;
 use DDP;
-state $headerKeysHref;
-state $headersAref;
+state $headerFeaturesHref;
+#state $headerOrderAref;
 
-if(!$headersAref) {
-  $headersAref = [];
+sub getHeaderHref {
+  return $headerFeaturesHref;
 }
-
-has headerFeatureNames => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
-  handles => {
-    allHeaderFeatureNames => 'elements',
-  }
-
-);
 
 #not all children will have parents
 sub addFeaturesToHeader {
@@ -35,15 +25,20 @@ sub addFeaturesToHeader {
     goto &_addFeaturesToHeaderBulk;
   }
 
-  #$self == $_[0], $child == $_[1]
-  my ($self, $child, $parent) = @_;
+  my ($self, $child, $parent, $prepend) = @_;
 
   if(defined $parent) {
-    $headerKeysHref->{$parent}->{$child} = 1;
+    if(defined $headerFeaturesHref->{$parent}->{$child} ) {
+      return;
+    }
+    $headerFeaturesHref->{$parent}->{$child} = 1;
+    # if($prepend) {
+    #   unshift @$headerOrderAref, 
+    # }
     return;
   }
 
-  $headerKeysHref->{$child} = 1;
+  $headerFeaturesHref->{$child} = 1;
 }
 
 sub _addFeaturesToHeaderBulk {
@@ -52,13 +47,96 @@ sub _addFeaturesToHeaderBulk {
   }
 
   #$self == $_[0], $childrenAref == $_[1]
-  my ($self, $childrenAref, $parent) = @_;
+  my ($self, $childrenAref, $parent, $prepend) = @_;
 
   for my $child (@$childrenAref) {
-    $self->addFeaturesToHeader($child, $parent);
+    $self->addFeaturesToHeader($child, $parent, $prepend);
   }
   return;
 }
+
+#TODO: allow ordering , this is the beginnings of that
+# state $headersAref;
+
+# if(!$headersAref) {
+#   $headersAref = [];
+# }
+
+# has headerFeatureNames => (
+#   is => 'ro',
+#   isa => 'ArrayRef',
+#   traits => ['Array'],
+#   handles => {
+#     allHeaderFeatureNames => 'elements',
+#   },
+#   lazy => 1,
+#   init_arg => undef,
+#   default => sub { $headersAref },
+# );
+
+# #not all children will have parents
+# sub appendFeaturesToOutputHeader {
+#   if(ref $_[1] eq 'ARRAY') {
+#     goto &_addFeaturesToHeaderBulk;
+#   }
+
+#   #$self == $_[0], $child == $_[1]
+#   my ($self, $child, $parent) = @_;
+
+#   if(defined $parent) {
+#     if(!exists $headerKeysHref->{$parent} || !exists $headerKeysHref->{$parent}->{$child} ) {
+      
+#     }
+#     $headerKeysHref->{$parent}->{$child} = 1;
+#     return;
+#   }
+
+#   $headerKeysHref->{$child} = 1;
+# }
+
+# sub appendFeaturesToOutputHeaderBulk {
+#   if(!ref $_[1]) {
+#     goto &addFeaturesToHeaderBulk;
+#   }
+
+#   #$self == $_[0], $childrenAref == $_[1]
+#   my ($self, $childrenAref, $parent) = @_;
+
+#   for my $child (@$childrenAref) {
+#     $self->addFeaturesToHeader($child, $parent);
+#   }
+#   return;
+# }
+
+# sub prependFeaturesToOutputHeader {
+#   if(ref $_[1] eq 'ARRAY') {
+#     goto &_addFeaturesToHeaderBulk;
+#   }
+
+#   #$self == $_[0], $child == $_[1]
+#   my ($self, $child, $parent) = @_;
+
+#   if(defined $parent) {
+#     $headerKeysHref->{$parent}->{$child} = 1;
+#     return;
+#   }
+
+#   $headerKeysHref->{$child} = 1;
+# }
+
+# sub prependFeaturesToOutputHeaderBulk {
+#   if(!ref $_[1]) {
+#     goto &addFeaturesToHeaderBulk;
+#   }
+
+#   #$self == $_[0], $childrenAref == $_[1]
+#   my ($self, $childrenAref, $parent) = @_;
+
+#   for my $child (@$childrenAref) {
+#     $self->addFeaturesToHeader($child, $parent);
+#   }
+#   return;
+# }
 
 use Moose::Role;
 1;

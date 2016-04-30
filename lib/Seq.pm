@@ -156,7 +156,7 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 sub BUILD {
   my $self = shift;
 
-  $self->addHeaderFields($self->getRequiredFileHeaderFieldNames() )
+  $self->addFeaturesToHeader($self->getRequiredFileHeaderFieldNames() )
 }
 
 sub annotate_snpfile {
@@ -208,6 +208,7 @@ sub annotate_snpfile {
 
   my (@fields, @lines, $abs_pos, $foundVarType, $wantedChr);
   my @sampleIDs;
+  my %idsIdxMap;
   my $linesAccum;
   my $count;
   my @out;
@@ -217,10 +218,10 @@ sub annotate_snpfile {
     if(!@sampleIDs) {
       $self->checkHeader( \@fields );
 
-      my %ids = $self->getSampleNamesIdx( \@fields );
+      %idsIdxMap = $self->getSampleNamesIdx( \@fields );
 
       # save list of ids within the snpfile
-      @sampleIDs = sort( keys %ids );
+      @sampleIDs = sort( keys %idsIdxMap );
       next;
     }
 
@@ -228,7 +229,7 @@ sub annotate_snpfile {
 
     #$self->commitEvery from DBManager
     if($count > $self->commitEvery) {
-      $self->annotateLines($linesAccum, \@sampleIDs, \@out );
+      $self->annotateLines($linesAccum, \%idsIdxMap, \@sampleIDs, \@out );
       $linesAccum = '';
       $count = 0;
     }
@@ -237,7 +238,7 @@ sub annotate_snpfile {
   }
 
   if($linesAccum) {
-    $self->annotateLines($linesAccum, \@sampleIDs, \@out );
+    $self->annotateLines($linesAccum, \%idsIdxMap, \@sampleIDs, \@out );
   }
 
   #now print
@@ -247,7 +248,7 @@ sub annotate_snpfile {
 #splitting into separate function because we'll use event-driven model to run 
 #this processing step
 sub annotateLines {
-  my ($self, $lines, $samplIdsAref, $outDataAref) = @_;
+  my ($self, $lines, $idsIdxMapHref, $sampleIdsAref, $outDataAref) = @_;
 
   # # progress counters
   state $pubProg;
@@ -288,33 +289,40 @@ sub annotateLines {
 
       #maps to
       #my ( $chr, $pos, $refAllele, $varType, $allAllelesStr, $alleleCount ) =
-      my @fields =  map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
+      my @snpFields =  map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
 
-      if($wantedChr && $fields[0] ne $wantedChr) {
+      if($wantedChr && $snpFields[0] ne $wantedChr) {
         #don't sort
         #$self->annotateLinesBatch($wantedChr, \@lines, \@positions);
         #@lines = 
         my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
         #copies @lines into an anonymous arrayref
         #not very efficient, but shouldn't called often
-        $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
-        @positions = ();
-        @lines = ();
+        # $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
+        # @positions = ();
+        # @lines = ();
       }
 
-      push @lines, \@fields;
-      push @positions, $fields[1];
-      $wantedChr = $fields[0];
+      #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
+  #   #   later (hets currently ignored)
+      #$ref_allele == $snpFields[2]
+      my ( $het_ids, $hom_ids, $id_genos_href ) =
+        $self->_minor_allele_carriers( $lineFieldsAref, $idsIdxMapHref, $sampleIdsAref, 
+          $snpFields[2] );
+
+      # push @lines, \@fields;
+      # push @positions, $fields[1];
+      # $wantedChr = $fields[0];
 
       say 'fields are ';
       p @fields;
     }
   }
 
-  if(@lines) {
-    my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
-    $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
-  }
+  # if(@lines) {
+  #   my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
+  #   $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
+  # }
 }
 
 sub finishAnnotatingLines {
@@ -334,10 +342,7 @@ sub finishAnnotatingLines {
   #   # not checking for $allele_count for now, because it isn't in use
   #   next unless $chr && $pos && $ref_allele && $var_type && $all_allele_str;
     
-  #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
-  #   #   later (hets currently ignored)
-    my ( $het_ids, $hom_ids, $id_genos_href ) =
-      $self->_minor_allele_carriers( \@fields, \%ids, \@sample_ids, $ref_allele );
+  
 
   #   # check that $chr is an allowable chromosome
   #   # decide if we plow through the error or if we stop
@@ -426,7 +431,7 @@ sub finishAnnotatingLines {
   #   } elsif ( index($var_type, 'MESS') == -1 && index($var_type,'LOW') == -1 ) {  
   #     $self->log( 'warn', "Unrecognized variant type: $var_type" );
   #   }
-  }
+  #}
 
   # # finished printing the final snp annotations
   # if (@snp_annotations) {
@@ -465,26 +470,37 @@ sub finishAnnotatingLines {
 # Instead, will indicate the type (- or +) followed by the number of bases created/removed rel.ref
 # So the sample column gives us heterozygosity, while Alleles column gives us nucleotide composition
 sub _minor_allele_carriers {
-  my ( $self, $fields_aref, $ids_href, $id_names_aref, $ref_allele ) = @_;
-
+  #my ( $self, $fields_aref, $ids_href, $id_names_aref, $ref_allele ) = @_;
+  #to save performance, skip assignment
+  #this can be called millions of time
+  #in order: 
+  #$self = $_[0]
+  #$fields_aref = $_[1];
+  #$ids_href = $_[2];
+  #id_names_aref =  $_[3];
+  #ref_allele = $_[4];
   my %id_genos_href = ();
   my $het_ids_str   = '';
   my $hom_ids_str   = '';
-  for my $id (@$id_names_aref) {
-    my $id_geno = $fields_aref->[ $ids_href->{$id} ];
+  my $id_geno;
+  foreach ( @{ $_[3] } ) { # same as for my $id (@$id_names_aref);
+    #$_ == $id
+    $id_geno = $_[1]->[ $_[2]->{$_} ];
     # skip reference && N's && empty things
-    next if ( !$id_geno || $id_geno eq $ref_allele || $id_geno eq 'N' );
+    next if ( !$id_geno || $id_geno eq $_[4] || $id_geno eq 'N' );
+    # if(! $_[1]->[ $_[2]->{$_} ] || $_[1]->[ $_[2]->{$_} ] eq $_[4] || 
+    # $_[1]->[ $_[2]->{$_} ] eq 'N' ) {
+    #   next
+    # }
 
-    if ( $self->isHet($id_geno) ) {
-      $het_ids_str .= "$id;";
+    if ( $_[0]->isHet($id_geno) ) {
+      $het_ids_str .= "$_;"; #same as .= "$id;";
+    } elsif ( $_[0]->isHomo($id_geno) ) {
+      $hom_ids_str .= "$_;";
+    } else {
+      $_[0]->log( 'warn', "$id_geno was not recognized, skipping" );
     }
-    elsif ( $self->isHomo($id_geno) ) {
-      $hom_ids_str .= "$id;";
-    }
-    else {
-      $self->log( 'warn', "$id_geno was not recognized, skipping" );
-    }
-    $id_genos_href{$id} = $id_geno;
+    $id_genos_href{$_} = $id_geno;
   }
   if   ($hom_ids_str) { chop $hom_ids_str; }
   else                { $hom_ids_str = 'NA'; }
