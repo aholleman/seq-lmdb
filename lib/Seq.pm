@@ -25,6 +25,11 @@ Extended by: None
 
 use Moose 2;
 use MooseX::Types::Path::Tiny qw/AbsFile AbsPath/;
+use List::Util qw/first/;
+#For later: move to async io
+# use AnyEvent;
+# use AnyEvent::IO;
+# use IO::AIO;
 # use Path::Tiny;
 # use IO::AIO;
 
@@ -124,6 +129,20 @@ has write_batch => (
   init_arg => undef,
 );
 
+has genome_chrs => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  required => 1,
+);
+
+has _fileLength => (
+  is => 'ro',
+  isa => 'Int',
+  lazy => 1,
+  init_arg => undef,
+  default => 0,
+);
+
 #come after all attributes to meet "requires '<attribute>'"
 with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message',
 #getHeaderHref
@@ -134,11 +153,15 @@ with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message',
 B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 
 =cut
+sub BUILD {
+  my $self = shift;
+
+  $self->addHeaderFields($self->getRequiredFileHeaderFieldNames() )
+}
 
 sub annotate_snpfile {
   my $self = shift;
 
-  say "in annotate snpfile";
   #loaded first because this also initializes our logger
   # my $annotator = Seq::Annotate->new_with_config(
   #   {
@@ -162,7 +185,7 @@ sub annotate_snpfile {
 
   say "header href is";
   p $headerHref;
-  exit;
+ 
   # add header information to Seq class
   # $self->add_header_attr(@header);
 
@@ -171,77 +194,150 @@ sub annotate_snpfile {
   # #a file slurper that is compression-aware
   # $self->log( 'info', "Reading input file" );
   
-  # my $fileLines = $self->get_file_lines( $self->snpfile_path );
-  
+  #my $fileLines = $self->get_file_lines( $self->snpfile_path );
+  my $fh = $self->get_read_fh( $self->snpfile_path );
   # $self->log( 'info',
   #   sprintf("Finished reading input file, found %s lines", scalar @$fileLines)
   # );
 
   # my $defPos = -9; #default value, indicating out of bounds or not set
   # # variables
-  # my ( %ids, @sample_ids, @snp_annotations ) = ();
+  my ( %ids, @sample_ids, @snp_annotations );
   # my ( $last_chr, $chr_offset, $next_chr, $next_chr_offset, $chr_index ) =
   #   ( $defPos, $defPos, $defPos, $defPos, $defPos );
-  
+
+  my (@fields, @lines, $abs_pos, $foundVarType, $wantedChr);
+  my @sampleIDs;
+  my $linesAccum;
+  my $count;
+  my @out;
+
+  while(<$fh>) {
+    #If we don't have sampleIDs, this should be the first line of the file
+    if(!@sampleIDs) {
+      $self->checkHeader( \@fields );
+
+      my %ids = $self->getSampleNamesIdx( \@fields );
+
+      # save list of ids within the snpfile
+      @sampleIDs = sort( keys %ids );
+      next;
+    }
+
+    $linesAccum .= $_;
+
+    #$self->commitEvery from DBManager
+    if($count > $self->commitEvery) {
+      $self->annotateLines($linesAccum, \@sampleIDs, \@out );
+      $linesAccum = '';
+      $count = 0;
+    }
+    $count++
+    #TODO: the goal after this is to print @out.
+  }
+
+  if($linesAccum) {
+    $self->annotateLines($linesAccum, \@sampleIDs, \@out );
+  }
+
+  #now print
+}
+
+#after we've accumulated lines, process them
+#splitting into separate function because we'll use event-driven model to run 
+#this processing step
+sub annotateLines {
+  my ($self, $lines, $samplIdsAref, $outDataAref) = @_;
+
   # # progress counters
-  # my ($pubProg, $writeProg);
+  state $pubProg;
+  state $writeProg;
 
-  # if ($self->hasPublisher) {
-  #   $pubProg = Seq::Progress->new({
-  #     progressBatch => 200,
-  #     fileLines => scalar @$fileLines,
-  #     progressAction => sub {
-  #       $pubProg->recordProgress($pubProg->progressCounter);
-  #       $self->publishMessage({progress => $pubProg->progressFraction } )
-  #     },
-  #   });
-  # }
+  if (!$pubProg && $self->hasPublisher) {
+    # $pubProg = Seq::Progress->new({
+    #   progressBatch => 200,
+    #   fileLines => scalar @$fileLines,
+    #   progressAction => sub {
+    #     $pubProg->recordProgress($pubProg->progressCounter);
+    #     $self->publishMessage({progress => $pubProg->progressFraction } )
+    #   },
+    # });
+  }
   
-  # $writeProg = Seq::Progress->new({
-  #   progressBatch => $self->write_batch,
-  #   progressAction => sub {
-  #     $self->publishMessage('Writing ' . 
-  #       $self->write_batch . ' lines to disk') if $self->hasPublisher;
-  #     $self->print_annotations( \@snp_annotations );
-  #     @snp_annotations = ();
-  #   },
-  # });
+  if(!$writeProg) {
+    # $writeProg = Seq::Progress->new({
+    #   progressBatch => $self->write_batch,
+    #   progressAction => sub {
+    #     $self->publishMessage('Writing ' . 
+    #       $self->write_batch . ' lines to disk') if $self->hasPublisher;
+    #     $self->print_annotations( \@snp_annotations );
+    #     @snp_annotations = ();
+    #   },
+    # });
+  }
+  
+  my $linesAref = $self->getCleanFields($lines);
 
-  # my (@fields, $abs_pos, $foundVarType);
-  # for my $line ( @$fileLines ) {
+  my $wantedChr;
+  my @inputData;
+  my @positions;
+  foreach (@$linesAref) {
+    for my $lineFieldsAref ( @{ $_ } ) {
+      #get all the fields we need
+      
+
+      #maps to
+      #my ( $chr, $pos, $refAllele, $varType, $allAllelesStr, $alleleCount ) =
+      my @fields =  map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
+
+      if($wantedChr && $fields[0] ne $wantedChr) {
+        #don't sort
+        #$self->annotateLinesBatch($wantedChr, \@lines, \@positions);
+        #@lines = 
+        my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
+        #copies @lines into an anonymous arrayref
+        #not very efficient, but shouldn't called often
+        $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
+        @positions = ();
+        @lines = ();
+      }
+
+      push @lines, \@fields;
+      push @positions, $fields[1];
+      $wantedChr = $fields[0];
+
+      say 'fields are ';
+      p @fields;
+    }
+  }
+
+  if(@lines) {
+    my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
+    $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
+  }
+}
+
+sub finishAnnotatingLines {
+  my ($self, $databaseDataAref, $linesAref, $sampleIdsAref) = @_;
+
   #   #if we wish to save cycles, can move this to original position, below
   #   #many conditionals, and then upon completion, set progress(1).
   #   $pubProg->incProgressCounter if $pubProg;
   #   #expects chomped lines
 
   #   # taint check the snpfile's data
-  #   @fields = $self->get_clean_fields($line);
+    #@fields = $self->get_clean_fields($line);
 
-  #   # skip lines that don't return any usable data
-  #   next unless $#fields;
-  #   # API: snp files contain column names in the first row
-  #   # check that these match the expected, which is based on $self->file_type
-  #   # then, get everything else
-  #   if ( !%ids ) {
-  #     $self->checkHeader( \@fields );
-
-  #     %ids = $self->getSampleNamesIdx( \@fields );
-
-  #     # save list of ids within the snpfile
-  #     @sample_ids = sort( keys %ids );
-  #     next;
-  #   }
   #   # process the snpfile line
-  #   my ( $chr, $pos, $ref_allele, $var_type, $all_allele_str, $allele_count ) =
-  #     $self->getSnpFields( \@fields );
+    
 
   #   # not checking for $allele_count for now, because it isn't in use
   #   next unless $chr && $pos && $ref_allele && $var_type && $all_allele_str;
     
   #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
   #   #   later (hets currently ignored)
-  #   my ( $het_ids, $hom_ids, $id_genos_href ) =
-  #     $self->_minor_allele_carriers( \@fields, \%ids, \@sample_ids, $ref_allele );
+    my ( $het_ids, $hom_ids, $id_genos_href ) =
+      $self->_minor_allele_carriers( \@fields, \%ids, \@sample_ids, $ref_allele );
 
   #   # check that $chr is an allowable chromosome
   #   # decide if we plow through the error or if we stop
@@ -252,6 +348,13 @@ sub annotate_snpfile {
   #       sprintf( "Error: unrecognized chromosome: '%s', pos: %d", $chr, $pos )
   #     );
   #   }
+  #new way:
+  #if no genome_chrs specified, I think we should assume all
+  #for now, just check if we have that chromosome in the YAML config
+      if( first { $chr eq $_ } @{ $self-> genome_chrs } ) {
+
+      }
+
 
   #   # determine the absolute position of the base to annotate
   #   if ( $chr eq $last_chr ) {
@@ -323,7 +426,7 @@ sub annotate_snpfile {
   #   } elsif ( index($var_type, 'MESS') == -1 && index($var_type,'LOW') == -1 ) {  
   #     $self->log( 'warn', "Unrecognized variant type: $var_type" );
   #   }
-  # }
+  }
 
   # # finished printing the final snp annotations
   # if (@snp_annotations) {

@@ -51,6 +51,7 @@ with 'Seq::Role::Message';
 my $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
 
 my $delimiter = "\t";
+my $endOfLine = "\n";
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -149,14 +150,43 @@ sub clean_line {
   return;
 }
 
-sub get_clean_fields {
-  my ( $class, $line ) = @_;
 
-  if ( $line =~ m/$taint_check_regex/xm ) {
-    return split($delimiter, $1);
+sub getCleanFields {
+  # my ( $self, $line ) = @_;
+  # could be called millions of times, so don't copy arguments
+
+  # if(ref $_[0]) {
+  #   goto &getCleanFieldsBulk;
+  # }
+
+  #https://ideone.com/WVrYxg
+  if ( $_[0] =~ m/$taint_check_regex/xm ) {
+    my @out;
+    foreach ( split($endOfLine, $1) ) {
+      push @out, split($delimiter, $_);
+    }
+    p @out;
+    return \@out;
   }
   return;
 }
+
+# sub getCleanFieldsBulk {
+#   # my ( $self, $lines ) = @_;
+#   # could be called millions of times, so don't copy arguments
+#   if(!ref $_[0]) {
+#     goto &getCleanFields;
+#   }
+
+#   my @out;
+#   foreach ( @{ $_[0] } ) { #== foreach my $line (@$lines)
+#     if ( $_ =~ m/$taint_check_regex/xm ) { #== if ($line =~ ...)
+#       push @out, split($delimiter, $1); #$1 == the regex match
+#     }
+#   }
+  
+#   return \@out;
+# }
 
 no Moose::Role;
 

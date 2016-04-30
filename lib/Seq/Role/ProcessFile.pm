@@ -124,6 +124,10 @@ sub _build_headers {
   };
 }
 
+sub getRequiredFileHeaderFieldNames {
+  my $self = shift;
+  return $self->_reqHeaderFields->{$self->file_type};
+}
 # _print_annotations takes an array reference of annotations and hash
 # reference of header attributes and writes the header (if needed) to the
 # output file and flattens the hash references for each entry and writes
@@ -267,11 +271,14 @@ sub getSampleNamesIdx {
 }
 
 #presumes that _file_type exists and has corresponding key in _headerFields
-sub getSnpFields {
-  my ( $self, $fAref ) = @_;
+#this can be called millions of times
+#However, it seems unnecessary to put out here, added it back to the caller (Seq.pm)
+# sub getSnpFields {
+#   #my ( $self, $fieldsAref ) = @_;
+#   #$_[0] == $self, $_[1 ] == $fieldAref
 
-  return map {$fAref->[$_] } $self->allSnpFieldIdx;
-}
+#   return map {$_[1]->[$_] } $_[0]->allSnpFieldIdx;
+# }
 
 =head2
 

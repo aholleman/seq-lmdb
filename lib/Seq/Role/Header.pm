@@ -13,10 +13,21 @@ use warnings;
 use namespace::autoclean;
 use DDP;
 state $headerKeysHref;
+state $headersAref;
 
-sub getHeaderHref {
-  return $headerKeysHref;
+if(!$headersAref) {
+  $headersAref = [];
 }
+
+has headerFeatureNames => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  handles => {
+    allHeaderFeatureNames => 'elements',
+  }
+
+);
 
 #not all children will have parents
 sub addFeaturesToHeader {
