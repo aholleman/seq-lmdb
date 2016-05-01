@@ -56,11 +56,11 @@ sub BUILD {
   #     push @includedFeatures, $feature;
   #   }
   # } 
-  # $self->addFeaturesToHeader(\@includedFeatures $self->name);
+  # $self->addFeaturesToOutputHeader(\@includedFeatures $self->name);
 
   #register all features for this track
   #@params $parent, $child
-  $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);;
+  $self->addFeaturesToOutputHeader([$self->allFeatureNames], $self->name);;
 }
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 

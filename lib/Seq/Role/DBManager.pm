@@ -78,7 +78,7 @@ state $metaDbNamePart = '_meta';
 #requiring a clean re-write using single transactions
 #as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
 has commitEvery => (
-  is => 'ro',
+  is => 'rw',
   init_arg => undef,
   default => 1e4,
   lazy => 1,

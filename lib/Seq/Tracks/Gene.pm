@@ -65,7 +65,7 @@ override 'BUILD' => sub {
 
   super();
 
-  $self->addFeaturesToHeader([$self->allSiteKeys], $self->name);
+  $self->addFeaturesToOutputHeader([$self->allSiteKeys], $self->name);
 };
 
 #In order to get from gene track, we  need to get the values from

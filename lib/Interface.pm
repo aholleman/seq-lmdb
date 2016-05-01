@@ -165,7 +165,6 @@ has _annotator => (
 sub _buildLogPath {
   my $self = shift;
 
-  say "in _buildLogPath";
   my $config_href = LoadFile( $self->configfilePath )
     || die "ERROR: Cannot read YAML file at " . $self->configfilePath . ": $!\n";
 

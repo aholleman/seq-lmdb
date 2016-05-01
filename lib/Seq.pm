@@ -153,17 +153,14 @@ with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message',
 B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 
 =cut
-sub BUILD {
-  my $self = shift;
-
-  #Add the first fiew field columns, whihc we always use
-  #TODO: make sure these are ordered as first
-  $self->addFeaturesToHeader([$self->getRequiredFileHeaderFieldNames()])
-}
+# sub BUILD {
+#   my $self = shift;
+# }
 
 sub annotate_snpfile {
   my $self = shift;
 
+  $self->commitEvery(1e3);
   #loaded first because this also initializes our logger
   # my $annotator = Seq::Annotate->new_with_config(
   #   {
@@ -182,11 +179,6 @@ sub annotate_snpfile {
   # my $next_chr_href = $annotator->next_chr;
   # my $chr_len_href  = $annotator->chr_len;
   # my $genome_len    = $annotator->genome_length;
-
-  my $headerHref        = $self->getHeaderHref;
-
-  say "header href is";
-  p $headerHref;
  
   # add header information to Seq class
   # $self->add_header_attr(@header);
@@ -219,22 +211,21 @@ sub annotate_snpfile {
     #If we don't have sampleIDs, this should be the first line of the file
     if(!@sampleIDs) {
       my $fieldsAref = $self->getCleanFields($_);
+     
       $self->checkHeader( $fieldsAref );
-      
-      say "fieldsAref in first line are ";
-      p $fieldsAref;
-      
+
       %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
 
-      say "index map is";
-      p %sampleIDsToIndexesMap;
       # save list of ids within the snpfile
       @sampleIDs =  sort keys %sampleIDsToIndexesMap;
 
-      say "sampleIDs";
-      p @sampleIDs;
+      #We also want to add these fields to our output heade
+      #for now , need to add the snp file headers after BUILD, because
+      #checkHeader is what sets the file_type, which is needed for getRequiredFieldHeaderFieldNames
+      #Add the first fiew field columns, whihc we always use
+      #TODO: make sure these are ordered as first
 
-      say "self commitEvery is " . $self->commitEvery;
+      $self->addFeaturesToOutputHeader([$self->getRequiredFileHeaderFieldNames()]);
 
       next;
     }
@@ -264,6 +255,7 @@ sub annotate_snpfile {
 sub annotateLines {
   my ($self, $lines, $idsIdxMapHref, $sampleIdsAref, $outDataAref) = @_;
 
+  say "called annotateLines";
   # # progress counters
   state $pubProg;
   state $writeProg;
@@ -296,57 +288,55 @@ sub annotateLines {
   my $wantedChr;
   my @inputData;
   my @positions;
-  say "getting ready for linesAref";
+  my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   for my $lineFieldsAref (@$linesAref) {
-    say "line collection in linesAref is";
-    p $lineFieldsAref;
       #get all the fields we need
       
       #maps to
-      #my ( $chr, $pos, $refAllele, $varType, $allAllelesStr, $alleleCount ) =
-      my @snpFields =  map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
+      #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
+      my @snpFields = map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
 
-      say "snpFields are";
-      p @snpFields;
-      exit;
       if($wantedChr && $snpFields[0] ne $wantedChr) {
-        #don't sort
-        #$self->annotateLinesBatch($wantedChr, \@lines, \@positions);
-        #@lines = 
-        my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
-        #copies @lines into an anonymous arrayref
-        #not very efficient, but shouldn't called often
-        # $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
-        # @positions = ();
-        # @lines = ();
+        #don't sort to preserve order 
+        my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
+
+        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
+          \@inputData, $sampleIdsAref );
+        @positions = ();
+        @inputData = ();
       }
 
+      $wantedChr = $snpFields[0];
       #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
-  #   #   later (hets currently ignored)
+      #   later (hets currently ignored)
       #$ref_allele == $snpFields[2]
       # @sampleIDargs == same as my ( $hetIds, $homIds, $sampleIDtoGenotypeMap ) =
-      my @sampleIDargs =
-        $self->_minor_allele_carriers( $lineFieldsAref, $idsIdxMapHref, $sampleIdsAref, 
-          $snpFields[2] );
+      my @sampleFields = $self->_minor_allele_carriers( $lineFieldsAref, $idsIdxMapHref, 
+          $sampleIdsAref, $snpFields[2] );
 
-      # push @lines, \@fields;
-      # push @positions, $fields[1];
+      #therefore input data will have
+      push @inputData, [@snpFields, @sampleFields];
+      push @positions, $snpFields[1];
       # $wantedChr = $fields[0];
 
-      say 'sample stuff is';
-      p @sampleIDargs;
     }
-  }
 
-  # if(@lines) {
-  #   my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
-  #   $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
-  # }
-#}
+  if(@positions) {
+    say "positions are";
+        p @positions;
+    my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
+
+    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
+      \@inputData, $sampleIdsAref );
+  }
+}
 
 sub finishAnnotatingLines {
-  my ($self, $databaseDataAref, $linesAref, $sampleIdsAref) = @_;
+  my ($self, $chr, $dataFromDBaRef, $dataFromInputAref, $sampleIdsAref) = @_;
 
+  # say "dataFromDBaRef is";
+  # p $dataFromDBaRef;
+  #say "processed ". $self->commitEvery . " lines";
   #   #if we wish to save cycles, can move this to original position, below
   #   #many conditionals, and then upon completion, set progress(1).
   #   $pubProg->incProgressCounter if $pubProg;
@@ -489,35 +479,32 @@ sub finishAnnotatingLines {
 # Instead, will indicate the type (- or +) followed by the number of bases created/removed rel.ref
 # So the sample column gives us heterozygosity, while Alleles column gives us nucleotide composition
 sub _minor_allele_carriers {
-  #my ( $self, $fields_aref, $ids_href, $id_names_aref, $ref_allele ) = @_;
+  #my ( $self, $lineFieldsAref, $idsIdxMapHref, $sampleIdsAref, $refAllele ) = @_;
   #to save performance, skip assignment
   #this can be called millions of time
   #in order: 
   #$self = $_[0]
-  #$fields_aref = $_[1];
-  #$ids_href = $_[2];
-  #id_names_aref =  $_[3];
-  #ref_allele = $_[4];
-  my %id_genos_href = ();
+  #$lineFieldsAref = $_[1];
+  #$idsIdxMapHref = $_[2];
+  #sampleIdsAref =  $_[3];
+  #refAllele = $_[4];
+  my %id_genos_href;
   my $het_ids_str   = '';
   my $hom_ids_str   = '';
   my $id_geno;
   foreach ( @{ $_[3] } ) { # same as for my $id (@$id_names_aref);
     #$_ == $id
     $id_geno = $_[1]->[ $_[2]->{$_} ];
-    # skip reference && N's && empty things
+    # skip if we can't find the genotype or it's reference or an N
+    #$_[4]means $refAllele
     next if ( !$id_geno || $id_geno eq $_[4] || $id_geno eq 'N' );
-    # if(! $_[1]->[ $_[2]->{$_} ] || $_[1]->[ $_[2]->{$_} ] eq $_[4] || 
-    # $_[1]->[ $_[2]->{$_} ] eq 'N' ) {
-    #   next
-    # }
 
     if ( $_[0]->isHet($id_geno) ) {
       $het_ids_str .= "$_;"; #same as .= "$id;";
     } elsif ( $_[0]->isHomo($id_geno) ) {
       $hom_ids_str .= "$_;";
     } else {
-      $_[0]->log( 'warn', "$id_geno was not recognized, skipping" );
+      $_[0]->log( 'fatal', "$id_geno was not either homozygous or heterozygous" );
     }
     $id_genos_href{$_} = $id_geno;
   }

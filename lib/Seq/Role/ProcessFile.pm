@@ -214,14 +214,13 @@ sub checkHeader {
         $self->setHeader($field_aref);
         last;
       }
-      $err = "Error: " . $self->file_type . 
-      "not supported. Please convert" if $err;
     }
   }
 
   if($err) {
+    $err = 'Provided input file doesn\'t match allowable types';
     if(defined $die_on_unknown) { 
-      $self->log( 'fatal', $err ); 
+      $self->log( 'fatal', $err); 
     }
     $self->log( 'warn', $err );
     return;
@@ -237,8 +236,6 @@ sub _checkInvalid {
 
   my $reqFields = $self->allReqFields($type);
 
-  say "aref is";
-  p $aRef;
   my @inSlice = @$aRef[0 .. $#$reqFields];
 
   my $idx;

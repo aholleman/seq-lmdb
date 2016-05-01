@@ -20,9 +20,9 @@ sub getHeaderHref {
 }
 
 #not all children will have parents
-sub addFeaturesToHeader {
+sub addFeaturesToOutputHeader {
   if(ref $_[1] eq 'ARRAY') {
-    goto &_addFeaturesToHeaderBulk;
+    goto &_addFeaturesToOutputHeaderBulk;
   }
 
   my ($self, $child, $parent, $prepend) = @_;
@@ -41,16 +41,16 @@ sub addFeaturesToHeader {
   $headerFeaturesHref->{$child} = 1;
 }
 
-sub _addFeaturesToHeaderBulk {
+sub _addFeaturesToOutputHeaderBulk {
   if(!ref $_[1]) {
-    goto &addFeaturesToHeaderBulk;
+    goto &addFeaturesToOutputHeaderBulk;
   }
 
   #$self == $_[0], $childrenAref == $_[1]
   my ($self, $childrenAref, $parent, $prepend) = @_;
 
   for my $child (@$childrenAref) {
-    $self->addFeaturesToHeader($child, $parent, $prepend);
+    $self->addFeaturesToOutputHeader($child, $parent, $prepend);
   }
   return;
 }
@@ -77,7 +77,7 @@ sub _addFeaturesToHeaderBulk {
 # #not all children will have parents
 # sub appendFeaturesToOutputHeader {
 #   if(ref $_[1] eq 'ARRAY') {
-#     goto &_addFeaturesToHeaderBulk;
+#     goto &_addFeaturesToOutputHeaderBulk;
 #   }
 
 #   #$self == $_[0], $child == $_[1]
@@ -96,21 +96,21 @@ sub _addFeaturesToHeaderBulk {
 
 # sub appendFeaturesToOutputHeaderBulk {
 #   if(!ref $_[1]) {
-#     goto &addFeaturesToHeaderBulk;
+#     goto &addFeaturesToOutputHeaderBulk;
 #   }
 
 #   #$self == $_[0], $childrenAref == $_[1]
 #   my ($self, $childrenAref, $parent) = @_;
 
 #   for my $child (@$childrenAref) {
-#     $self->addFeaturesToHeader($child, $parent);
+#     $self->addFeaturesToOutputHeader($child, $parent);
 #   }
 #   return;
 # }
 
 # sub prependFeaturesToOutputHeader {
 #   if(ref $_[1] eq 'ARRAY') {
-#     goto &_addFeaturesToHeaderBulk;
+#     goto &_addFeaturesToOutputHeaderBulk;
 #   }
 
 #   #$self == $_[0], $child == $_[1]
@@ -126,14 +126,14 @@ sub _addFeaturesToHeaderBulk {
 
 # sub prependFeaturesToOutputHeaderBulk {
 #   if(!ref $_[1]) {
-#     goto &addFeaturesToHeaderBulk;
+#     goto &addFeaturesToOutputHeaderBulk;
 #   }
 
 #   #$self == $_[0], $childrenAref == $_[1]
 #   my ($self, $childrenAref, $parent) = @_;
 
 #   for my $child (@$childrenAref) {
-#     $self->addFeaturesToHeader($child, $parent);
+#     $self->addFeaturesToOutputHeader($child, $parent);
 #   }
 #   return;
 # }

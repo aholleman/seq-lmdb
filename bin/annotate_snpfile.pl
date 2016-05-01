@@ -8,11 +8,8 @@ use Interface;
 use Getopt::Long;
 use DDP;
 
-
-say "Hello world";
 my $app = Interface->new_with_options();
-say "app has";
-p $app;
+
 $app->annotate;
 =head1 NAME
 
