@@ -156,7 +156,9 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 sub BUILD {
   my $self = shift;
 
-  $self->addFeaturesToHeader($self->getRequiredFileHeaderFieldNames() )
+  #Add the first fiew field columns, whihc we always use
+  #TODO: make sure these are ordered as first
+  $self->addFeaturesToHeader([$self->getRequiredFileHeaderFieldNames()])
 }
 
 sub annotate_snpfile {
@@ -208,28 +210,40 @@ sub annotate_snpfile {
 
   my (@fields, @lines, $abs_pos, $foundVarType, $wantedChr);
   my @sampleIDs;
-  my %idsIdxMap;
+  my %sampleIDsToIndexesMap;
   my $linesAccum;
-  my $count;
+  my $count = 0;
   my @out;
 
   while(<$fh>) {
     #If we don't have sampleIDs, this should be the first line of the file
     if(!@sampleIDs) {
-      $self->checkHeader( \@fields );
+      my $fieldsAref = $self->getCleanFields($_);
+      $self->checkHeader( $fieldsAref );
+      
+      say "fieldsAref in first line are ";
+      p $fieldsAref;
+      
+      %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
 
-      %idsIdxMap = $self->getSampleNamesIdx( \@fields );
-
+      say "index map is";
+      p %sampleIDsToIndexesMap;
       # save list of ids within the snpfile
-      @sampleIDs = sort( keys %idsIdxMap );
+      @sampleIDs =  sort keys %sampleIDsToIndexesMap;
+
+      say "sampleIDs";
+      p @sampleIDs;
+
+      say "self commitEvery is " . $self->commitEvery;
+
       next;
     }
-
+    
     $linesAccum .= $_;
 
     #$self->commitEvery from DBManager
     if($count > $self->commitEvery) {
-      $self->annotateLines($linesAccum, \%idsIdxMap, \@sampleIDs, \@out );
+      $self->annotateLines($linesAccum, \%sampleIDsToIndexesMap, \@sampleIDs, \@out );
       $linesAccum = '';
       $count = 0;
     }
@@ -238,7 +252,7 @@ sub annotate_snpfile {
   }
 
   if($linesAccum) {
-    $self->annotateLines($linesAccum, \%idsIdxMap, \@sampleIDs, \@out );
+    $self->annotateLines($linesAccum, \%sampleIDsToIndexesMap, \@sampleIDs, \@out );
   }
 
   #now print
@@ -254,7 +268,7 @@ sub annotateLines {
   state $pubProg;
   state $writeProg;
 
-  if (!$pubProg && $self->hasPublisher) {
+  #if (!$pubProg && $self->hasPublisher) {
     # $pubProg = Seq::Progress->new({
     #   progressBatch => 200,
     #   fileLines => scalar @$fileLines,
@@ -263,9 +277,9 @@ sub annotateLines {
     #     $self->publishMessage({progress => $pubProg->progressFraction } )
     #   },
     # });
-  }
+  #}
   
-  if(!$writeProg) {
+  #if(!$writeProg) {
     # $writeProg = Seq::Progress->new({
     #   progressBatch => $self->write_batch,
     #   progressAction => sub {
@@ -275,22 +289,26 @@ sub annotateLines {
     #     @snp_annotations = ();
     #   },
     # });
-  }
+ # }
   
   my $linesAref = $self->getCleanFields($lines);
 
   my $wantedChr;
   my @inputData;
   my @positions;
-  foreach (@$linesAref) {
-    for my $lineFieldsAref ( @{ $_ } ) {
+  say "getting ready for linesAref";
+  for my $lineFieldsAref (@$linesAref) {
+    say "line collection in linesAref is";
+    p $lineFieldsAref;
       #get all the fields we need
       
-
       #maps to
       #my ( $chr, $pos, $refAllele, $varType, $allAllelesStr, $alleleCount ) =
       my @snpFields =  map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
 
+      say "snpFields are";
+      p @snpFields;
+      exit;
       if($wantedChr && $snpFields[0] ne $wantedChr) {
         #don't sort
         #$self->annotateLinesBatch($wantedChr, \@lines, \@positions);
@@ -306,7 +324,8 @@ sub annotateLines {
       #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
   #   #   later (hets currently ignored)
       #$ref_allele == $snpFields[2]
-      my ( $het_ids, $hom_ids, $id_genos_href ) =
+      # @sampleIDargs == same as my ( $hetIds, $homIds, $sampleIDtoGenotypeMap ) =
+      my @sampleIDargs =
         $self->_minor_allele_carriers( $lineFieldsAref, $idsIdxMapHref, $sampleIdsAref, 
           $snpFields[2] );
 
@@ -314,8 +333,8 @@ sub annotateLines {
       # push @positions, $fields[1];
       # $wantedChr = $fields[0];
 
-      say 'fields are ';
-      p @fields;
+      say 'sample stuff is';
+      p @sampleIDargs;
     }
   }
 
@@ -323,7 +342,7 @@ sub annotateLines {
   #   my @positionData = $self->dbRead($wantedChr, \@positions, 1); 
   #   $self->finishAnnotatingLines($wantedChr, \@positionData, [@lines], $samplIdsAref );
   # }
-}
+#}
 
 sub finishAnnotatingLines {
   my ($self, $databaseDataAref, $linesAref, $sampleIdsAref) = @_;
@@ -356,9 +375,9 @@ sub finishAnnotatingLines {
   #new way:
   #if no genome_chrs specified, I think we should assume all
   #for now, just check if we have that chromosome in the YAML config
-      if( first { $chr eq $_ } @{ $self-> genome_chrs } ) {
+      # if( first { $chr eq $_ } @{ $self-> genome_chrs } ) {
 
-      }
+      # }
 
 
   #   # determine the absolute position of the base to annotate

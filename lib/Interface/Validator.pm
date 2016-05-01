@@ -117,9 +117,9 @@ sub _validateInputFile {
   my $fh = $self->get_read_fh($self->snpfile);
   my $firstLine = <$fh>;
 
-  my @header_fields = $self->get_clean_fields($firstLine);
+  my $headerFieldsAref = $self->getCleanFields($firstLine);
 
-  if(!@header_fields || !$self->checkHeader(\@header_fields) ) {  
+  if(!@$headerFieldsAref || !$self->checkHeader($headerFieldsAref) ) {  
     return $self->log('error', "Vcf->ped conversion failed") 
       unless $self->convertToPed;
 

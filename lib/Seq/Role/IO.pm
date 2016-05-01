@@ -155,18 +155,17 @@ sub getCleanFields {
   # my ( $self, $line ) = @_;
   # could be called millions of times, so don't copy arguments
 
-  # if(ref $_[0]) {
+  # if(ref $_[1]) {
   #   goto &getCleanFieldsBulk;
   # }
 
   #https://ideone.com/WVrYxg
-  if ( $_[0] =~ m/$taint_check_regex/xm ) {
+  if ( $_[1] =~ m/$taint_check_regex/xm ) {
     my @out;
     foreach ( split($endOfLine, $1) ) {
-      push @out, split($delimiter, $_);
+      push @out, [ split($delimiter, $_) ];
     }
-    p @out;
-    return \@out;
+    return @out == 1 ? $out[0] : \@out;
   }
   return;
 }

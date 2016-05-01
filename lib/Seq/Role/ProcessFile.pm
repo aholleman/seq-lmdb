@@ -36,7 +36,7 @@ has file_type => (
   is       => 'ro',
   isa      => 'fileTypes',
   required => 0,
-  writer   => 'setFileType',
+  writer   => '_setFileType',
 );
 
 # @pseudo-protected; using _header to designate that only the methods are public
@@ -124,9 +124,12 @@ sub _build_headers {
   };
 }
 
+#only returning first four fields because we don't use allele_counts for anything
+#at the moment
+#normalize the names to newer format
 sub getRequiredFileHeaderFieldNames {
   my $self = shift;
-  return $self->_reqHeaderFields->{$self->file_type};
+  return @{ $self->_reqHeaderFields->{$self->file_type} }[0 .. 4];
 }
 # _print_annotations takes an array reference of annotations and hash
 # reference of header attributes and writes the header (if needed) to the
@@ -137,7 +140,7 @@ sub print_annotations {
 
   # print header
   if ( !$self->_flagHeaderPrinted ) {
-    return $self->log('error', 'Header wasn\'t printed');
+    return $self->log('flag', 'Header wasn\'t printed');
   }
 
   # cache header attributes
@@ -169,7 +172,7 @@ sub compress_output {
 
   # my($filename, $dirs) = fileparse($self->output_path);
 
-  my $tar = which('tar') or $self->log( 'error', 'No tar program found' );
+  my $tar = which('tar') or $self->log( 'fatal', 'No tar program found' );
   my $pigz = which('pigz');
   if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
 
@@ -206,20 +209,22 @@ sub checkHeader {
     for my $type (@$allowedTypes) {
       $err = $self->_checkInvalid($field_aref, $type);
       if(!$err) {
-        $self->setFileType($type);
+        $self->_setFileType($type);
+
         $self->setHeader($field_aref);
         last;
       }
-    }
-    $err = "Error: " . $self->file_type . 
+      $err = "Error: " . $self->file_type . 
       "not supported. Please convert" if $err;
+    }
   }
 
   if($err) {
     if(defined $die_on_unknown) { 
-      return $self->log( 'error', $err ); 
+      $self->log( 'fatal', $err ); 
     }
-    return $self->log( 'warn', $err );
+    $self->log( 'warn', $err );
+    return;
   }
   return 1;
 }
@@ -232,6 +237,8 @@ sub _checkInvalid {
 
   my $reqFields = $self->allReqFields($type);
 
+  say "aref is";
+  p $aRef;
   my @inSlice = @$aRef[0 .. $#$reqFields];
 
   my $idx;
