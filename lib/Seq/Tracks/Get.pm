@@ -69,10 +69,10 @@ sub BUILD {
 #Doesn't shift anything to save performance, can be called tens of millions of times
 sub get {
   #$href is the data that the user previously grabbed from the database
-  my ($self, $href) = @_;
+  #my ($self, $href) = @_;
   # so $_[0] is $self, $_[1] is $href; 
 
-  if(ref $href eq 'ARRAY') {
+  if(ref $_[1] eq 'ARRAY') {
     goto &getBulk;
   }
   #this won't work well for Region tracks, so those should override this method
@@ -91,16 +91,18 @@ sub get {
   #and protects against users using really funky long feature names
   #dbName defined in Seq::Tracks::Base
 
-  if(!exists $href->{ $self->dbName } ) {
-    return;
+  if(!exists $_[1]->{ $_[0]->dbName } ) {
+    #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
+    #if this is not done explicitly
+    return undef;
   }
 
   #as stated above some features simply don't have any features, just a scalar
   #like scores
   #on the other hand, sometimes we just want all features returned if the user
   #doesn't specify. this takes care of both cases : return whatever we have
-  if($self->noFeatures) {
-    return $href->{$self->dbName};
+  if($_[0]->noFeatures) {
+    return $_[1]->{$_[0]->dbName};
   }
 
   #we have features, so let's grab only those; user can change after they build
@@ -110,30 +112,33 @@ sub get {
   #     . ref $href->{ $self->dbName } );
   # }
 
-  my %out;
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
   #each $pair <ArrayRef> : [dbName, humanReadableName]
   #and if we can't find the feature, it's ok, leave as undefined
-  for my $name ($self->allFeatureNames) {
-    #First, we want to get the 
-    #reads: $href->{$self->dbName}{ $pair->[0] } where $pair->[0] == feature dbName
-    $out{ $name } = $href->{ $self->dbName }{ $self->getFieldDbName($name) };
+  
+  #my %out;
+  # for my $name ($self->allFeatureNames) {
+  #   #First, we want to get the 
+  #   $out{ $name } = $href->{ $self->dbName }{ $self->getFieldDbName($name) };
+  # }
+  # return \%out;
+
+  #this is equivalent to the commented out code above
+  return {
+    map { $_ => $_[1]->{ $_[0]->dbName }{ $_[0]->getFieldDbName($_) } } $_[0]->allFeatureNames 
   }
-  return \%out;
 }
 
 sub getBulk {
-  my ($self, $aRefOfDataHrefs) = @_;
-  if(ref $aRefOfDataHrefs eq 'HASH') {
+  #my ($self, $aRefOfDataHrefs) = @_;
+  # $self == $_[0] ; $aRefOfDataHrefs == $_[1]
+  if(ref $_[1] eq 'HASH') {
     goto &get;
   }
-  # == $_[0], $_[1]
-  my @out;
-  for my $href ( @$aRefOfDataHrefs ) {
-    push @out, $self->get($href);
-  }
-  return \@out;
+
+  #http://www.perlmonks.org/?node_id=596282
+  return [ map { $_[0]->get($_) } @{ $_[1] } ];
 }
 # use the existing method to munge stuff here
 # sub toString {

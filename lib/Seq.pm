@@ -145,9 +145,7 @@ has _fileLength => (
 );
 
 #come after all attributes to meet "requires '<attribute>'"
-with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message',
-#getHeaderHref
-'Seq::Role::Header';
+with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
 
 =head2 annotation_snpfile
 
@@ -159,46 +157,17 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 # }
 
 my $pm = Parallel::ForkManager->new(8);
+
+#TODO: Need to implement out-of-bounds check for assembly
 sub annotate_snpfile {
   my $self = shift;
 
   $self->commitEvery(1e4);
 
-  #loaded first because this also initializes our logger
-  # my $annotator = Seq::Annotate->new_with_config(
-  #   {
-  #     configfile       => $self->config_file_path,
-  #     debug            => $self->debug,
-  #   }
-  # );
+  $self->log( 'info', 'Beginning annotation' );
 
-  $self->log( 'info', 'Loading annotation data' );
-
-  # cache import hashes that are otherwise obtained via method calls
-  #   - does this speed things up?
-  #
-  # my $chrs_aref     = $annotator->genome_chrs;
-  # my %chr_index     = map { $chrs_aref->[$_] => $_ } ( 0 .. $#{$chrs_aref} );
-  # my $next_chr_href = $annotator->next_chr;
-  # my $chr_len_href  = $annotator->chr_len;
-  # my $genome_len    = $annotator->genome_length;
- 
-  # add header information to Seq class
-  # $self->add_header_attr(@header);
-
-  # $self->log( 'info', "Loaded assembly " . $annotator->genome_name );
-
-  # #a file slurper that is compression-aware
-  # $self->log( 'info', "Reading input file" );
-  
-  #my $fileLines = $self->get_file_lines( $self->snpfile_path );
   my $fh = $self->get_read_fh( $self->snpfile_path );
-  # $self->log( 'info',
-  #   sprintf("Finished reading input file, found %s lines", scalar @$fileLines)
-  # );
 
-  # my $defPos = -9; #default value, indicating out of bounds or not set
-  # # variables
   my ( %ids, @sample_ids, @snp_annotations );
   # my ( $last_chr, $chr_offset, $next_chr, $next_chr_offset, $chr_index ) =
   #   ( $defPos, $defPos, $defPos, $defPos, $defPos );
@@ -216,6 +185,10 @@ sub annotate_snpfile {
      
       $self->checkHeader( $fieldsAref );
 
+      #needs to happen before we get into writing anything in children
+      #to make sure we have one header state
+      $self->makeOutputHeader();
+
       %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
 
       # save list of ids within the snpfile
@@ -227,7 +200,8 @@ sub annotate_snpfile {
       #Add the first fiew field columns, whihc we always use
       #TODO: make sure these are ordered as first
 
-      $self->addFeaturesToOutputHeader([$self->getRequiredFileHeaderFieldNames()]);
+      # This is now done inside of ProcessFile.pm
+      # $self->addFeaturesToOutputHeader([$self->getRequiredFileHeaderFieldNames()]);
 
       next;
     }
@@ -253,14 +227,27 @@ sub annotate_snpfile {
 
   $pm->wait_all_children();
 
-  my $concat = join (' >> ', map { $self->output_path . $_ } (0 .. $partNumber) );
-  my $err = system("cat $concat > " . $self->output_path);
+  #TODO: return # of discordant bases from children if wanted
+
+  #provided everyone finished, we will have N parts; concatenate them into the 
+  #output file
+  #first write the header to the output file, becuase pre-pending takes a temp
+  #file step afaik
+
+  #TODO FINISH THIS! Goal is to concatenate file parts
+
+  $self->printHeader($self->output_path);
+  my @partPaths = map { $self->output_path . $_ } (1 .. $partNumber);
+  my $concatTheseFiles = join (' ', @partPaths);
+
+  $self->log('info', 'Concatenating output files');
+
+  my $err = system("cat $concatTheseFiles >> " . $self->output_path 
+    . '; ' . join(';', map { "rm $_" } @partPaths) );
 
   if($err) {
     $self->log('fatal', 'Concatenation of output file parts failed');
   }
-  #provided everyone finished, we will have N parts; concatenate them into the 
-  #output file
 }
 
 #after we've accumulated lines, process them
@@ -301,7 +288,7 @@ sub annotateLines {
   
   #my $linesAref = $self->getCleanFields($lines);
 
-  my @outLines;
+  my @output;
 
   my $wantedChr;
   my @inputData;
@@ -322,8 +309,7 @@ sub annotateLines {
       #don't sort to preserve order 
       my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
-      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
-        \@inputData, $sampleIdsAref );
+      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, \@output);
       @positions = ();
       @inputData = ();
     }
@@ -345,33 +331,42 @@ sub annotateLines {
   if(@positions) {
     my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
-    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
-      \@inputData, $sampleIdsAref );
+    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, \@output);
   }
 
+ # p @output;
+  #exit;
   #write everything for this part
+  $self->printAnnotations(\@output, \@inputData, $self->output_path. $partNumber);
 
+  #TODO: need also to take care of statistics stuff,
+  #but that will need to wait a bit, since that will require 
+  #inter-process data sharing
   $pm->finish;
 }
 
+#This iterates over some database data, and gets all of the associated track info
+#it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDBaRef, $dataFromInputAref, $sampleIdsAref) = @_;
+  my ($self, $chr, $dataFromDbARef, $dataFromInputAref, $outAref) = @_;
 
-  my @out;
-  foreach (@$dataFromDBaRef) {
-    #$_ == hash reference
+  my @trackGetters = $self->getAllTrackGetters();
+  #@$dataFromDBaRef == @$dataFromInputAref
+  for (my $i = 0; $i < @$dataFromDbARef; $i++) {
+    push @$outAref, { map { $_->name => $_->get($dataFromDbARef->[$i], $chr) } @trackGetters };
 
-    my %singleLineOutput;
-
-    for my $track ($self->getAllTrackGetters() ) {
-      $singleLineOutput{$track->name} = $track->get($_, $chr);
-    }
-
-    push @out, \%singleLineOutput;
-
-    say 'output of first line is';
-    p @out;
+    #Annotate the Indel, which is a bit like annotating a bunch of other
+    #sites
+    #and is held in a separate package, Sites::Indels
+    #it takes the chr, and the current site's annotation data
+    #then it will fetch the required sites, and get the gene track
+    #TODO: finish implementing
+    #$self->annotateIndel( $chr, \%singleLineOutput, $dataFromInputAref->[$i] );
+    
   }
+
+  return $outAref;
+
   # say "dataFromDBaRef is";
   # p $dataFromDBaRef;
   #say "processed ". $self->commitEvery . " lines";

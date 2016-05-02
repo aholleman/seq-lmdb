@@ -6,17 +6,33 @@
 #For instance, while we know at run time what all the user asked for
 #By looking at the features listed under tracks
 #We won't know at run time 
-package Seq::Role::Header;
+package Seq::Role::TrackHeaders;
+use Moose::Role;
+
 use 5.10.0;
 use strict;
 use warnings;
 use namespace::autoclean;
 use DDP;
 state $headerFeaturesHref;
-#state $headerOrderAref;
+state $orderedHeaderFeaturesAref;
 
-sub getHeaderHref {
-  return $headerFeaturesHref;
+# sub getHeaderHref {
+#   return $headerFeaturesHref;
+# }
+
+sub getOrderedHeader {
+  return $orderedHeaderFeaturesAref;
+}
+
+sub orderHeader {
+  my ($self, $orderAref) = @_;
+
+  foreach (@$orderAref) {
+    if(exists $orderedHeaderFeaturesAref->{$_} ) {
+      push @$orderedHeaderFeaturesAref, $headerFeaturesHref->{$_};
+    }
+  }
 }
 
 #not all children will have parents
@@ -138,5 +154,4 @@ sub _addFeaturesToOutputHeaderBulk {
 #   return;
 # }
 
-use Moose::Role;
 1;

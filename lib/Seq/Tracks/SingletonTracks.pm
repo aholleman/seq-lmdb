@@ -332,8 +332,7 @@ sub _buildTrackBuilders {
     $trackBuilders->{$track->{name} } = $track;
     push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
   }
-  say "trackBuilders are";
-  p $trackBuilders->{'snp'};
+  
   $self->_writeTrackBuildersByName($trackBuilders);
   $self->_writeTrackBuildersByType($trackBuildersByType);
 }

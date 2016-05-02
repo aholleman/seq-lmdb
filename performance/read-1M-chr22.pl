@@ -5,21 +5,30 @@ use strict;
 package MockAnnotationClass;
 use lib './lib';
 use Moose;
-use MooseX::Types::Path::Tiny qw/AbsDir/;
+extends 'Seq::Base';
 with 'Seq::Role::DBManager';
-
-has database_dir => (
-  is => 'ro',
-  default =>  '/ssd/seqant_db_build/hg19_snp142/index_lmdb',
-  isa => AbsDir,
-  coerce => 1,
-);
 
 #__PACKAGE__->meta->
 1;
 
-package TestRead;
 use DDP;
-my $reader = MockAnnotationClass->new();
 
-my $dataAref = $reader->dbRead('chr22', [30e6..31e6], 1);
+my $tracks = MockAnnotationClass->new_with_config(
+  { configfile =>'./config/hg19.lmdb.yml'}
+);
+
+my $dataAref = $tracks->dbRead('chr22', [20e6..21e6], 1);
+
+my @out;
+my @trackGetters = $tracks->getAllTrackGetters();
+my %singleLine;
+foreach (@$dataAref)  {
+  #This is a few seconds slower, maybe becuase of extra assignments needed for $data
+  #push @out, { map { $_->name => $_->get($data, 'chr22') } @trackGetters };
+
+  #than this
+  for my $track (@trackGetters) {
+    $singleLine{$track->name} = $track->get($_, 'chr22');
+  }
+  push @out, \%singleLine;
+}

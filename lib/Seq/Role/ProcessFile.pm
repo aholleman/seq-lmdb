@@ -16,13 +16,19 @@ use File::Basename;
 use List::MoreUtils qw(firstidx);
 use namespace::autoclean;
 use DDP;
+use List::Util qw /max/;
+
 requires 'output_path';
 requires 'out_file';
 requires 'debug';
 
 #requires get_write_bin_fh from Seq::Role::IO, can't formally requires it in a role
 #requires log from Seq::Role::Message
-with 'Seq::Role::IO', 'Seq::Role::Message';
+with 'Seq::Role::IO', 'Seq::Role::Message',
+#we expect other packages to build up the output header,
+#then we consume it here
+'Seq::Role::Header';
+
 # file_type defines the kind of file that is being annotated
 #   - snp_1 => snpfile format: [ "Fragment", "Position", "Reference", "Minor_Allele"]
 #   - snp_2 => snpfile format: ["Fragment", "Position", "Reference", "Alleles", "Allele_Counts", "Type"]
@@ -54,14 +60,14 @@ has _header => (
   default => sub { [] },
 );
 
-after add_header_attr => sub {
-  my $self = shift;
+# after add_header_attr => sub {
+#   my $self = shift;
 
-  if ( !$self->_headerPrinted ) {
-    say { $self->_out_fh } join "\t", $self->all_header_attr;
-    $self->_flagHeaderPrinted;
-  }
-};
+#   if ( !$self->_headerPrinted ) {
+#     say { $self->_out_fh } join "\t", $self->all_header_attr;
+#     $self->_flagHeaderPrinted;
+#   }
+# };
 
 ##########Private Variables##########
 
@@ -109,15 +115,16 @@ has _reqHeaderFields => (
   traits => ['Hash'],
   lazy => 1,
   init_arg => undef,
-  builder => '_build_headers',
+  builder => '_build_input_headers',
   handles => {
     allReqFields => 'get',
   },
 );
 
+requires 'allTrackNames';
 #API: The order here is the order of values returend for any consuming programs
 #See: $self->proc_line
-sub _build_headers {
+sub _build_input_headers {
   return {
     snp_1 => [qw/ Fragment Position Reference Type Minor_allele /],
     snp_2 => [qw/ Fragment Position Reference Type Alleles Allele_Counts /],
@@ -131,34 +138,166 @@ sub getRequiredFileHeaderFieldNames {
   my $self = shift;
   return @{ $self->_reqHeaderFields->{$self->file_type} }[0 .. 4];
 }
-# _print_annotations takes an array reference of annotations and hash
-# reference of header attributes and writes the header (if needed) to the
-# output file and flattens the hash references for each entry and writes
-# them to the output file
-sub print_annotations {
-  my ( $self, $annotations_aref ) = @_;
 
-  # print header
-  if ( !$self->_flagHeaderPrinted ) {
-    return $self->log('flag', 'Header wasn\'t printed');
-  }
+#takes an array of <HashRef> data that is what we grabbed from the database
+#and whatever else we added to it
+#and an array of <ArrayRef> input data, which contains our original input fields
+#which we are going to re-use in our output (namely chr, position, type alleles)
+sub printAnnotations {
+  my ( $self, $outputDataAref, $inputDataAref, $filePath ) = @_;
 
   # cache header attributes
-  my @header = $self->all_header_attr;
+  my ($headerKeysAref, $indexesFromInputHref) = $self->makeOutputHeader();
 
+  my $lastIndexFromInput = max keys %$indexesFromInputHref;
+  open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
-  for my $entry_href (@$annotations_aref) {
-    my @prt_record;
-    for my $attr (@header) {
-      if ( exists $entry_href->{$attr} ) {
-        push @prt_record, $entry_href->{$attr};
+  my $totalCount = 0;
+  for my $href (@$outputDataAref) {
+    my @singleLineOutput;
+
+    my $innerCount = 0;
+    PARENT: for my $feature (@$headerKeysAref) {
+      if($lastIndexFromInput <= $innerCount) {
+        if(exists $indexesFromInputHref->{$innerCount} ){
+          push @singleLineOutput, $inputDataAref->[$totalCount][$innerCount];
+        }
+        $innerCount++;
+        next PARENT;
       }
-      else {
-        push @prt_record, 'NA';
+      
+      if(ref $feature) {
+        #it's a trackName => {feature1 => value1, ...}
+        my ($parent) = %$feature;
+
+        if(!defined $href->{$parent} ) {
+          #https://ideone.com/v9ffO7
+          push @singleLineOutput, map { 'NA' } @{ $feature->{$parent} };
+          next PARENT;
+        }
+
+        CHILD: for my $child (@{ $feature->{$parent} } ) {
+          if(!defined $href->{$parent}->{$child} ) {
+            push @singleLineOutput, 'NA';
+            next CHILD;
+          }
+
+          if(!ref $href->{$parent}{$child} ) {
+            push @singleLineOutput, $href->{$parent}{$child};
+            next CHILD;
+          }
+
+          if(ref $href->{$parent}{$child} ne 'ARRAY') {
+            $self->log('warn', "Can\'t process non-array parent values, skipping $parent->$child");
+            push @singleLineOutput, 'NA';
+            next CHILD;
+          }
+
+          my $accum;
+          ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
+            if(!defined $_) {
+              $accum .= 'NA;';
+              next ACCUM;
+            }
+            $accum .= "$_;";
+          }
+          chop $accum;
+          push @singleLineOutput, $accum;
+        }
+        next PARENT;
       }
+
+      if(!defined $href->{$feature} ) {
+        push @singleLineOutput, 'NA';
+        next PARENT;
+      }
+
+      if(!ref $href->{$feature} ) {
+        push @singleLineOutput, $href->{$feature};
+        next PARENT;
+      }
+
+      if(ref $href->{$feature} ne 'ARRAY') {
+        $self->log('warn', "Can\'t process non-array parent values, skipping $feature");
+        push @singleLineOutput, 'NA';
+        next PARENT;
+      }
+
+      my $accum;
+      ACCUM: foreach ( @{ $href->{$feature} } ) {
+        if(!defined $_) {
+          $accum .= 'NA;';
+          next ACCUM;
+        }
+        $accum .= "$_;";
+      }
+      chop $accum;
+      push @singleLineOutput, $accum;
     }
-    say { $self->_out_fh } join "\t", @prt_record;
+
+    say $fh join("\t", @singleLineOutput);
+    $totalCount++;
   }
+  #this should happen automatically
+  #close($fh);
+}
+
+sub printHeader {
+  my ($self, $filePath) = @_;
+
+  my ($headersAref) = $self->makeOutputHeader();
+
+  my @out;
+  for my $feature (@$headersAref) {
+    if(ref $feature) {
+      my ($parentName) = %$feature;
+      foreach (@{ $feature->{$parentName} } ) {
+        push @out, "$parentName.$_";
+      }
+      next;
+    }
+    push @out, $feature;
+  }
+  open (my $fh, '>', $filePath);
+  say $fh join("\t", @out);
+}
+#TODO: Set order of tracks based on order presented in configuration file
+#we get
+# {
+#   parent => [child, child, child, child]
+# }
+sub makeOutputHeader {  
+  state $trackHeadersAref;
+  state $indexesFromInputHref;
+  if(defined $trackHeadersAref) {
+    return ($trackHeadersAref, $indexesFromInputHref);
+  }
+
+  my $self = shift;
+
+  my $inputHeadersAref = $self->_reqHeaderFields->{$self->file_type};
+  my @trackHeaders = ( $inputHeadersAref->[0], $inputHeadersAref->[1], 
+    $inputHeadersAref->[3], $inputHeadersAref->[4] );
+  
+  $indexesFromInputHref = {
+    0 => 1, 1 => 1, 3 => 1, 4 => 1,
+  };
+
+  $self->orderHeader($self->allTrackNames);
+
+  my $headerAref = $self->orderedHeaderFeaturesAref();
+
+  for my $parent (@$headerAref) {
+    my ($parentName) = %$parent;
+    if( ref $parent ) {
+      push @trackHeaders, { $parentName => [ keys %$parent ] };
+      next;
+    }
+    push @trackHeaders, $parent;
+  }
+
+  $trackHeadersAref = \@trackHeaders;
+  return ($trackHeadersAref, $indexesFromInputHref);
 }
 
 sub compress_output {
