@@ -36,6 +36,7 @@ use List::Util qw/first/;
 # use Carp qw/ croak /;
 # use Cpanel::JSON::XS;
 use namespace::autoclean;
+use Parallel::ForkManager;
 
 use DDP;
 
@@ -157,10 +158,12 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 #   my $self = shift;
 # }
 
+my $pm = Parallel::ForkManager->new(8);
 sub annotate_snpfile {
   my $self = shift;
 
-  $self->commitEvery(1e3);
+  $self->commitEvery(1e4);
+
   #loaded first because this also initializes our logger
   # my $annotator = Seq::Annotate->new_with_config(
   #   {
@@ -200,13 +203,12 @@ sub annotate_snpfile {
   # my ( $last_chr, $chr_offset, $next_chr, $next_chr_offset, $chr_index ) =
   #   ( $defPos, $defPos, $defPos, $defPos, $defPos );
 
-  my (@fields, @lines, $abs_pos, $foundVarType, $wantedChr);
+  # my (@fields, @lines, $abs_pos, $foundVarType, $wantedChr);
   my @sampleIDs;
   my %sampleIDsToIndexesMap;
-  my $linesAccum;
+  my @lines;
   my $count = 0;
-  my @out;
-
+  my $partNumber = 0;
   while(<$fh>) {
     #If we don't have sampleIDs, this should be the first line of the file
     if(!@sampleIDs) {
@@ -229,33 +231,47 @@ sub annotate_snpfile {
 
       next;
     }
-    
-    $linesAccum .= $_;
+    chomp;
+    #$linesAccum .= $_;
+    push @lines, $_;
 
     #$self->commitEvery from DBManager
     if($count > $self->commitEvery) {
-      $self->annotateLines($linesAccum, \%sampleIDsToIndexesMap, \@sampleIDs, \@out );
-      $linesAccum = '';
+      $partNumber++;
+      $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
+      @lines = ();
       $count = 0;
     }
     $count++
     #TODO: the goal after this is to print @out.
   }
 
-  if($linesAccum) {
-    $self->annotateLines($linesAccum, \%sampleIDsToIndexesMap, \@sampleIDs, \@out );
+  if(@lines) {
+    $partNumber++;
+    $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
   }
 
-  #now print
+  $pm->wait_all_children();
+
+  my $concat = join (' >> ', map { $self->output_path . $_ } (0 .. $partNumber) );
+  my $err = system("cat $concat > " . $self->output_path);
+
+  if($err) {
+    $self->log('fatal', 'Concatenation of output file parts failed');
+  }
+  #provided everyone finished, we will have N parts; concatenate them into the 
+  #output file
 }
 
 #after we've accumulated lines, process them
 #splitting into separate function because we'll use event-driven model to run 
 #this processing step
 sub annotateLines {
-  my ($self, $lines, $idsIdxMapHref, $sampleIdsAref, $outDataAref) = @_;
+  $pm->start and return;
+  my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref, $partNumber) = @_;
 
-  say "called annotateLines";
+  # say "called annotateLines";
+  # p $linesAref;
   # # progress counters
   state $pubProg;
   state $writeProg;
@@ -283,57 +299,79 @@ sub annotateLines {
     # });
  # }
   
-  my $linesAref = $self->getCleanFields($lines);
+  #my $linesAref = $self->getCleanFields($lines);
+
+  my @outLines;
 
   my $wantedChr;
   my @inputData;
   my @positions;
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
-  for my $lineFieldsAref (@$linesAref) {
-      #get all the fields we need
-      
-      #maps to
-      #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-      my @snpFields = map { $lineFieldsAref->[$_] } $self->allSnpFieldIdx;
+  my @fields;
 
-      if($wantedChr && $snpFields[0] ne $wantedChr) {
-        #don't sort to preserve order 
-        my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
+  foreach (@$linesAref) {
+    @fields = split(/\t/, $self->clean_line( $_ ) );
 
-        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
-          \@inputData, $sampleIdsAref );
-        @positions = ();
-        @inputData = ();
-      }
+    #get all the fields we need
+    
+    #maps to
+    #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
+    my @snpFields = map { $fields[$_] } $self->allSnpFieldIdx;
 
-      $wantedChr = $snpFields[0];
-      #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
-      #   later (hets currently ignored)
-      #$ref_allele == $snpFields[2]
-      # @sampleIDargs == same as my ( $hetIds, $homIds, $sampleIDtoGenotypeMap ) =
-      my @sampleFields = $self->_minor_allele_carriers( $lineFieldsAref, $idsIdxMapHref, 
-          $sampleIdsAref, $snpFields[2] );
+    if($wantedChr && $snpFields[0] ne $wantedChr) {
+      #don't sort to preserve order 
+      my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
-      #therefore input data will have
-      push @inputData, [@snpFields, @sampleFields];
-      push @positions, $snpFields[1];
-      # $wantedChr = $fields[0];
-
+      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
+        \@inputData, $sampleIdsAref );
+      @positions = ();
+      @inputData = ();
     }
 
+    $wantedChr = $snpFields[0];
+    #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
+    #   later (hets currently ignored)
+    #$ref_allele == $snpFields[2]
+    # @sampleIDargs == same as my ( $hetIds, $homIds, $sampleIDtoGenotypeMap ) =
+    my @sampleFields = $self->_minor_allele_carriers( \@fields, $idsIdxMapHref, 
+        $sampleIdsAref, $snpFields[2] );
+
+    #therefore input data will have
+    push @inputData, [@snpFields, @sampleFields];
+    push @positions, $snpFields[1];
+
+  }
+
   if(@positions) {
-    say "positions are";
-        p @positions;
     my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref,
       \@inputData, $sampleIdsAref );
   }
+
+  #write everything for this part
+
+  $pm->finish;
 }
 
 sub finishAnnotatingLines {
   my ($self, $chr, $dataFromDBaRef, $dataFromInputAref, $sampleIdsAref) = @_;
 
+  my @out;
+  foreach (@$dataFromDBaRef) {
+    #$_ == hash reference
+
+    my %singleLineOutput;
+
+    for my $track ($self->getAllTrackGetters() ) {
+      $singleLineOutput{$track->name} = $track->get($_, $chr);
+    }
+
+    push @out, \%singleLineOutput;
+
+    say 'output of first line is';
+    p @out;
+  }
   # say "dataFromDBaRef is";
   # p $dataFromDBaRef;
   #say "processed ". $self->commitEvery . " lines";

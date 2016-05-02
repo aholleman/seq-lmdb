@@ -43,6 +43,7 @@ use Moose 2;
 use Carp qw/ confess /;
 use namespace::autoclean;
 use DDP;
+use List::Util qw/reduce/;
 
 extends 'Seq::Tracks::Get';
 
@@ -56,6 +57,21 @@ with 'Seq::Tracks::Region::Definition',
 #dbReadAll
 'Seq::Role::DBManager';
 
+#This get class adds a small but crucial bit of info
+#Whether a position is Intergenic, Intronic, Exonic
+#This used to be held in Seq::Annotate
+#But site_type, var_type would case confusion
+#I think it's easier to understand if that is here
+#And more atomic
+#Because the designation for regionType (var_type previously)
+#Completely depends on the gene track, and essentially nothing else
+#other than assembly, which every track depends on
+#so I would rather see, "refSeq.regionType" than 'var_type', because I am 
+#more likely to guess what that means
+state $regionTypes = ['Intergenic', 'Intronic', 'Exonic'];
+state $regionTypeKey = 'regionType';
+
+#these are really the "region database" features
 has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
 );
@@ -65,7 +81,7 @@ override 'BUILD' => sub {
 
   super();
 
-  $self->addFeaturesToOutputHeader([$self->allSiteKeys], $self->name);
+  $self->addFeaturesToOutputHeader([$self->allSiteKeys, $regionTypeKey], $self->name);
 };
 
 #In order to get from gene track, we  need to get the values from
@@ -74,6 +90,7 @@ override 'BUILD' => sub {
 my $geneTrackRegionDataHref;
 
 my $codonUnpacker = Seq::Tracks::Gene::Site->new();
+
 #we simply replace the get method from Seq::Tracks:Get
 #because we also need to get ther region portion
 #TODO: when we implement region tracks just override their method
@@ -93,6 +110,21 @@ sub get {
   #a single position may cover one or more sites
   #we expect either a single value (href in this case) or an array of them
   my $siteDetailsRef = $geneData->{$self->getFieldDbName($self->siteFeatureName) };
+  my $geneRegionNumberRef = $geneData->{ $self->getFieldDbName($self->regionReferenceFeatureName) };
+
+  if(!($siteDetailsRef && $geneRegionNumberRef ) ) {
+    #if we don't have a gene at this site, it's Integenic
+    #this is the lowest index item
+    $out{$regionTypeKey} = $regionTypes->[0];
+    return \%out;
+  } elsif( !$siteDetailsRef || !$geneRegionNumberRef ) {
+    $self->log('warn', "Found one part of gene track but not other on $chr");
+    #if we don't have a gene at this site, it's Integenic
+    #this is the lowest index item
+    $out{$regionTypeKey} = $regionTypes->[0];
+    return \%out;
+  }
+
   #first let's get the site details
   if(!ref $siteDetailsRef) {
     $siteDetailsRef = [$siteDetailsRef];
@@ -118,12 +150,27 @@ sub get {
     }
   }
   
+  #Now check if it's Exonic or Intronic
+  #If we ever see a coding site, that is exonic
+  if( !ref $out{$self->siteTypeKey} ) {
+    #if it's a single site, just need to know if it's coding or not
+    $out{$regionTypeKey} = $codonUnpacker->isExonicSite( $out{$self->siteTypeKey} ) ? 
+      $regionTypes->[3] : $regionTypes->[2];
+  } else {
+    #if it's an array, then let's check all of our site types
+    REGION_FL: foreach(@{ $out{$self->siteTypeKey}  } ) {
+      if( $codonUnpacker->isExonicSite($_) ) {
+        $out{$regionTypeKey} = $regionTypes->[2];
+        last REGION_FL;
+      }
+    }
+    $out{$regionTypeKey} = $out{$regionTypeKey} || $regionTypes->[1];
+  }
+
   #Now get all of the region stuff
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
   }
-
-  my $geneRegionNumberRef = $geneData->{ $self->getFieldDbName($self->regionReferenceFeatureName) };
 
   #we expect either a single number or an array ref
   if (!ref $geneRegionNumberRef) {
@@ -137,6 +184,7 @@ sub get {
 
   #will die if there was a different ref passed
   my @geneData;
+  
   for my $geneRegionNumber (@$geneRegionNumberRef) {
     push @geneData, $geneTrackRegionDataHref->{$chr}->{$geneRegionNumber}->{$self->dbName};
   }
@@ -156,7 +204,8 @@ sub get {
         push @{ $out{$featureName} }, $geneDataHref->{ $self->getFieldDbName($featureName) };
         next INNER;
       }
-      $out{ $featureName } = $geneDataHref->{ $self->getFieldDbName($featureName) };
+      $out{ $featureName } = $geneDataHref ? 
+        $geneDataHref->{ $self->getFieldDbName($featureName) } : undef;
     }
   }
 

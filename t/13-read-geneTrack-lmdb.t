@@ -17,7 +17,7 @@ use DDP;
 
 use Test::More;
 use List::Util qw/reduce/;
-plan tests => 1;
+plan tests => 4;
 
 my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
@@ -39,6 +39,33 @@ p $geneTrackData;
 
 my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
 ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct');
+ok($geneTrackData->{regionType} eq 'Intronic', 'reads Intronic entry ok');
+
+
+$dataHref = $tracks->dbRead('chr22', 1 - 1 );
+say "dataHref is";
+p $dataHref;
+$geneTrackData = $geneTrack->get($dataHref, 'chr22');
+say "geneTrack data is";
+p $geneTrackData;
+ok($geneTrackData->{regionType} eq 'Intergenic', 'reads Intergenic entry ok');
+
+
+$dataHref = $tracks->dbRead('chr22', 29445184 + 100 );
+say "dataHref is";
+p $dataHref;
+$geneTrackData = $geneTrack->get($dataHref, 'chr22');
+say "geneTrack data is";
+p $geneTrackData;
+
+ok($geneTrackData->{regionType} eq 'Exonic', 'reads exonic entry ok');
+
+$dataHref = $tracks->dbRead('chr22', 29445184 + 103 );
+say "dataHref is";
+p $dataHref;
+$geneTrackData = $geneTrack->get($dataHref, 'chr22');
+say "geneTrack data is";
+p $geneTrackData;
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 # $dataAref = $tracks->dbRead('chr1', [40370176] );

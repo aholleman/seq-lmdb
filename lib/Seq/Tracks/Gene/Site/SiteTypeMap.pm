@@ -123,5 +123,23 @@ sub _buildSiteTypeMapInverse {
   # }
 }
 
+has exonicSites => (
+  is => 'ro',
+  init_arg => undef,
+  lazy => 1,
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    isExonicSite => 'exists',
+  },
+  default => sub {
+    my $self = shift;
+    my %hash = map { $_ => 1 } ($self->codingSiteType, $self->ncRNAsiteType,
+      $self->fivePrimeSiteType, $self->threePrimeSiteType);
+
+    return \%hash;
+  },
+);
+
 no Moose::Role;
 1;

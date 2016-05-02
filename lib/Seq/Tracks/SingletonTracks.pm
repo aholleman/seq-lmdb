@@ -290,7 +290,7 @@ sub _buildTrackGetters {
     #because at the moment, users are allowed to rename their tracks
     #by name : 
       #   something : someOtherName
-    #TODO: make this go away
+    #TODO: make this go away by automating track name conversion/storing in db
     $trackGetters->{$track->{name} } = $track;
     push @{$trackGettersByType->{$trackHref->{type} } }, $trackGetters->{$track->{name} };
     #push @{$out{$trackHref->{type} } }, $trackClass->new($trackHref);
@@ -317,16 +317,23 @@ sub _buildTrackBuilders {
       next;
     }
 
-    if(exists $trackBuilders->{$trackHref->{name} } ) {
+    my $track = $trackClass->new($trackHref);
+    if(exists $trackBuilders->{$track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
       . Overriding the last object for this name, with the new")
     }
 
-    $trackBuilders->{$trackHref->{name} } = $trackClass->new($trackHref);
-    push @{$trackBuildersByType->{$trackHref->{type} } }, $trackBuilders->{$trackHref->{name} };
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
+    #TODO: make this go away by automating track name conversion/storing in db
+    $trackBuilders->{$track->{name} } = $track;
+    push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
   }
-
+  say "trackBuilders are";
+  p $trackBuilders->{'snp'};
   $self->_writeTrackBuildersByName($trackBuilders);
   $self->_writeTrackBuildersByType($trackBuildersByType);
 }

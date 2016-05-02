@@ -100,28 +100,35 @@ sub packCodon {
 #I've decided to always return the same keys, to make consumption more consistent
 #and allow consuming classes decide what to keep or discard
 #anything thta isn't present is given a key => undef pair
+#storing outside the sub to allow other (future) methods to grab data from it
+#and since it won't be public, won't use moose to expose it
 my $unpackedCodonHref;
 sub unpackCodon {
   #my ($self, $codonStr) = @_;
   #$codonStr == $_[1] 
   #may be called a lot, so not using arg assignment
   #https://ideone.com/TFGjte
-  my @unpackedCodon = unpack('cAlcAAA', $_[1]);
-  $unpackedCodonHref->{$_[0]->siteTypeKey} = $_[0]->getSiteTypeFromNum($unpackedCodon[0]);
+  my @unpackedCodon = $_[1] ? unpack('cAlcAAA', $_[1]) : ();
+
+  $unpackedCodonHref->{$_[0]->siteTypeKey} = 
+    defined $unpackedCodon[0] ? $_[0]->getSiteTypeFromNum($unpackedCodon[0]) : undef;
+
   $unpackedCodonHref->{$_[0]->strandKey} = $unpackedCodon[1];
 
-  $unpackedCodonHref->{$_[0]->codonNumberKey} = $unpackedCodon[2] >= 0 ? 
-    $unpackedCodon[2] : undef;
+  #For codonNumber and codonPosition need to check whether > $missingNumber
+  $unpackedCodonHref->{$_[0]->codonNumberKey} = defined $unpackedCodon[2] && 
+   $unpackedCodon[2] > $missingNumber ? $unpackedCodon[2] : undef;
 
-  $unpackedCodonHref->{$_[0]->codonPositionKey} = $unpackedCodon[3] >= 0 ?
-    $unpackedCodon[3] : undef;
+  $unpackedCodonHref->{$_[0]->codonPositionKey} = defined $unpackedCodon[3] && 
+   $unpackedCodon[3] > $missingNumber ? $unpackedCodon[3] : undef;
 
-  my $unpackedCodonSeq = join('', @unpackedCodon[4..6] );
+  my $unpackedCodonSeq = $unpackedCodon[4] ? join('', @unpackedCodon[4..6] ) : undef;
 
   #https://ideone.com/dVy6WL
-  $unpackedCodonHref->{$_[0]->codonSequenceKey} = $unpackedCodonSeq || undef;
+  $unpackedCodonHref->{$_[0]->codonSequenceKey} = $unpackedCodonSeq;
     
-  $unpackedCodonHref->{$_[0]->peptideKey} = $_[0]->codon2aa($unpackedCodonSeq);
+  $unpackedCodonHref->{$_[0]->peptideKey} = $unpackedCodonSeq ? 
+    $_[0]->codon2aa($unpackedCodonSeq) : undef;
 
   return $unpackedCodonHref;
 }

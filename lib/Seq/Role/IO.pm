@@ -85,7 +85,7 @@ sub get_read_fh {
 #compressed files
 sub get_file_lines {
   my ($self, $filename) = @_;
-
+  
   my $fh = $self->get_read_fh($filename);
   
   my @buf = <$fh>;
@@ -142,12 +142,18 @@ sub get_write_bin_fh {
 }
 
 sub clean_line {
-  my ( $class, $line ) = @_;
+  #my ( $class, $line ) = @_;
 
-  if ( $line =~ m/$taint_check_regex/xm ) {
+  if ( $_[1] =~ m/$taint_check_regex/xm ) {
     return $1;
   }
   return;
+}
+
+sub splitLine {
+  #my ( $class, $line ) = @_;
+
+  return split(/$delimiter/, $_[1]);
 }
 
 

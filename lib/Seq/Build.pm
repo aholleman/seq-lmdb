@@ -73,7 +73,7 @@ sub BUILD {
   if($self->wantedType) {
     @builders = $self->getTrackBuildersByType($self->wantedType);
   } elsif($self->wantedName) {
-    @builders = $self->getTrackBuilderByName($self->wantedName);
+    @builders = ( [ $self->getTrackBuilderByName($self->wantedName) ] );
   } else {
     @builders = $self->getAllTrackBuilders();
   }

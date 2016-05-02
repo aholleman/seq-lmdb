@@ -28,7 +28,7 @@ $debug = 0;
 GetOptions(
   'c|config=s'   => \$yaml_config,
   't|type=s'     => \$wantedType,
-  #'n|name=s'     => \$wantedName,
+  'n|name=s'     => \$wantedName,
   'v|verbose'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
@@ -52,8 +52,8 @@ my $config_href = LoadFile($yaml_config);
 $yaml_config = path($yaml_config)->absolute->stringify;
 
 #   # set log file
-my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType || 'allTypes',
-  $wantedChr || 'allChr', 'log';
+my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType ||
+$wantedName || 'allTracks', $wantedChr || 'allChr', 'log';
 
 my $logPath = path(".")->child($log_name)->absolute->stringify;
 
