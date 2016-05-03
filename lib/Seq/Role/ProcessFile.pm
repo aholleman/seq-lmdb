@@ -27,7 +27,7 @@ requires 'debug';
 with 'Seq::Role::IO', 'Seq::Role::Message',
 #we expect other packages to build up the output header,
 #then we consume it here
-'Seq::Role::Header';
+'Seq::Tracks::Headers';
 
 # file_type defines the kind of file that is being annotated
 #   - snp_1 => snpfile format: [ "Fragment", "Position", "Reference", "Minor_Allele"]
@@ -121,7 +121,6 @@ has _reqHeaderFields => (
   },
 );
 
-requires 'allTrackNames';
 #API: The order here is the order of values returend for any consuming programs
 #See: $self->proc_line
 sub _build_input_headers {
@@ -150,6 +149,7 @@ sub printAnnotations {
   my ($headerKeysAref, $indexesFromInputHref) = $self->makeOutputHeader();
 
   my $lastIndexFromInput = max keys %$indexesFromInputHref;
+
   open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $totalCount = 0;
@@ -158,8 +158,8 @@ sub printAnnotations {
 
     my $innerCount = 0;
     PARENT: for my $feature (@$headerKeysAref) {
-      if($lastIndexFromInput <= $innerCount) {
-        if(exists $indexesFromInputHref->{$innerCount} ){
+      if($lastIndexFromInput >= $innerCount) {
+        if(exists $indexesFromInputHref->{$innerCount} ) {
           push @singleLineOutput, $inputDataAref->[$totalCount][$innerCount];
         }
         $innerCount++;
@@ -175,7 +175,7 @@ sub printAnnotations {
           push @singleLineOutput, map { 'NA' } @{ $feature->{$parent} };
           next PARENT;
         }
-
+        
         CHILD: for my $child (@{ $feature->{$parent} } ) {
           if(!defined $href->{$parent}->{$child} ) {
             push @singleLineOutput, 'NA';
@@ -283,14 +283,13 @@ sub makeOutputHeader {
     0 => 1, 1 => 1, 3 => 1, 4 => 1,
   };
 
-  $self->orderHeader($self->allTrackNames);
-
-  my $headerAref = $self->orderedHeaderFeaturesAref();
+  my $headerAref = $self->getOrderedTrackHeadersAref();
 
   for my $parent (@$headerAref) {
-    my ($parentName) = %$parent;
     if( ref $parent ) {
-      push @trackHeaders, { $parentName => [ keys %$parent ] };
+      my ($parentName) = %$parent;
+
+      push @trackHeaders, { $parentName => [ keys %{ $parent->{$parentName} } ] };
       next;
     }
     push @trackHeaders, $parent;

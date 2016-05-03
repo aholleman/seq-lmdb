@@ -42,7 +42,7 @@ use DDP;
 
 use MooseX::Types::Path::Tiny qw/AbsDir/;
 #defines refType, scoreType, etc
-with 'Seq::Tracks::Base::Types', 'Seq::Role::Message';
+with 'Seq::Tracks::Base::Types', 'Seq::Role::Message', 'Seq::Tracks::Headers';
 
 use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
@@ -270,6 +270,7 @@ sub _buildTrackGetters {
     $self->_writeTrackGettersByType($trackGettersByType);
   }
 
+  my @trackOrder;
   for my $trackHref (@{$self->tracks}) {
     #get the trackClass
     my $trackClass = $self->getDataTrackClass($trackHref->{type} );
@@ -286,6 +287,8 @@ sub _buildTrackGetters {
       . Overriding the last object for this name, with the new")
     }
 
+    push @trackOrder, $track->{name};
+
     #we use the track name rather than the trackHref name
     #because at the moment, users are allowed to rename their tracks
     #by name : 
@@ -298,6 +301,8 @@ sub _buildTrackGetters {
 
   $self->_writeTrackGettersByName($trackGetters);
   $self->_writeTrackGettersByType($trackGettersByType);
+
+  $self->orderTrackHeaders(\@trackOrder);
 }
 
 #different from Seq::Tracks in that we store class instances hashed on track type

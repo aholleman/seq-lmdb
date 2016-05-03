@@ -48,7 +48,7 @@ extends 'Seq::Tracks::Get';
 override 'BUILD' => sub {
   my $self = shift;
 
-  $self->addFeaturesToOutputHeader($self->name);
+  $self->addFeaturesToTrackHeaders($self->name);
 
   super();
 };

@@ -12,7 +12,7 @@ use DDP;
 use List::Util qw/first/;
 
 extends 'Seq::Tracks::Base';
-with 'Seq::Role::Header';
+with 'Seq::Tracks::Headers';
 
 #TODO: figure out how to neatly add feature exclusion
 # has annotation_exclude_features => (
@@ -56,11 +56,11 @@ sub BUILD {
   #     push @includedFeatures, $feature;
   #   }
   # } 
-  # $self->addFeaturesToOutputHeader(\@includedFeatures $self->name);
+  # $self->addFeaturesToTrackHeaders(\@includedFeatures $self->name);
 
   #register all features for this track
   #@params $parent, $child
-  $self->addFeaturesToOutputHeader([$self->allFeatureNames], $self->name);;
+  $self->addFeaturesToTrackHeaders([$self->allFeatureNames], $self->name);;
 }
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 

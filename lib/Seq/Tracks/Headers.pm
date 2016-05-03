@@ -6,7 +6,7 @@
 #For instance, while we know at run time what all the user asked for
 #By looking at the features listed under tracks
 #We won't know at run time 
-package Seq::Role::TrackHeaders;
+package Seq::Tracks::Headers;
 use Moose::Role;
 
 use 5.10.0;
@@ -21,24 +21,30 @@ state $orderedHeaderFeaturesAref;
 #   return $headerFeaturesHref;
 # }
 
-sub getOrderedHeader {
+sub getOrderedTrackHeadersAref {
   return $orderedHeaderFeaturesAref;
 }
 
-sub orderHeader {
+sub orderTrackHeaders {
   my ($self, $orderAref) = @_;
 
   foreach (@$orderAref) {
-    if(exists $orderedHeaderFeaturesAref->{$_} ) {
-      push @$orderedHeaderFeaturesAref, $headerFeaturesHref->{$_};
+    if(exists $headerFeaturesHref->{$_} ) {
+      if(ref $headerFeaturesHref->{$_} ) {
+        push @$orderedHeaderFeaturesAref, {
+          $_ => $headerFeaturesHref->{$_}
+        };
+        next;
+      }
+      push @$orderedHeaderFeaturesAref, $_;
     }
   }
 }
 
 #not all children will have parents
-sub addFeaturesToOutputHeader {
+sub addFeaturesToTrackHeaders {
   if(ref $_[1] eq 'ARRAY') {
-    goto &_addFeaturesToOutputHeaderBulk;
+    goto &_addFeaturesToTrackHeadersBulk;
   }
 
   my ($self, $child, $parent, $prepend) = @_;
@@ -57,16 +63,16 @@ sub addFeaturesToOutputHeader {
   $headerFeaturesHref->{$child} = 1;
 }
 
-sub _addFeaturesToOutputHeaderBulk {
+sub _addFeaturesToTrackHeadersBulk {
   if(!ref $_[1]) {
-    goto &addFeaturesToOutputHeaderBulk;
+    goto &addFeaturesToTrackHeadersBulk;
   }
 
   #$self == $_[0], $childrenAref == $_[1]
   my ($self, $childrenAref, $parent, $prepend) = @_;
 
   for my $child (@$childrenAref) {
-    $self->addFeaturesToOutputHeader($child, $parent, $prepend);
+    $self->addFeaturesToTrackHeaders($child, $parent, $prepend);
   }
   return;
 }
@@ -93,7 +99,7 @@ sub _addFeaturesToOutputHeaderBulk {
 # #not all children will have parents
 # sub appendFeaturesToOutputHeader {
 #   if(ref $_[1] eq 'ARRAY') {
-#     goto &_addFeaturesToOutputHeaderBulk;
+#     goto &_addFeaturesToTrackHeadersBulk;
 #   }
 
 #   #$self == $_[0], $child == $_[1]
@@ -112,21 +118,21 @@ sub _addFeaturesToOutputHeaderBulk {
 
 # sub appendFeaturesToOutputHeaderBulk {
 #   if(!ref $_[1]) {
-#     goto &addFeaturesToOutputHeaderBulk;
+#     goto &addFeaturesToTrackHeadersBulk;
 #   }
 
 #   #$self == $_[0], $childrenAref == $_[1]
 #   my ($self, $childrenAref, $parent) = @_;
 
 #   for my $child (@$childrenAref) {
-#     $self->addFeaturesToOutputHeader($child, $parent);
+#     $self->addFeaturesToTrackHeaders($child, $parent);
 #   }
 #   return;
 # }
 
 # sub prependFeaturesToOutputHeader {
 #   if(ref $_[1] eq 'ARRAY') {
-#     goto &_addFeaturesToOutputHeaderBulk;
+#     goto &_addFeaturesToTrackHeadersBulk;
 #   }
 
 #   #$self == $_[0], $child == $_[1]
@@ -142,14 +148,14 @@ sub _addFeaturesToOutputHeaderBulk {
 
 # sub prependFeaturesToOutputHeaderBulk {
 #   if(!ref $_[1]) {
-#     goto &addFeaturesToOutputHeaderBulk;
+#     goto &addFeaturesToTrackHeadersBulk;
 #   }
 
 #   #$self == $_[0], $childrenAref == $_[1]
 #   my ($self, $childrenAref, $parent) = @_;
 
 #   for my $child (@$childrenAref) {
-#     $self->addFeaturesToOutputHeader($child, $parent);
+#     $self->addFeaturesToTrackHeaders($child, $parent);
 #   }
 #   return;
 # }
