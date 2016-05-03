@@ -146,26 +146,18 @@ sub printAnnotations {
   my ( $self, $outputDataAref, $inputDataAref, $filePath ) = @_;
 
   # cache header attributes
-  my ($headerKeysAref, $indexesFromInputHref) = $self->makeOutputHeader();
-
-  my $lastIndexFromInput = max keys %$indexesFromInputHref;
+  my ($headerKeysAref, $inputIdxAref) = $self->makeOutputHeader();
 
   open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $totalCount = 0;
   for my $href (@$outputDataAref) {
-    my @singleLineOutput;
+    #first map everything we want from the input file
+    my @singleLineOutput = map { $inputDataAref->[$totalCount]->[$_] } @$inputIdxAref;
+  
+    $totalCount++;
 
-    my $innerCount = 0;
-    PARENT: for my $feature (@$headerKeysAref) {
-      if($lastIndexFromInput >= $innerCount) {
-        if(exists $indexesFromInputHref->{$innerCount} ) {
-          push @singleLineOutput, $inputDataAref->[$totalCount][$innerCount];
-        }
-        $innerCount++;
-        next PARENT;
-      }
-      
+    PARENT: for my $feature (@$headerKeysAref) {      
       if(ref $feature) {
         #it's a trackName => {feature1 => value1, ...}
         my ($parent) = %$feature;
@@ -175,7 +167,7 @@ sub printAnnotations {
           push @singleLineOutput, map { 'NA' } @{ $feature->{$parent} };
           next PARENT;
         }
-        
+
         CHILD: for my $child (@{ $feature->{$parent} } ) {
           if(!defined $href->{$parent}->{$child} ) {
             push @singleLineOutput, 'NA';
@@ -207,6 +199,8 @@ sub printAnnotations {
         next PARENT;
       }
 
+      # say "feature is $feature";
+      #p $href->{feature};
       if(!defined $href->{$feature} ) {
         push @singleLineOutput, 'NA';
         next PARENT;
@@ -236,7 +230,6 @@ sub printAnnotations {
     }
 
     say $fh join("\t", @singleLineOutput);
-    $totalCount++;
   }
   #this should happen automatically
   #close($fh);
@@ -245,9 +238,9 @@ sub printAnnotations {
 sub printHeader {
   my ($self, $filePath) = @_;
 
-  my ($headersAref) = $self->makeOutputHeader();
+  my ($headersAref, $inputFieldIdxAref) = $self->makeOutputHeader();
 
-  my @out;
+  my @out = map { $self->_reqHeaderFields->{$self->file_type}->[$_] } @$inputFieldIdxAref;
   for my $feature (@$headersAref) {
     if(ref $feature) {
       my ($parentName) = %$feature;
@@ -268,20 +261,17 @@ sub printHeader {
 # }
 sub makeOutputHeader {  
   state $trackHeadersAref;
-  state $indexesFromInputHref;
+  state $indexesFromInputAref;
   if(defined $trackHeadersAref) {
-    return ($trackHeadersAref, $indexesFromInputHref);
+    return ($trackHeadersAref, $indexesFromInputAref);
   }
 
-  my $self = shift;
+  my ($self, $additionalPrioritizedFieldsAref) = @_;
 
-  my $inputHeadersAref = $self->_reqHeaderFields->{$self->file_type};
-  my @trackHeaders = ( $inputHeadersAref->[0], $inputHeadersAref->[1], 
-    $inputHeadersAref->[3], $inputHeadersAref->[4] );
+  my @trackHeaders = @$additionalPrioritizedFieldsAref;
   
-  $indexesFromInputHref = {
-    0 => 1, 1 => 1, 3 => 1, 4 => 1,
-  };
+  #Fragment Position Reference Type Minor_allele (Or Alleles which is newer name for Minor allele)
+  $indexesFromInputAref = [0, 1, 3, 4];
 
   my $headerAref = $self->getOrderedTrackHeadersAref();
 
@@ -296,7 +286,7 @@ sub makeOutputHeader {
   }
 
   $trackHeadersAref = \@trackHeaders;
-  return ($trackHeadersAref, $indexesFromInputHref);
+  return ($trackHeadersAref, $indexesFromInputAref);
 }
 
 sub compress_output {

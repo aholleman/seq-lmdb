@@ -150,12 +150,15 @@ sub get {
     }
   }
   
-  #Now check if it's Exonic or Intronic
+  #Now check if it's Exonic, Intronic, or Intergenice
   #If we ever see a coding site, that is exonic
   if( !ref $out{$self->siteTypeKey} ) {
     #if it's a single site, just need to know if it's coding or not
-    $out{$regionTypeKey} = $codonUnpacker->isExonicSite( $out{$self->siteTypeKey} ) ? 
-      $regionTypes->[3] : $regionTypes->[2];
+    if( $codonUnpacker->isExonicSite( $out{$self->siteTypeKey} ) ) {
+      $out{$regionTypeKey} = $regionTypes->[2];
+    } else {
+      $out{$regionTypeKey} = $regionTypes->[1];
+    }
   } else {
     #if it's an array, then let's check all of our site types
     REGION_FL: foreach(@{ $out{$self->siteTypeKey}  } ) {
@@ -164,7 +167,7 @@ sub get {
         last REGION_FL;
       }
     }
-    $out{$regionTypeKey} = $out{$regionTypeKey} || $regionTypes->[1];
+    $out{$regionTypeKey} = $regionTypes->[1];
   }
 
   #Now get all of the region stuff

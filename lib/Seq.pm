@@ -24,7 +24,7 @@ Extended by: None
 =cut
 
 use Moose 2;
-use MooseX::Types::Path::Tiny qw/AbsFile AbsPath/;
+use MooseX::Types::Path::Tiny qw/AbsFile AbsPath AbsDir/;
 use List::Util qw/first/;
 #For later: move to async io
 # use AnyEvent;
@@ -54,14 +54,6 @@ has snpfile => (
   handles  => { snpfile_path => 'stringify' }
 );
 
-# has config_file => (
-#   is       => 'ro',
-#   isa      => AbsFile,
-#   required => 1,
-#   coerce   => 1,
-#   handles  => { config_file_path => 'stringify' }
-# );
-
 has out_file => (
   is        => 'ro',
   isa       => AbsPath,
@@ -70,80 +62,37 @@ has out_file => (
   handles   => { output_path => 'stringify' }
 );
 
-has ignore_unknown_chr => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 1,
-  lazy => 1,
-);
-
-has overwrite => (
-  is      => 'ro',
-  isa     => 'Bool',
-  default => 0,
-  lazy => 1,
-);
-
-# has debug => (
+# has ignore_unknown_chr => (
 #   is      => 'ro',
-#   isa     => 'Int',
-#   default => 0,
+#   isa     => 'Bool',
+#   default => 1,
 #   lazy => 1,
 # );
 
-has snp_sites => (
-  is       => 'rw',
-  isa      => 'HashRef',
-  init_arg => undef,
-  default  => sub { {} },
-  traits   => ['Hash'],
-  handles  => {
-    set_snp_site     => 'set',
-    get_snp_site     => 'get',
-    keys_snp_sites   => 'keys',
-    kv_snp_sites     => 'kv',
-    has_no_snp_sites => 'is_empty',
-  },
-  lazy => 1,
-);
-
-has genes_annotated => (
-  is       => 'rw',
-  isa      => 'HashRef',
-  init_arg => undef,
-  default  => sub { {} },
-  traits   => ['Hash'],
-  handles  => {
-    set_gene_ann    => 'set',
-    get_gene_ann    => 'get',
-    keys_gene_ann   => 'keys',
-    has_no_gene_ann => 'is_empty',
-  },
-  lazy => 1,
-);
-
-has write_batch => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 10000,
-  lazy => 1,
-  init_arg => undef,
-);
-
-has genome_chrs => (
+has temp_dir => (
   is => 'ro',
-  isa => 'ArrayRef',
-  required => 1,
-);
-
-has _fileLength => (
-  is => 'ro',
-  isa => 'Int',
+  isa => AbsDir,
   lazy => 1,
-  init_arg => undef,
-  default => 0,
+  coerce => 1,
+  default => '/tmp',
 );
 
+$Seq::tempOutPath = '';
+
+#we also add a few of our own annotation attributes
+#trying global prpoerties because they work a bit better with some
+#multi-process perl packages
+$Seq::heterozygousIdsKey = 'heterozygotes';
+$Seq::compoundIdsKey = 'compoundHeterozygotes';
+$Seq::homozygousIdsKey = 'homozygotes';
+
+sub BUILD {
+  my $self = shift;
+
+  my $tempDir = $self->temp_dir ? $self->temp_dir : $self->output_file->parent;
+
+  $Seq::tempOutPath = $tempDir->child($self->out_file->basename)->stringify;
+}
 #come after all attributes to meet "requires '<attribute>'"
 with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
 
@@ -156,7 +105,7 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 #   my $self = shift;
 # }
 
-my $pm = Parallel::ForkManager->new(8);
+my $pm = Parallel::ForkManager->new(10);
 
 #TODO: Need to implement out-of-bounds check for assembly
 sub annotate_snpfile {
@@ -178,6 +127,11 @@ sub annotate_snpfile {
   my @lines;
   my $count = 0;
   my $partNumber = 0;
+
+  our $heterozygousIdsKey;
+  our $homozygousIdsKey;
+  our $compoundIdsKey;
+
   while(<$fh>) {
     #If we don't have sampleIDs, this should be the first line of the file
     if(!@sampleIDs) {
@@ -187,7 +141,8 @@ sub annotate_snpfile {
 
       #needs to happen before we get into writing anything in children
       #to make sure we have one header state
-      $self->makeOutputHeader();
+      #We have a few additional fields we will be adding as pseudo-features
+      $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
 
       %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
 
@@ -237,13 +192,12 @@ sub annotate_snpfile {
   #TODO FINISH THIS! Goal is to concatenate file parts
 
   $self->printHeader($self->output_path);
-  my @partPaths = map { $self->output_path . $_ } (1 .. $partNumber);
+  my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $partNumber);
   my $concatTheseFiles = join (' ', @partPaths);
 
   $self->log('info', 'Concatenating output files');
 
-  my $err = system("cat $concatTheseFiles >> " . $self->output_path 
-    . '; ' . join(';', map { "rm $_" } @partPaths) );
+  my $err = system("cat $concatTheseFiles >> " . $self->output_path);
 
   if($err) {
     $self->log('fatal', 'Concatenation of output file parts failed');
@@ -293,37 +247,41 @@ sub annotateLines {
   my $wantedChr;
   my @inputData;
   my @positions;
+  my @sampleData;
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   my @fields;
-
+  #Note: Expects first 3 fields to be chr, position, reference
   foreach (@$linesAref) {
     @fields = split(/\t/, $self->clean_line( $_ ) );
 
-    #get all the fields we need
-    
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
     my @snpFields = map { $fields[$_] } $self->allSnpFieldIdx;
+    push @inputData, \@snpFields;
 
-    if($wantedChr && $snpFields[0] ne $wantedChr) {
+    #$snpFields[0] expected to be chr
+    if($wantedChr && $snpFields[0]  ne $wantedChr) {
       #don't sort to preserve order 
       my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
-      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, \@output);
+      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
+        \@sampleData, \@output);
       @positions = ();
       @inputData = ();
+      @sampleData = ();
     }
 
+    #get all the fields we need
     $wantedChr = $snpFields[0];
     #   # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
     #   later (hets currently ignored)
     #$ref_allele == $snpFields[2]
-    # @sampleIDargs == same as my ( $hetIds, $homIds, $sampleIDtoGenotypeMap ) =
-    my @sampleFields = $self->_minor_allele_carriers( \@fields, $idsIdxMapHref, 
-        $sampleIdsAref, $snpFields[2] );
+    # @sampleIDargs == same as my ( $hetIds, $homIds, $compoundsHetIds, $sampleIDtoGenotypeMap ) =
+    push @sampleData, [ $self->_minor_allele_carriers( \@fields, $idsIdxMapHref, 
+        $sampleIdsAref, $snpFields[2] ) ];
 
     #therefore input data will have
-    push @inputData, [@snpFields, @sampleFields];
+    #$snpFields[1] expected to be the position
     push @positions, $snpFields[1];
 
   }
@@ -331,13 +289,14 @@ sub annotateLines {
   if(@positions) {
     my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
-    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, \@output);
+    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
+      \@sampleData, \@output);
   }
 
  # p @output;
   #exit;
   #write everything for this part
-  $self->printAnnotations(\@output, \@inputData, $self->output_path. $partNumber);
+  $self->printAnnotations(\@output, \@inputData, $Seq::tempOutPath . $partNumber);
 
   #TODO: need also to take care of statistics stuff,
   #but that will need to wait a bit, since that will require 
@@ -348,12 +307,23 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbARef, $dataFromInputAref, $outAref) = @_;
+  my ($self, $chr, $dataFromDbRef, $dataFromInputAref, $sampleGenotypesAref, $outAref) = @_;
+
+  our $heterozygousIdsKey;
+  our $homozygousIdsKey;
+  our $compoundIdsKey;
+
+  my $dataFromDbAref = ref $dataFromDbRef eq 'ARRAY' ? $dataFromDbRef : [$dataFromDbRef];
 
   my @trackGetters = $self->getAllTrackGetters();
   #@$dataFromDBaRef == @$dataFromInputAref
-  for (my $i = 0; $i < @$dataFromDbARef; $i++) {
-    push @$outAref, { map { $_->name => $_->get($dataFromDbARef->[$i], $chr) } @trackGetters };
+  for (my $i = 0; $i < @$dataFromDbAref; $i++) {
+    push @$outAref, { map { $_->name => $_->get($dataFromDbAref->[$i], $chr) } @trackGetters };
+
+    #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
+    $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];
+    $outAref->[$i]{$homozygousIdsKey} = $sampleGenotypesAref->[$i][1];
+    $outAref->[$i]{$compoundIdsKey} = $sampleGenotypesAref->[$i][2];
 
     #Annotate the Indel, which is a bit like annotating a bunch of other
     #sites
@@ -522,18 +492,26 @@ sub _minor_allele_carriers {
   #sampleIdsAref =  $_[3];
   #refAllele = $_[4];
   my %id_genos_href;
-  my $het_ids_str   = '';
-  my $hom_ids_str   = '';
+  my ($het_ids_str, $hom_ids_str, $compounds_ids_str);
   my $id_geno;
   foreach ( @{ $_[3] } ) { # same as for my $id (@$id_names_aref);
     #$_ == $id
+    #same as $lineFieldsAref->[ $idsIdxMapHref->{$id} ]
     $id_geno = $_[1]->[ $_[2]->{$_} ];
+
     # skip if we can't find the genotype or it's reference or an N
-    #$_[4]means $refAllele
+    #$_[4] eq $refAllele
     next if ( !$id_geno || $id_geno eq $_[4] || $id_geno eq 'N' );
 
+    #same as $self->isHet($id_geno)
     if ( $_[0]->isHet($id_geno) ) {
       $het_ids_str .= "$_;"; #same as .= "$id;";
+      say "calling is heterozygous";
+      if( $_[0]->isCompoundHeterozygote($id_geno, $_[4] ) ) {
+        $compounds_ids_str .= "$_;";
+
+        say "$id_geno is compound het because ref is $_[4]";
+      }
     } elsif ( $_[0]->isHomo($id_geno) ) {
       $hom_ids_str .= "$_;";
     } else {
@@ -542,12 +520,11 @@ sub _minor_allele_carriers {
     $id_genos_href{$_} = $id_geno;
   }
   if   ($hom_ids_str) { chop $hom_ids_str; }
-  else                { $hom_ids_str = 'NA'; }
   if   ($het_ids_str) { chop $het_ids_str; }
-  else                { $het_ids_str = 'NA'; }
+  if   ($compounds_ids_str) { chop $het_ids_str; }
 
   # return ids for printing
-  return ( $het_ids_str, $hom_ids_str, \%id_genos_href );
+  return ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
 }
 
 __PACKAGE__->meta->make_immutable;

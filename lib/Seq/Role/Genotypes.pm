@@ -101,48 +101,71 @@ has homGenos => (
 #@param {Str} $geno1 : deconvoluted genotype, iupac geno, or another genotype-like string
 #@param {Str} $geno2 : ""
 sub hasGeno {
-  my ( $self, $geno1, $geno2 ) = @_;
+  #my ( $self, $geno1, $geno2 ) = @_;
+  #$_[0] == $self
+  #$_[1] == $geno1;
+  #$_[2] == $geno2
 
-  $self->genosEqual( $geno1, $geno2 );
+  $_[0]->genosEqual( $_[1], $_[2] );
 
-  $self->genosContained( $geno1, $geno2 );
+  goto &genosContained;
 }
 
 #extended equality check
 sub genosEqual {
-  my ( $self, $geno1, $geno2 ) = @_;
+  #my ( $self, $geno1, $geno2 ) = @_;
+  #$_[0] == $self
+  #$_[1] == $geno1
+  #$_[2] == $geno2
 
-  if ( $geno1 eq $geno2 ) { return 1; }
+  if ( $_[1] eq $_[2] ) { return 1; }
 
-  my $geno1deconv = $self->deconvoluteGeno($geno1);
-  my $geno2deconv = $self->deconvoluteGeno($geno2);
-  $geno1 = defined $geno1deconv ? $geno1deconv : $geno1;
-  $geno2 = defined $geno2deconv ? $geno2deconv : $geno2;
+  my $geno1deconv = $_[0]->iupac->{$_[1]};
+  my $geno2deconv = $_[0]->iupac->{$_[2]};
+  $_[1] = defined $geno1deconv ? $geno1deconv : $_[1];
+  $_[2] = defined $geno2deconv ? $geno2deconv : $_[2];
 
-  if ( $geno1 eq $geno2 ) {
+  if ( $_[1] eq $_[2] ) {
     return 1;
   } # one could have been deconvoluted, and not the other
 
   #if the strings aren't equal, perhaps they're out of order
   my $matches = 0;
-  for my $idx ( 0 ... length($geno1) - 1 ) {
-    $matches += index( $geno2, substr( $geno1, $idx, 1 ) ) > -1;
+  for my $idx ( 0 ... length($_[1]) - 1 ) {
+    $matches += index( $_[2], substr( $_[1], $idx, 1 ) ) > -1;
   }
-  return $matches == length($geno1) && $matches == length($geno2);
+  return $matches == length($_[1]) && $matches == length($_[2]);
 }
 
 sub genosContained {
-  my ( $self, $geno1, $geno2 ) = @_;
+  #my ( $self, $geno1, $geno2 ) = @_;
+  #$_[1] == $geno1;
+  #$_[2] == $geno2
+  
   #geno1 is iupac or het, $geno2 is iupac or homozygote
-  if ( index( $geno1, $geno2 ) > -1 ) { return 1; }
+  #~ flips a -1 to a 0 ; so ~something means something > -1
+  if ( ~index( $_[1], $_[2] ) ) { return 1; }
   #geno2 ""
-  if ( index( $geno2, $geno1 ) > -1 ) { return 1; }
+  if ( ~index( $_[2], $_[1] ) ) { return 1; }
 
   #in the case of E, and later maybe H, we may have -{Num} or +{Num}
   #leaving more flexible in case we later do {Num}- or {Num}+, say for neg strand
   #this could be abused however
-  if ( index( $geno1, '-' ) > -1 && index( $geno2, '-' ) > -1 ) { return 1; }
-  if ( index( $geno1, '+' ) > -1 && index( $geno2, '+' ) > -1 ) { return 1; }
+  #check if genotype 1 and genotype 2 are indels
+  #~ flips a -1 to a 0 ; so ~something means something > -1
+  if ( ~index( $_[1], '-' ) && ~index( $_[2], '-' ) ) { return 1; }
+  if ( ~index( $_[1], '+' ) && ~index( $_[2], '+' ) ) { return 1; }
+}
+
+#checks whether a genotype is a compound het
+sub isCompoundHeterozygote {
+  #my ( $self, $iupacGenotype, $referenceBase ) = @_;
+  #$_[1] == $iupacGenotype;
+  #$_[2] == $referenceBase;
+  #~ flips a -1 to a 0 ; so ~something means something > -1
+  say "got $_[1] $_[2]";
+  exit;
+  return ~index($_[0]->iupac->{ $_[1] }, $_[2]) ? 1 : 0;
 }
 no Moose::Role;
 1;
