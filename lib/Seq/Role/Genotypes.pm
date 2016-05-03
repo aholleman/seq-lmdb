@@ -163,9 +163,7 @@ sub isCompoundHeterozygote {
   #$_[1] == $iupacGenotype;
   #$_[2] == $referenceBase;
   #~ flips a -1 to a 0 ; so ~something means something > -1
-  say "got $_[1] $_[2]";
-  exit;
-  return ~index($_[0]->iupac->{ $_[1] }, $_[2]) ? 1 : 0;
+  return !~index($_[0]->iupac->{ $_[1] }, $_[2]);
 }
 no Moose::Role;
 1;

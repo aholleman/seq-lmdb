@@ -211,6 +211,7 @@ tracks:
     - protAcc
     - description
     - rfamAcc
+    - name
   local_files:
     - hg19.refGene.chr1.txt
     - hg19.refGene.chr2.txt

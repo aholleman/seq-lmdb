@@ -506,11 +506,9 @@ sub _minor_allele_carriers {
     #same as $self->isHet($id_geno)
     if ( $_[0]->isHet($id_geno) ) {
       $het_ids_str .= "$_;"; #same as .= "$id;";
-      say "calling is heterozygous";
+
       if( $_[0]->isCompoundHeterozygote($id_geno, $_[4] ) ) {
         $compounds_ids_str .= "$_;";
-
-        say "$id_geno is compound het because ref is $_[4]";
       }
     } elsif ( $_[0]->isHomo($id_geno) ) {
       $hom_ids_str .= "$_;";

@@ -1,5 +1,8 @@
 package Seq::Role::ProcessFile;
-
+#TODO: when printing, also print out Types, whose index changes whether it's 
+#v1 or v2
+#and make it flexible enough to work with even snpfiles whose first 5-6 fields
+#are out of order
 our $VERSION = '0.001';
 
 # ABSTRACT: A role for processing snp files
@@ -125,8 +128,8 @@ has _reqHeaderFields => (
 #See: $self->proc_line
 sub _build_input_headers {
   return {
-    snp_1 => [qw/ Fragment Position Reference Type Minor_allele /],
-    snp_2 => [qw/ Fragment Position Reference Type Alleles Allele_Counts /],
+    snp_1 => [qw/ Fragment Position Reference Minor_allele Type /],
+    snp_2 => [qw/ Fragment Position Reference Alleles Allele_Counts Type/],
   };
 }
 
