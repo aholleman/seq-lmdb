@@ -36,6 +36,7 @@ our $VERSION = '0.001';
 Used in:
 
 =for :list
+
 * Seq::Build:
 * Seq::Config::SparseTrack
     The base class for building, annotating sparse track features.
@@ -50,7 +51,8 @@ use Moose 2;
 use namespace::autoclean;
 
 use Parallel::ForkManager;
-use List::MoreUtils::XS qw(firstidx);
+
+use List::Util qw/min/;
 
 use Seq::Tracks::Gene::Build::TX;
 use DDP;
@@ -58,55 +60,34 @@ use DDP;
 extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::Definition', 'Seq::Tracks::Gene::Definition';
 
+# This builder is a bit different. We're going to store not only data in the
+# main, genome-wide database (which has sparse stuff)
+# but also a special sparse database, the region database
+# for this, we need
+
+
 #what the chromosome field name is in the source file
 #know that we would need to update the ucscGeneAref as well
 has chrFieldName => (is => 'ro', lazy => 1, default => 'chrom' );
+has transcriptStartFieldName => (is => 'ro', lazy => 1, default => 'txStart' );
 
-#this is a hardcoded track for which we don't really expect the user
-#to know to specify features they want in the region database
-#so let's give them a sensible default
-#not storing chrom because we store the region per-chr below
-#And we can't do this inside of a role unfortunately
+#give the user some sensible defaults, in case they don't specify anything
+#by default we exclude exonStarts and exonEnds
+#because they're long, and there's little reason to store anything other than
+#naming info in the region database, since we use starts and ends for site-specific stuff
 has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
 );
 
-#just the stuff meant for the region database, by default we exclude exonStarts and exonEnds
-#because they're long, and there's little reason to store anything other than
-#naming info in the region database, since we use starts and ends for site-specific stuff
+#note, if the user chooses to specify features, but doesn't include whatever
+#the Build::TX class needs, they'll get an ugly message, and that's just ok
+#because they need to know :)
 
 #unlike original GeneTrack, don't remap names
 #I think it's easier to refer to UCSC gene naming convention
 #Rather than implement our own.
 #unfortunately, sources tell me that you can't augment attributes inside 
 #of moose roles, so done here
-
-#I don't think this will work, around BUILDARGS may not
-#get the default value in its href
-# has '+features' => (
-#   init_arg => undef,
-#   default => sub{ my $self = shift; return $self->featureOverride },
-# );
-
-# has '+required_fields' => (
-#   init_arg => undef,
-#   default => sub{ my $self = shift; return $self->requiredFieldOverride },
-# );
-
-#Gene tracks are a bit weird, even compared to region tracks
-#so we need to store things a bit differently
-# before BUILDARGS => sub {
-#   my ($orig, $class, $href) = @_;
-#   $href->{required_fields} = $Seq::Tracks::Region::Gene::Definition::reqFields;
-#   $href->{features} = $Seq::Tracks::Region::Gene::Definition::featureFields;
-#   $class->$orig($href);
-# }
-
-# This builder is a bit different. We're going to store not only data in the
-# main, genome-wide database (which has sparse stuff)
-# but also a special sparse database, the region database
-# for this, we need
-
 #NOTE: each site can have one or more codons and one or more transcript references
 #(we expect to always have the same number of each, but don't currently expliclty check for this)
 #This means that when moving to Golang, need to use a type that is either
@@ -126,19 +107,31 @@ sub buildTrack {
       my %regionData;
       my %perSiteData;
       
+      #lets map, for each chromosome the transcript start, and the transcript number
+      my %perChromosomeTranscriptStarts;
+
       my $wantedChr;
       
       my $txNumber = 0; # this is what our key will be in the region track
       #track how many region track records we've collected
       #to gauge when to bulk insert
       my $regionCount = 0; 
+
+      #We will be inserting two fields into every single site that is covered
+      #by a gene
+      my $regionReferenceDbFieldName = $self->getFieldDbName($self->regionReferenceFeatureName);
+      my $siteFeatureDbFieldName = $self->getFieldDbName($self->siteFeatureName);
+
+      #we'll also store a nearest gene field ($self->nearestGeneFeatureName)
+      #but that's done at the end
+      #because we can never quite be sure we've gotten all genes, for all 
+      #chromosomes, until the very end
+
       FH_LOOP: while (<$fh>) {
         chomp $_;
         my @fields = split("\t", $_);
 
         if($. == 1) {
-          
-          
           my $fieldIdx = 0;
 
           #now store all the features, in the hopes that we have enough
@@ -244,6 +237,16 @@ sub buildTrack {
           
           $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
         }
+
+        my $txStart = $allDataHref->{$self->transcriptStartFieldName};
+        
+        if(!$txStart) {
+          $self->log('fatal', 'Missing transcript start ( we expected a value @ ' .
+            $self->transcriptStartFieldName . ')');
+        }
+
+        $perChromosomeTranscriptStarts{$wantedChr}{$txStart} = $txNumber;
+
         # The responsibility of this BUILD class, as a superset of the Region build class
         # Is to
         # 1) Store a reference to the corresponding entry in the gene database (region database)
@@ -293,12 +296,12 @@ sub buildTrack {
             #to save on space
             #the reference to the region database entry
             #Region tracks also do this, so we get the name from Region::Definition
-            $self->getFieldDbName($self->regionReferenceFeatureName) => $txNumber,
+            $regionReferenceDbFieldName => $txNumber,
             #every detail related to the gene that is specific to that site in the ref
             #like codon sequence, codon number, codon position,
             #strand also stored here, but only for convenience
             #could be taken out later to save space
-            $self->getFieldDbName($self->siteFeatureName) => $txInfo->getTranscriptSite($pos),
+            $siteFeatureDbFieldName => $txInfo->getTranscriptSite($pos),
           };
 
           if(defined $perSiteData{$wantedChr}->{$pos} ) {
@@ -347,9 +350,11 @@ sub buildTrack {
       for my $chr (keys %perSiteData) {
         my $accumDataHref;
         my $accumCount;
+
         for my $pos (keys %{ $perSiteData{$chr} } ) {
           $accumDataHref->{$pos} = $self->prepareData( $perSiteData{$chr}{$pos} );
           $accumCount++;
+          
           if($accumCount > $self->commitEvery) {
             $self->dbPatchBulk($chr, $accumDataHref);
             $accumDataHref = {};
@@ -362,10 +367,50 @@ sub buildTrack {
         }
       }
 
+      $self->makeNearestGenesForRequestedChromosomes(perSiteData, $allGeneDataHref);
+
     $pm->finish;
   }
   $pm->wait_all_children;
 }
 
+#Find all of the nearest genes
+#Obviously completely dependent 
+sub makeNearestGenesForRequestedChromosomes {
+  my ($self, $perSiteData, $allGeneDataHref) = @_;
+
+  my $ngFeatureName = $self->nearestGeneFeatureName;
+  #$perSiteData holds everything that has been covered
+  for my $chr (keys %$allGeneDataHref) {
+    my $dbEntries = $self->dbGetNumberOfEntries($chr);
+
+    #coveredGenes is either one, or an array
+    my @allTranscriptStarts = grep { $_->{txStart} > $position } sort { 
+      $a->{txStart} <=> $b->{txStart} 
+    } keys %{ $allGeneDataHref{$chr} };
+
+    my $count = 0;
+    my %out;
+    for(my $i = 0; $i < $dbEntries; $i++ ) {
+      if($count > $self->commitEvery) {
+        $self->dbPatchBulk($chr, \%out);
+        %out = ();
+      }
+  
+      #assign in list context, so only the first result of the grep
+      #will be stored;
+      ( $out{$pos}->{$ngFeatureName} ) = $allGeneDataHref{$chr}-> {
+        grep { $_ > $pos } @allTranscriptStarts
+      };
+
+      $count++;
+    }
+  }
+  
+  say "possible genos are";
+  p @possibleGenos;
+
+  return min @possibleGnos;
+}
 __PACKAGE__->meta->make_immutable;
 1;

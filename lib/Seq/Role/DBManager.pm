@@ -118,20 +118,21 @@ sub _getDbi {
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
-      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC,
+      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC
       maxreaders => 1000,
       maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
   my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
- 
-  my $DB = $self->_openDB($txn);
+  
+  my $DB = $txn->OpenDB();
+  $DB->ReadMode(1);
 
   #unfortunately if we close the transaction, cursors stop working
   #a limitation of the current API
   $txn->commit(); #now db is open
 
-  my $status = $envs->{$name}->stat;
+  #my $status = $envs->{$name}->stat;
 
   $dbis->{$name} = {
     env => $envs->{$name},
@@ -141,16 +142,18 @@ sub _getDbi {
   return $dbis->{$name};
 }
 
-sub _openDB {
-  my ($self, $txn) = @_;
+# I think this is too simple to warrant a function,
+# also only used in 2 places, above and in readAll (readAll open may go away)
+# sub _openDB {
+#  # my ($self, $txn) = @_;
+#  # 
+#   my $DB = $txn->OpenDB();
 
-  my $DB = $txn->OpenDB();
+#   #by doing this, we get zero-copy db reads (we take the data from memory)
+#   $DB->ReadMode(1);
 
-  #by doing this, we get zero-copy db reads (we take the data from memory)
-  $DB->ReadMode(1);
-
-  return $DB;
-}
+#   return $DB;
+# }
 
 #We could use the static method; not sure which is faster
 #But goal is to make sure we treat strings that look like integers as integers
@@ -180,44 +183,28 @@ $mp->prefer_integer(); #treat "1" as an integer, save more space
 #To save time, I just re-assign $posAref
 #However that proved annoying in practice
 sub dbRead {
-  my ($self, $chr, $posAref, $noSort) = @_;
-
-  my $db = $self->_getDbi($chr);
+  #my ($self, $chr, $posAref) = @_;
+  #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
+  my $db = $_[0]->_getDbi($_[1]);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  #don't modify the original reference
-  #this also allows us to seamlessly allow for a scalar $posAref,
-  #ex: the user calls $self->dbRead('someChr', 200)
-  #this doesn't work for getting a new reference: \@$posAref
-  #because we really want a new array
-  my $oAref = !ref $posAref ? [$posAref] : [@$posAref];
-    
-  #sort only if numeric, and only if the array is longer than 1
-  #assumes that if the first item is numeric so are the rest
-  #TODO: this assumption could get us into trouble
-  if (!$noSort && @$oAref > 1 && looks_like_number($oAref->[0] ) ) {
-    #carries less than a .2s penalty for sorting 1M records (for already in order records)
-    $oAref = xsort($oAref);
-  }
-
+  my @out;
+  my $json;
   #modify $oAref in place, to save one array assignment;
-  for my $pos (@$oAref ) {
-    my $json;
+  for my $pos (ref  $_[2] ? @{ $_[2] } : [ $_[2] ] ) {
     $txn->get($dbi, $pos, $json);
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-        $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
+        $_[0]->log('warn', "LMDB get error" . $LMDB_File::last_err);
       }
 
-      # if there's nothing, modify the item  in the array to reflect that
-      # but don't shorten the array; user expects info for every $pos
-      undef $pos;
+      #we return exactly the # of items, and order, given to us
+      #but 
+      push @out, undef;
       next;
     }
-    #perl always gives us a reference to the item in the array
-    #so we can just re-assign it
-    $pos = $mp->unpack($json);
+    push @out, $mp->unpack($json);
   }
   $txn->commit();
 
@@ -225,7 +212,7 @@ sub dbRead {
   $LMDB_File::last_err = 0;
 
   #will return a single value if we were passed one value
-  return @$oAref == 1 ? $oAref->[0] : $oAref;
+  return @out == 1 ? $out[0] : \@out;
 }
 
 #$pos can be any string, identifies a key within the kv database
@@ -255,9 +242,6 @@ sub dbPatch {
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
   }
-
-  #reset the calls error variable, to avoid crazy error reporting later
-  $LMDB_File::last_err = 0;
     
   #If we have data, unpack it to get the hash ref treats
   #And then replace the old data with $dataHref
@@ -287,6 +271,9 @@ sub dbPatch {
     #_[3] == $dataHref, but the actual reference to it
     $_[3] = $href;
   }
+  
+  #reset the calls error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
   
   #Then write the new data
   #re-use the stack for efficiency
@@ -438,22 +425,65 @@ sub dbWriteCleanCopy {
 }
 
 #TODO: check if this works
-sub dbReadLength {
+sub dbGetNumberOfEntries {
   my ( $self, $chr ) = @_;
 
-  my $db = $self->_getDbi($chr);
-
-  return $db->{env}->stat->{entries};
+  return $self->_getDbi($chr)->{env}->stat->{entries};
 }
 
 #if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]
 #but we don't always expect keys to be numeric
 #and am not certain this is meaningfully slower
 #only difference is overhead for checking whether txn is alive in LMDB_File
-sub dbReadAll {
-  my ( $self, $chr ) = @_;
 
-  my $db = $self->_getDbi($chr);
+#TODO: Not sure which is faster, the cursor version or the numerical one
+
+# sub dbReadAll {
+#   my ( $self, $chr ) = @_;
+
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   #unfortunately if we close the transaction, cursors stop working
+#   #a limitation of the current API
+#   #and since dbi wouldn't be available to the rest of this package unless
+#   #that transaction was comitted
+#   #we need to re-open the database for dbReadAll transactions
+#   #my $DB = $self->_openDB($txn);
+#   #my $cursor = $DB->Cursor;
+
+#   my ($key, %out, $json);
+
+#   #assumes all keys are numeric
+#   $key = 0;
+#   while(1) {
+#     $txn->get($dbi, $key, $json);
+#     #because this error is generated right after the get
+#     #we want to capture it before the next iteration 
+#     #hence this is not inside while( )
+#     if($LMDB_File::last_err == MDB_NOTFOUND) {
+#       last;
+#     }
+#     #perl always gives us a reference to the item in the array
+#     #so we can just re-assign it
+#     $out{$key} = $mp->unpack($json);
+#     $key++
+#   }
+#     #$cursor->get($key, $value, MDB_NEXT);
+      
+#   $txn->commit();
+#   #reset the class error variable, to avoid crazy error reporting later
+#   $LMDB_File::last_err = 0;
+
+#   return \%out;
+# }
+
+#cursor version
+sub dbReadAll {
+  #my ( $self, $chr ) = @_;
+  #==   $_[0]   $_[1]
+  my $db = $_[0]->_getDbi($_[1]);
 
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -462,7 +492,11 @@ sub dbReadAll {
   #and since dbi wouldn't be available to the rest of this package unless
   #that transaction was comitted
   #we need to re-open the database for dbReadAll transactions
-  my $DB = $self->_openDB($txn);
+  my $DB = $txn->OpenDB();
+  #https://metacpan.org/pod/LMDB_File
+  #avoids memory copy on get operation
+  $DB->ReadMode(1);
+
   my $cursor = $DB->Cursor;
 
   my ($key, $value, %out);
@@ -477,7 +511,7 @@ sub dbReadAll {
     }
 
     if($LMDB_FILE::last_err) {
-      $self->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+      $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
         $LMDB_FILE::last_err );
       next;
     }

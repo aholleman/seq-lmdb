@@ -81,15 +81,9 @@ override 'BUILD' => sub {
 
   super();
 
-  $self->addFeaturesToTrackHeaders([$self->allSiteKeys, $regionTypeKey], $self->name);
+  $self->addFeaturesToTrackHeaders([$self->allSiteKeys, 
+    $regionTypeKey, $self->nearestGeneFeatureName], $self->name);
 };
-
-#In order to get from gene track, we  need to get the values from
-#the region track portion as well as from the main database
-#we'll cache the region track portion to avoid wasting time
-my $geneTrackRegionDataHref;
-
-my $codonUnpacker = Seq::Tracks::Gene::Site->new();
 
 #we simply replace the get method from Seq::Tracks:Get
 #because we also need to get ther region portion
@@ -101,6 +95,8 @@ sub get {
   if(ref $href eq 'ARRAY') {
     goto &getBulk; #should just jump to the inherited getBulk method
   }
+
+  state $codonUnpacker = Seq::Tracks::Gene::Site->new();
 
   #this is what we have at a site in the main db
   my $geneData = $href->{$self->dbName};
@@ -170,6 +166,11 @@ sub get {
     $out{$regionTypeKey} = $regionTypes->[1];
   }
 
+  #In order to get from gene track, we  need to get the values from
+  #the region track portion as well as from the main database
+  #we'll cache the region track portion to avoid wasting time
+  state $geneTrackRegionDataHref = {};
+
   #Now get all of the region stuff
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
@@ -178,19 +179,13 @@ sub get {
   #we expect either a single number or an array ref
   if (!ref $geneRegionNumberRef) {
     $geneRegionNumberRef = [$geneRegionNumberRef];
-  }
-
-  if (ref $geneRegionNumberRef ne 'ARRAY') {
+  } elsif (ref $geneRegionNumberRef ne 'ARRAY') {
     $self->log('fatal', 'gene region number expected to be number or array, got ' .
       ref $geneRegionNumberRef);
   }
 
   #will die if there was a different ref passed
-  my @geneData;
-  
-  for my $geneRegionNumber (@$geneRegionNumberRef) {
-    push @geneData, $geneTrackRegionDataHref->{$chr}->{$geneRegionNumber}->{$self->dbName};
-  }
+  my @geneData = map { $geneTrackRegionDataHref->{$chr}->{$_}->{$self->dbName} } @$geneRegionNumberRef;
   
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file

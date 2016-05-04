@@ -8,8 +8,6 @@ package Seq::Tracks::Get;
 our $VERSION = '0.001';
 
 use Moose 2;
-use DDP;
-use List::Util qw/first/;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Tracks::Headers';

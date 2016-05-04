@@ -6,7 +6,11 @@ package Seq::Tracks::Gene::Definition;
 use Moose::Role 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
 
+#these are two features that are used in the main database
 has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
+has nearestGeneFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'ngene');
+
+#these is features used in the region database
 has geneTrackRegionDatabaseTXerrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
 
 #some default fields, some of which are required
