@@ -281,8 +281,9 @@ sub annotateLines {
         $sampleIdsAref, $snpFields[2] ) ];
 
     #therefore input data will have
-    #$snpFields[1] expected to be the position
-    push @positions, $snpFields[1];
+    #$snpFields[1] expected to be the relative position
+    #we store everything 0-indexed, so substract 1
+    push @positions, $snpFields[1] - 1;
 
   }
 
@@ -317,7 +318,12 @@ sub finishAnnotatingLines {
 
   my @trackGetters = $self->getAllTrackGetters();
   #@$dataFromDBaRef == @$dataFromInputAref
-  for (my $i = 0; $i < @$dataFromDbAref; $i++) {
+  for (my $i = 0; $i < @$dataFromInputAref; $i++) {
+    if(!$dataFromDbAref->[$i] ) {
+      $self->log('fatal', "$chr: " . $dataFromInputAref->[$i][1] . " not found.
+        You may have chosen the wrong assembly");
+    }
+
     push @$outAref, { map { $_->name => $_->get($dataFromDbAref->[$i], $chr) } @trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
