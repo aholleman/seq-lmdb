@@ -11,6 +11,7 @@ our $VERSION = '0.001';
 
 use Moose 2;
 use DDP;
+use List::MoreUtils qw/first_index/;
 #specifies the allowed track types, and feature types
 with 'Seq::Tracks::Base::Types',
 'Seq::Role::DBManager';
@@ -74,6 +75,23 @@ has _featureDataTypes => (
   },
 );
 
+#We allow a "nearest" property to be defined for any tracks
+#Although it won't make sense for some (like reference)
+#We could move it elsewhere, but the only track that can't use this
+#Is the reference track, so I believe it belongs here
+#It is a property that, when set, may have 0 or more features
+has nearest => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  handles => {
+    noNearestFeatures => 'is_empty',
+    allNearestFeatureNames => 'elements',
+  },
+  lazy => 1,
+  default => sub{ [] },
+);
+
 #we could explicitly check for whether a hash was passed
 #but not doing so just means the program will crash and burn if they don't
 #note that by not shifting we're implying that the user is submitting an href
@@ -84,10 +102,11 @@ around BUILDARGS => sub {
 
   #don't mutate the input data
   my %data = %$dataHref;
+
   if(ref $data{name} eq 'HASH') {
     ( $data{name}, $data{_dbName} ) = %{ $data{name} };
   }
-  
+
   if(! defined $data{features} ) {
     return $class->$orig(\%data);
   }
@@ -115,6 +134,21 @@ around BUILDARGS => sub {
   }
   $data{features} = \@featureLabels;
 
+  if( defined $data{nearest} ) {
+    if( ref $data{nearest} ne 'ARRAY' || !@{ $data{nearest} } ) {
+      $class->log('fatal', 'Cannot set "nearest" property without providing 
+       an array of feature names');
+    }
+    
+    for my $nearestFeatureName (@{ $data{nearest} } ) {
+      #~ takes a -1 and makes it a 0
+      if(! ~first_index{ $_ eq $nearestFeatureName } @ { $data{features} } ) {
+        $class->log('fatal', "$nearestFeatureName, which you've defined under 
+          the nearest property, doesn't exist in the list of $data{name} 'feature' 
+          properties");
+      }
+    }
+  }
   #now do the same for required_fields, if specified
   #This is currently not implemented
   #The only goal here is to allow people to tell Seqant what their source file

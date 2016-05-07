@@ -16,6 +16,8 @@ package Seq::Tracks::Gene::Build;
 
 our $VERSION = '0.001';
 
+#TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
+
 # ABSTRACT: Builds Gene Tracks 
     # Takes care of gene_db, transcript_db, and ngene from the previous Seqant version
 
@@ -52,7 +54,7 @@ use namespace::autoclean;
 
 use Parallel::ForkManager;
 
-use List::Util qw/min/;
+use List::Util qw/min first/;
 
 use Seq::Tracks::Gene::Build::TX;
 use DDP;
@@ -214,7 +216,7 @@ sub buildTrack {
         #but we also need to keep track of the rest, to calculate 
         #position-dependent features for the main database
 
-        if($regionCount >= $self->commitEvery) {
+        if($regionCount >= $self->commitEvery && %regionData) {
           $self->dbPatchBulk($self->regionTrackPath($wantedChr), \%regionData);
 
           $regionCount = 0;
@@ -367,7 +369,11 @@ sub buildTrack {
         }
       }
 
-      $self->makeNearestGenesForRequestedChromosomes(perSiteData, $allGeneDataHref);
+      # %perChromosomeTranscriptStarts will empty if chr wasn't the requested one
+      # and we're using one file per chr
+      if(%perChromosomeTranscriptStarts && !$self->noNearestFeatures) {
+        $self->makeNearestGenes( \%perChromosomeTranscriptStarts );
+      }
 
     $pm->finish;
   }
@@ -376,41 +382,109 @@ sub buildTrack {
 
 #Find all of the nearest genes
 #Obviously completely dependent 
-sub makeNearestGenesForRequestedChromosomes {
-  my ($self, $perSiteData, $allGeneDataHref) = @_;
+#Note: all UCSC refGene data is 0-based
+#http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
+sub makeNearestGenes {
+  my ($self, $perChromosomeTranscriptStarts) = @_;
 
-  my $ngFeatureName = $self->nearestGeneFeatureName;
+  say "starting nearest build";
+  my $ngFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
   #$perSiteData holds everything that has been covered
-  for my $chr (keys %$allGeneDataHref) {
+  for my $chr (keys %$perChromosomeTranscriptStarts) {
+    #length of the database
+    #assumes that the database is built, using reference track
+    #TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
     my $dbEntries = $self->dbGetNumberOfEntries($chr);
 
     #coveredGenes is either one, or an array
-    my @allTranscriptStarts = grep { $_->{txStart} > $position } sort { 
-      $a->{txStart} <=> $b->{txStart} 
-    } keys %{ $allGeneDataHref{$chr} };
-
+    my @allTranscriptStarts = sort {
+      $a <=> $b
+    } keys %{ $perChromosomeTranscriptStarts->{$chr} };
+  
     my $count = 0;
     my %out;
-    for(my $i = 0; $i < $dbEntries; $i++ ) {
-      if($count > $self->commitEvery) {
-        $self->dbPatchBulk($chr, \%out);
-        %out = ();
-      }
-  
-      #assign in list context, so only the first result of the grep
-      #will be stored;
-      ( $out{$pos}->{$ngFeatureName} ) = $allGeneDataHref{$chr}-> {
-        grep { $_ > $pos } @allTranscriptStarts
-      };
+    my $i = 0;
+    for my $txStart (@allTranscriptStarts) {
+      my $txNumber = $perChromosomeTranscriptStarts->{$chr}->{$txStart};
+      my $txData = $self->prepareData( { $ngFeatureDbName => $txNumber } );
+      # say "txData is";
+      # p $txData;
+      for(my $y = $i; $y < $txStart; $y++) {
 
-      $count++;
+        if($count >= $self->commitEvery && %out) {
+          # say "if we had been inserting we would have inserted";
+          # p %out;
+          $self->dbPatchBulk($chr, \%out);
+          %out = ();
+          $count = 0;
+        }
+
+        $out{$y} = $txData;
+
+        $count++;
+      }
+
+      #once we're in one transcript, the nearest is the next closest transcript
+      #so let's start with the current txStart as our new baseline position
+      $i = $txStart;
+    }
+
+    #leftovers
+    if(%out) {
+      # say "if we had been inserting we would have inserted";
+      # p %out;
+      $self->dbPatchBulk($chr, \%out);
     }
   }
-  
-  say "possible genos are";
-  p @possibleGenos;
-
-  return min @possibleGnos;
 }
 __PACKAGE__->meta->make_immutable;
 1;
+
+
+#TODO: Try to make sites work as array refs instead of packed values
+ # So from the TX class, we can get this data, and it is stored
+        # # and fetched by that class. We don't need to know exactly how it's stored
+        # # but for our amusement, it's packed into a single string
+        # POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
+        #   my $dataHref = {
+        #     #remember, we always insert some very short name in the database
+        #     #to save on space
+        #     #the reference to the region database entry
+        #     #Region tracks also do this, so we get the name from Region::Definition
+        #     $regionReferenceDbFieldName => $txNumber,
+        #     #every detail related to the gene that is specific to that site in the ref
+        #     #like codon sequence, codon number, codon position,
+        #     #strand also stored here, but only for convenience
+        #     #could be taken out later to save space
+        #     #stored as an array; this is worse from separation of concerns
+        #     #but I believe it will result in better fetch performance
+        #     $siteFeatureDbFieldName => $txInfo->getTranscriptSite($pos),
+        #   };
+
+        #   if(defined $perSiteData{$wantedChr}->{$pos} ) {
+        #     for my $key (keys %$dataHref) {
+        #       if(defined $perSiteData{$wantedChr}->{$pos}{$key} ) {
+        #         #$perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
+
+        #         #say "key is $key";
+        #         if(!ref $perSiteData{$wantedChr}->{$pos}{$key}) {
+        #           $perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
+        #         } 
+        #         if($key eq $siteFeatureDbFieldName) {
+        #           push @{$perSiteData{$wantedChr}->{$pos}{$key}}, @{$dataHref->{$key}};
+        #         } else {
+        #           push @ { $perSiteData{$wantedChr}->{$pos}{$key} }, $dataHref->{$key};
+        #         }
+                
+        #         # if(!ref $dataHref->{$key} eq 'ARRAY') {
+        #         #   $dataHref->{$key} = [$dataHref->{$key}];
+        #         # } 
+
+                
+
+        #       } else {
+        #         $perSiteData{$wantedChr}->{$pos}{$key} = $dataHref->{$key};
+        #       }
+        #       say "after multiple position, now we have";
+        #          p $perSiteData{$wantedChr}->{$pos};
+        #     }

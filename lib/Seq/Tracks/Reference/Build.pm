@@ -91,7 +91,7 @@ sub buildTrack{
 
           if(!$chr) {
             #should die after error, return is just to indicate intention
-            return $self->log('error', 'Require chr in fasta file headers');
+            $self->log('fatal', 'Require chr in fasta file headers');
           }
 
           if ($wantedChr && $wantedChr eq $chr) {
@@ -103,15 +103,12 @@ sub buildTrack{
             #so let's write whatever we have for the previous chr
             $self->dbPatchBulk($wantedChr, \%data );
 
-            say "chr $chr does not equal $wantedChr" if $self->debug;
+            #since this is new, let's reset our data and count
+            #we've already updated the chrPosition above
+            %data = ();
+            $count = 0;
           }
 
-          #since this is new, let's reset our data and count
-          #we've already updated the chrPosition above
-          %data = ();
-          $count = 0;
-          
-          #chr is new and wanted
           #this allows us to use a single fasta file as well
           #although in the current setup, using such a file will prevent
           #forking use (since we read the file in the fork)
@@ -119,6 +116,12 @@ sub buildTrack{
           if ( $self->chrIsWanted($chr) ) {
             $wantedChr = $chr;
             next;
+          }
+
+          #if we're expecting one chr per file, no need to read through the
+          #rest of the file if we don't want the current header chr
+          if ( $chrPerFile ) {
+            last FH_LOOP; 
           }
 
           # chr isn't wanted if we got here
@@ -129,12 +132,6 @@ sub buildTrack{
 
           #restart chrPosition count at 0, since we're storing 0 indexed pos
           $chrPosition = $based;
-
-          #if we're expecting one chr per file, no need to read through the
-          #rest of the file if we don't want the current header chr
-          if ( $chrPerFile ) {
-            last FH_LOOP; 
-          }
         }
 
         #don't die if no wanted chr; could be some harmless mistake
@@ -179,7 +176,7 @@ sub buildTrack{
       #we're done with the input file, 
       if( %data ) {
         if(!$wantedChr) { #sanity check, 'error' log dies
-         return $self->log('error', "@ end of $file, but no wantedChr and data");
+         return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
 
         #and we could still have some data to write

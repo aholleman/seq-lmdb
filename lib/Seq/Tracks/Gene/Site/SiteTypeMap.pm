@@ -5,7 +5,43 @@ use warnings;
 package Seq::Tracks::Gene::Site::SiteTypeMap;
 
 use Moose::Role 2;
-with 'Seq::Site::Definition';
+use Moose::Util::TypeConstraints;
+use DDP;
+# define allowable types
+# not at the moment exposing these publicly, no real need
+state $codingSite = 'Coding';
+has codingSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$codingSite} );
+state $fivePrimeSite = '5UTR';
+has fivePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$fivePrimeSite} );
+state $threePrimeSite = '3UTR';
+has threePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$threePrimeSite} );
+state $spliceAcSite = 'Splice Acceptor';
+has spliceAcSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceAcSite} );
+state $spliceDonSite = 'Splice Donor';
+has spliceDonSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceDonSite} );
+state $ncRNAsite = 'non-coding RNA';
+has ncRNAsiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$ncRNAsite} );
+
+# #Coding type always first; order of interest
+state $siteTypes = [$codingSite, $fivePrimeSite, $threePrimeSite,
+  $spliceAcSite, $spliceDonSite, $ncRNAsite];
+
+# #public
+has siteTypes => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  handles => {
+    allSiteTypes => 'elements',
+    getSiteType => 'get',
+  },
+  lazy => 1,
+  init_arg => undef,
+  default => sub{$siteTypes},
+);
+
+# #public
+enum GeneSiteType => $siteTypes;
 
 has nonCodingBase => (
   is => 'ro',
@@ -69,21 +105,18 @@ has siteTypeMap => (
 );
 
 sub _buildSiteTypeMap {
-  state $mapHref;
-  if($mapHref) {
-    return $mapHref;
-  }
-
   my $self = shift;
 
-  return {
-    $self->nonCodingBase => $self->ncRNAsiteType,
-    $self->codingBase => $self->codingSiteType,
-    $self->fivePrimeBase => $self->fivePrimeSiteType,
-    $self->threePrimeBase => $self->threePrimeSiteType,
-    $self->spliceAcBase => $self->spliceAcSiteType,
-    $self->spliceDonBase => $self->spliceDonSiteType,
+  state $mapHref = {
+    $self->nonCodingBase => $ncRNAsite,
+    $self->codingBase => $codingSite,
+    $self->fivePrimeBase => $fivePrimeSite,
+    $self->threePrimeBase => $threePrimeSite,
+    $self->spliceAcBase => $spliceAcSite,
+    $self->spliceDonBase => $spliceDonSite,
   };
+
+  return $mapHref;
 }
 
 #takes a GeneSite value and returns a number, matching the _siteTypeMap key
@@ -100,27 +133,11 @@ has siteTypeMapInverse => (
 );
 
 sub _buildSiteTypeMapInverse {
-  state $mapInverse;
-  if($mapInverse) {
-    return $mapInverse;
-  }
-
   my $self = shift;
 
-  my $href;
-  for my $num (keys %{$self->siteTypeMap} ) {
-    $href->{ $self->siteTypeMap->{$num} } = $num;
-  }
+  state $inverse =  { map { $self->siteTypeMap->{$_} => $_ } keys %{$self->siteTypeMap} };
 
-  return $href;
-  # return { 
-  #   $self->ncRNAsiteType => 0,
-  #   $self->codingSiteType => 1,
-  #   $self->threePrimeSiteType => 2,
-  #   $self->fivePrimeSiteType => 3,
-  #   $self->spliceAcSite => 4,
-  #   $self->spliceDoSite => 5,
-  # }
+  return $inverse;
 }
 
 has exonicSites => (
@@ -133,11 +150,7 @@ has exonicSites => (
     isExonicSite => 'exists',
   },
   default => sub {
-    my $self = shift;
-    my %hash = map { $_ => 1 } ($self->codingSiteType, $self->ncRNAsiteType,
-      $self->fivePrimeSiteType, $self->threePrimeSiteType);
-
-    return \%hash;
+    return { map { $_ => 1 } ($codingSite, $ncRNAsite, $fivePrimeSite, $threePrimeSite) };
   },
 );
 

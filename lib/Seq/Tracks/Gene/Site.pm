@@ -14,9 +14,37 @@ use List::Util qw/first/;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
 
-with 'Seq::Tracks::Gene::Site::SiteTypeMap', 
-'Seq::Tracks::Gene::Site::SiteKeys',
+with 'Seq::Tracks::Gene::Site::SiteTypeMap',
+'Seq::Tracks::Gene::Site::CodonMap',
+#exports strandTypes
+'Seq::Site::Definition',
 'Seq::Role::Message';
+
+
+state $siteTypeKey = 'siteType';
+state $strandKey = 'strand';
+state $codonNumberKey = 'codonNumber';
+state $codonPositionKey = 'codonPosition';
+state $codonSequenceKey = 'codon';
+state $peptideKey = 'aminoAcid';
+
+has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
+# Not exposing at the moment because not used anywhere
+# has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
+# has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
+# has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
+# has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
+# has peptideKey => (is => 'ro', init_arg => undef, lazy => 1, default => $peptideKey);
+
+#the reason I'm not calling self here, is like in most other packages I'm writing
+#trying to stay away from use of moose methods for items declared within the package
+#it adds overhead, and absolutely no clearity imo
+#Moose should be used for the public facing API
+sub allSiteKeys {
+  return ($siteTypeKey, $strandKey, $codonNumberKey,
+    $codonPositionKey, $codonSequenceKey, $peptideKey);
+}
+state $numSiteKeys = 6;
 
 #To save performance, we support arrays, making this a bit like a full TX
 #writer, but on a site by site basis
@@ -42,6 +70,8 @@ state $missingNumber = -9; #some default value that is less than 0, which is a v
 #   return $outHref;
 # }
 
+# Check all arguments carefully, so that at Get time, we won't have issues
+# (unless database is corrupted, then we want things to fail early)
 sub packCodon {
   my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
@@ -50,7 +80,7 @@ sub packCodon {
     $self->log('fatal', 'packCodon requires site type');
   } elsif(! first { $_ eq $strand } $self->allStrandTypes ) {
     $self->log('fatal', 'strand must be of StrandType');
-  }
+  } 
 
   my $siteTypeNum = $self->getSiteTypeNum( $siteType );
 
@@ -71,13 +101,34 @@ sub packCodon {
     $self->log('fatal', 'codon sequence requires codonPosition or codonNumber');
   }
 
+  my $codonSeqNumber;
+
+  if(defined $codonSeq) {
+    $codonSeqNumber = $self->codon2Num($codonSeq);
+
+    # say "codon2SeqNumber is ";
+    # p $codonSeqNumber;
+    
+    if(!$codonSeqNumber) {
+      die 'couldn\'t convert codon sequence $codonSeq to a number';
+      $self->log('fatal', "couldn\'t convert codon sequence $codonSeq to a number");
+    }
+  }
+
+  #  say "codonSeqNumber is $codonSeqNumber";
+  # say "codon number is $codonNumber";
+  # say "codon position is $codonPosition";
+
+  #return [$siteTypeNum, $strand, $codonNumber, $codonPosition, $codonSeqNumber];
+  #no longer doing this, benefit is minimal; messagepack will already
+  #do something similar, so it's almost processing the same info twice
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
   #https://ideone.com/TFGjte
-  return pack('cAlcAAA', $siteTypeNum, $strand,
+  return pack('cAlcc', $siteTypeNum, $strand,
     defined $codonNumber ? $codonNumber : $missingNumber,
     defined $codonPosition ? $codonPosition : $missingNumber,
-    defined $codonSeq ? split ('', $codonSeq) : ('','','') );
+    defined $codonSeqNumber ? $codonSeqNumber : $missingNumber);
 }
 
 #Purpose of the following functions is to internally store the unpacked
@@ -102,43 +153,57 @@ sub packCodon {
 #anything thta isn't present is given a key => undef pair
 #storing outside the sub to allow other (future) methods to grab data from it
 #and since it won't be public, won't use moose to expose it
-my $unpackedCodonHref;
 sub unpackCodon {
-  #my ($self, $codonStr) = @_;
+  #my ($self, $codoAref) = @_;
   #$codonStr == $_[1] 
   #may be called a lot, so not using arg assignment
-  #https://ideone.com/TFGjte
-  my @unpackedCodon = $_[1] ? unpack('cAlcAAA', $_[1]) : ();
-
-  $unpackedCodonHref->{$_[0]->siteTypeKey} = 
-    defined $unpackedCodon[0] ? $_[0]->getSiteTypeFromNum($unpackedCodon[0]) : undef;
-
-  $unpackedCodonHref->{$_[0]->strandKey} = $unpackedCodon[1];
-
-  #For codonNumber and codonPosition need to check whether > $missingNumber
-  $unpackedCodonHref->{$_[0]->codonNumberKey} = defined $unpackedCodon[2] && 
-   $unpackedCodon[2] > $missingNumber ? $unpackedCodon[2] : undef;
-
-  $unpackedCodonHref->{$_[0]->codonPositionKey} = defined $unpackedCodon[3] && 
-   $unpackedCodon[3] > $missingNumber ? $unpackedCodon[3] : undef;
-
-  my $unpackedCodonSeq = $unpackedCodon[4] ? join('', @unpackedCodon[4..6] ) : undef;
-
-  #https://ideone.com/dVy6WL
-  $unpackedCodonHref->{$_[0]->codonSequenceKey} = $unpackedCodonSeq;
-    
-  $unpackedCodonHref->{$_[0]->peptideKey} = $unpackedCodonSeq ? 
-    $_[0]->codon2aa($unpackedCodonSeq) : undef;
-
-  return $unpackedCodonHref;
+  #Old version relied on pack/unpack, here are some informal tests:
+   #https://ideone.com/TFGjte
+    #https://ideone.com/dVy6WL
+    #my @unpackedCodon = $_[1] ? unpack('cAlcAAA', $_[1]) : (); 
+    #etc
+  # if(@{ $_[1] } > $numSiteKeys) {
+  #   goto &_unpackCodonBulk;
+  # }
+  my @codon = unpack('cAlcc', $_[1]);
+  return {
+    $siteTypeKey => defined $codon[0] ? $_[0]->getSiteTypeFromNum($codon[0]) : undef,
+    $strandKey => $codon[1],
+    $codonNumberKey => $codon[2] > $missingNumber ? $codon[2] : undef,
+    $codonPositionKey => $codon[3] > $missingNumber ? $codon[3] : undef,
+    $peptideKey => $codon[4] > $missingNumber ? $_[0]->codon2aa( $_[0]->num2Codon( $codon[4] ) ) : undef
+  };
 }
+
+# sub _unpackCodonBulk {
+#   #my ($self, $codoAref) = @_;
+#   #$codonStr == $_[1] 
+#   #may be called a lot, so not using arg assignment
+#   #Old version relied on pack/unpack, here are some informal tests:
+#    #https://ideone.com/TFGjte
+#     #https://ideone.com/dVy6WL
+#     #my @unpackedCodon = $_[1] ? unpack('cAlcAAA', $_[1]) : (); 
+#     #etc
+
+#   for(my $i)
+
+#   return {
+#     $siteTypeKey => defined $_[1]->[0] ? $_[0]->getSiteTypeFromNum($_[1]->[0]) : undef,
+#     $strandKey => $_[1]->[1],
+#     $codonNumberKey => $_[1]->[2],
+#     $codonPositionKey => $_[1]->[3],
+#     $peptideKey => defined $_[1]->[4] ? $_[0]->codon2aa( $_[0]->num2Codon($_[1]->[4]) ) : undef
+#   }
+# }
 
 #save some computation by not shifting $self (and storing deconv as simple array ref)
 #in all the below $_[0] is $self
 #not assigning to $self because may be called millions - a billion times
-# sub getCodonSiteType {
-#   return $unpackedCodonHref->{$_[0]->siteTypeKey};
-# }
+sub getSiteTypeFromCodon {
+  #my ($self, $unpackedCodon) = @_;
+  #     $_[0],  $_[1]
+  return $_[1]->{$siteTypeKey};
+}
 
 # sub getCodonStrand {
 #   return $unpackedCodonHref->{$_[0]->strandKey};

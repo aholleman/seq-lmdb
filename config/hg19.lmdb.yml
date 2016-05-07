@@ -212,6 +212,9 @@ tracks:
     - description
     - rfamAcc
     - name
+  nearest:
+    - name
+    - geneSymbol
   local_files:
     - hg19.refGene.chr1.txt
     - hg19.refGene.chr2.txt

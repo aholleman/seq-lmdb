@@ -6,8 +6,10 @@ package Seq::Tracks::Build;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A base class for track classes
+# ABSTRACT: A base class for Tracks::*:BUILD classes
 # VERSION
+
+#TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
 
 use Moose 2;
 use namespace::autoclean;

@@ -191,8 +191,20 @@ sub dbRead {
 
   my @out;
   my $json;
-  #modify $oAref in place, to save one array assignment;
-  for my $pos (ref  $_[2] ? @{ $_[2] } : [ $_[2] ] ) {
+
+  #will return a single value if we were passed one value
+  if(!ref $_[2] ) {
+    $txn->get($dbi, $_[2], $json);
+    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+      $_[0]->log('warn', "LMDB get error" . $LMDB_File::last_err);
+    }
+    $txn->commit();
+    $LMDB_File::last_err = 0;
+    return $json ? $mp->unpack($json) : undef;
+  }
+
+  #or an array of values, in order
+  for my $pos ( @{ $_[2] } ) {
     $txn->get($dbi, $pos, $json);
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
@@ -212,7 +224,7 @@ sub dbRead {
   $LMDB_File::last_err = 0;
 
   #will return a single value if we were passed one value
-  return @out == 1 ? $out[0] : \@out;
+  return \@out;
 }
 
 #$pos can be any string, identifies a key within the kv database
@@ -266,6 +278,30 @@ sub dbPatch {
     }
     
     # else we want to overwrite
+    # We take one of two very simple approaches
+    # The first: At one feature ID, both things are hashes
+    # In this case merge them, with right-hand precedence
+    # Imagine:
+    # gene: {
+    #  ref: 0,
+    #  site: 1,
+    #}
+    # gene: {
+    #   ref: [0, 1, 2],
+    #   ngene: 0,
+    # }
+    #result:
+    #gene: {
+    #   ref: [0, 1, 2],
+    #   ngene: 0,
+    #   site: 1,
+    # }
+    # https://ideone.com/SBbfYV
+    if(ref $href->{$featureID} eq 'HASH' && ref $dataHref->{$featureID} eq 'HASH') {
+      $href->{$featureID} = { $href->{$featureID}, $dataHref->{$featureID} };
+    }
+    #For everything else, it's really simple: we just replace whatever is at the feature ID
+    #in the database with the new stuff 
     $href->{$featureID} = $dataHref->{$featureID};
     #update the stack copy of data to include everything found at the pos (key)
     #_[3] == $dataHref, but the actual reference to it
@@ -319,7 +355,32 @@ sub dbPatchBulk {
 
           next;
         }
-      } # else we want to overwrite
+      } 
+      # else we want to overwrite
+      # We take one of two very simple approaches
+      # The first: At one feature ID, both things are hashes
+      # In this case merge them, with right-hand precedence
+      # Imagine:
+      # gene: {
+      #  ref: 0,
+      #  site: 1,
+      #}
+      # gene: {
+      #   ref: [0, 1, 2],
+      #   ngene: 0,
+      # }
+      #result:
+      #gene: {
+      #   ref: [0, 1, 2],
+      #   ngene: 0,
+      #   site: 1,
+      # }
+      # https://ideone.com/SBbfYV
+      if(ref $href->{$featureID} eq 'HASH' && ref $posHref->{$pos}{$featureID} eq 'HASH') {
+        $href->{$featureID} = { $href->{$featureID}, $posHref->{$pos}{$featureID} };
+      }
+      #For everything else, it's really simple: we just replace whatever is at the feature ID
+      #in the database with the new stuff 
       $href->{$featureID} = $posHref->{$pos}{$featureID};
       #update the stack data to include everything found at the key
       #this allows us to reuse the stack in a goto,

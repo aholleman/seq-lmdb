@@ -25,10 +25,13 @@ use Moose 2;
 
 #we have pre-configured reference track in this
 use Seq::Tracks::SingletonTracks;
+use Seq::Tracks::Gene::Site;
 
 with 'Seq::Role::Message',
-#all of the site types we can use
+#exports the strand type
 'Seq::Site::Definition',
+#exports the siteTypes
+'Seq::Tracks::Gene::Site::SiteTypeMap',
 'Seq::Role::DBManager';
 
 use namespace::autoclean;
@@ -40,7 +43,8 @@ use Seq::Tracks::Gene::Site;
 
 #how many bases away from exon bound we will call spliceAc or spliceDon site
 state $spliceSiteLength = 6;
-
+#placeholder for annotation in string
+state $annBase = '0';
 # has features of a gene and will run through the sequence
 # build features will be implmented in Seq::Build::Gene that can build GeneSite
 # objects
@@ -124,29 +128,15 @@ has strand => (
   required => 1,
 );
 ##End required arguments
+#purely for debug
+has name => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
 
+##End requ
 ###private
-has _geneSite => (
-  is => 'ro',
-  isa => 'Seq::Tracks::Gene::Site',
-  handles => {    
-    packCodon => 'packCodon',
-  },
-  init_arg => undef,
-  default => sub { Seq::Tracks::Gene::Site->new() },
-);
-
-has _trackBuildersAndGetters => (
-  is => 'ro',
-  isa => 'Seq::Tracks::SingletonTracks',
-  handles => {
-    getRefTrackGetter => 'getRefTrackGetter',
-  },
-  lazy => 1,
-  init_arg => undef,
-  default => sub { Seq::Tracks::SingletonTracks->new() },
-);
-
 has debug => (
   is => 'ro',
   isa => 'Int',
@@ -170,8 +160,13 @@ sub BUILD {
   my $self = shift;
 
   #seeds transcriptSequence and transcriptPositions
-  my ($seq, $seqPosMapAref, $errorsAref) = $self->_buildTranscript();
+  my ($seq, $seqPosMapAref) = $self->_buildTranscript();
 
+  my $txAnnotationHref = $self->_buildTranscriptAnnotation();
+
+  # say "txAnnotationHref";
+  # p $txAnnotationHref;
+  my $errorsAref = $self->_buildTranscriptErrors($seq, $seqPosMapAref, $txAnnotationHref);
   #if errors warn; some transcripts will be malformed
   #we could pass an array reference to log, but let's give some additional 
   #context
@@ -182,7 +177,6 @@ sub BUILD {
     $self->log('warn', $error);  
   }
 
-  my $txAnnotationHref = $self->_buildTranscriptAnnotation();
   #We no longer strictly need to set 'abs_pos' for each exon_end
   #We *could* subtract $based from each position, but skipping for now because
   #it seems unlikely that we'll start accepting 1-based gene tracks
@@ -214,7 +208,9 @@ sub _buildTranscript {
 
   my (@sequencePositions, $txSequence);
 
-  my $refTrack = $self->getRefTrackGetter();
+  state $tracks = Seq::Tracks::SingletonTracks->new();
+
+  my $refTrack = $tracks->getRefTrackGetter();
 
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
@@ -280,11 +276,13 @@ sub _buildTranscript {
     $txSequence =~ tr/ACGT/TGCA/;
     #reverse the positions, just as done in _build_transcript_abs_position
     @sequencePositions = reverse @sequencePositions;
-  }
+  } 
 
-  my $errorsAref = $self->_buildTranscriptErrors($txSequence, \@sequencePositions);
+  
+  return ($txSequence, \@sequencePositions); 
 
-  return ($txSequence, \@sequencePositions, $errorsAref);
+  #now in buildTranscriptAnnotation
+  #my $errorsAref = $self->_buildTranscriptErrors($txSequence, \@sequencePositions);
 }
 
 sub _buildTranscriptAnnotation {
@@ -304,10 +302,11 @@ sub _buildTranscriptAnnotation {
   my $txAnnotationHref;
   #First generated the non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
-    RANGE_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
+    UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
       if($nonCoding) {
         $txAnnotationHref->{$exonPos} = $self->ncRNAsiteType;
-        next RANGE_LOOP;
+
+        next UTR_LOOP;
       }
 
       #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
@@ -318,16 +317,17 @@ sub _buildTranscriptAnnotation {
           #not 5'UTR,3'UTR, or non-coding
           #we've alraedy gotten the ref base at this position in $seq
           #so skip this pos
-          next; 
-        }
+          next UTR_LOOP;
+        }  
         #if we're before cds start, but in an exon we must be in the 5' UTR
         $txAnnotationHref->{$exonPos} = $posStrand ? $self->fivePrimeSiteType 
           : $self->threePrimeSiteType;
-        next;
-      }
+
+        next UTR_LOOP;
+       } 
       #if we're after cds end, but in an exon we must be in the 3' UTR
       $txAnnotationHref->{$exonPos} = $posStrand ? $self->threePrimeSiteType 
-        : $self->fivePrimeSiteType;
+        : $self->fivePrimeSiteType;      
     }
 
     # Annotate splice donor/acceptor bp
@@ -346,26 +346,49 @@ sub _buildTranscriptAnnotation {
     #  DNR                                %%%                  %%%
     #
 
+    #Compared to the "Seq" codebase written completely by Dr. Wingo: 
+    #The only change to the logic that I have made, is to add a bit of logic
+    #to check for cases when our splice donor / acceptor sites 
+    #as calculated by a the use of $spliceSiteLength, which is set to 6
+    #actually overlap either the previous exonEnd, or the next exonStart
+    #and are therefore inside of a coding sequence.
+    #Dr. Wingo's original solution was completely correct, because it also 
+    #assumed that downstream someone was smart enough to intersect 
+    #coding sequences and splice site annotations, and keep the coding sequence
+    #in any overlap
+
     #TODO: should we check if start + n is past end? or >= end - $n
-    for ( my $n = 1; $n <= $spliceSiteLength; $n++ ) {
+    SPLICE_LOOP: for ( my $n = 1; $n <= $spliceSiteLength; $n++ ) {
       my $exonPos = $exonStarts[$i] - $n;
-      if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
+      if ( $exonPos > $codingStart && $exonPos < $codingEnd 
+      #This last condition to prevent splice acceptors for being called in
+      #coding sites for weirdly tight transcripts
+      # >= because EEnd (exonEnds) are open range, aka their actual number is not 
+      #to be included, it's 1 past the last base of that exon
+      && $exonPos >= $exonEnds[$i-1] ) {
         $txAnnotationHref->{$exonPos} = $posStrand ? $self->spliceAcSiteType : 
           $self->spliceDonSiteType;
-        next;
+        next SPLICE_LOOP;
       }
 
       #inserting into a string https://ideone.com/LlAbeE
-      #TODO: why aren't we checking <= $codingEnd? I thought codingEnd was closed range
-      $exonPos = $exonStarts[$i] + $n - 1;
+      $exonPos = $exonEnds[$i] + $n - 1;
       if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
+        #This last condition to prevent splice acceptors for being called in
+        #coding sites for weirdly tight transcripts
+        if( defined $exonStarts[$i+1] && $exonPos >= $exonStarts[$i+1] ) {
+          next SPLICE_LOOP;
+        }
         $txAnnotationHref->{$exonPos} = $posStrand ? 
           $self->spliceDonSiteType : $self->spliceAcSiteType;
       }
     }
   }
 
+  #my $errorsAref = $self->_buildTranscriptErrors($txSequence, $txAnnotationHref);
+
   return $txAnnotationHref;
+  #return ($txAnnotationHref, $errorsAref);
 }
 
 #TODO: double check that this works properly
@@ -376,6 +399,7 @@ sub _buildTranscriptSites {
   my @exonStarts       = $self->allExonStarts;
   my @exonEnds         = $self->allExonEnds;
 
+  state $codonPacker = Seq::Tracks::Gene::Site->new();
   # we build up our site annotations in 2 steps
   # 1st record everything as if it were a coding sequence
   # then we overwrite those entries if there were other annotations associated
@@ -401,17 +425,7 @@ sub _buildTranscriptSites {
     #get the genomic position
     my $chrPos = $seqPosMapAref->[$i];
 
-    #not that we could store codons for annotated sites (which are everything 
-    # but coding sites)
-    # however not doing this here to keep logic compat with old codebase
-    # note that this also means that as before, codons are only counted for
-    # non-UTR, non-splice site, non-noncoding bases, which generally makes sense
-    # but could seem problematic if we allow multiple annotations at one site
-    # (say Coding and "Uber deleterious")
-    # or if we make a mistake with our annotation logic and over-write
-    # a true coding site. For this last reason I'm hesitant to use this logic
-    # but cannot see a better way
-    if(exists $tempTXsites{$chrPos} ) {
+    if(defined $tempTXsites{$chrPos} ) {
       next CODING_LOOP;
     }
 
@@ -421,6 +435,7 @@ sub _buildTranscriptSites {
     # We check the base composition (ATCG) to make sure no oddiities slipped by
     # At this point, any remaining sites should be in the coding region
     # Since we've accounted for non-coding, UTR, and ~ splice sites
+
     if ( substr($txSequence, $i, 1) =~ m/[ACGT]/ ) {
       #the codon number ; POSIX::floor safer than casting int for rounding
       #but we just want to truncate; http://perldoc.perl.org/functions/int.html
@@ -436,7 +451,6 @@ sub _buildTranscriptSites {
         #TODO: account for messed up transcripts that are truncated
         #$referenceCodonSeq .= $self->getTranscriptBases( $j, 1 );
       #}
-      #https://ideone.com/lDRULc
       $codonSeq = substr( $txSequence, $codonStart, 3 );
 
       $siteType = $self->codingSiteType;
@@ -448,7 +462,8 @@ sub _buildTranscriptSites {
       next CODING_LOOP;
     }
 
-    $self->log('warn', substr($txSequence, $i, 1) . "at $chrPos not A|T|C|G");
+    $self->log('warn', substr($txSequence, $i, 1) . "at $chrPos in transcript "
+      . $self->name . " not A|T|C|G");
   }
 
   #At this point, we have all of the codon information stored.
@@ -460,7 +475,7 @@ sub _buildTranscriptSites {
     #this was "$self->add_transcript_site($site)"
     # passing args in list context 
     # https://ideone.com/By1GDW
-    my $site = $self->packCodon( @{$tempTXsites{$chrPos} } );
+    my $site = $codonPacker->packCodon( @{$tempTXsites{$chrPos} } );
 
     #this transcript sites are keyed on reference position
     #this is similar to what was done with Seq::Site::Gene before
@@ -474,8 +489,9 @@ sub _buildTranscriptSites {
 #   3. Ends with stop codon
 sub _buildTranscriptErrors {
   my $self = shift;
-  my $exonSeq =  shift;
-  my $exonPosAref = shift;
+  my $seq =  shift;
+  my $seqPosAref = shift;
+  my $transcriptAnnotationHref = shift;
 
   state $atgRe = qr/\AATG/; #starts with ATG
   state $stopCodonRe = qr/(TAA|TAG|TGA)\Z/; #ends with a stop codon
@@ -489,11 +505,53 @@ sub _buildTranscriptErrors {
   
   #I now see why Thomas replaced bases in the exon seq with 5 and 3
   my $codingSeq;
-  for(my $i = 0; $i < length($exonSeq); $i++) {
-    if($exonPosAref->[$i] < $self->cdsStart || $exonPosAref->[$i] >= $self->cdsEnd) {
+  for(my $i = 0; $i < length($seq); $i++) {
+    if(defined $transcriptAnnotationHref->{ $seqPosAref->[$i] } ) {
       next;
     }
-    $codingSeq .= substr($exonSeq, $i, 1);
+    $codingSeq .= substr($seq, $i, 1);
+  }
+
+  my $codingSeq2;
+  for(my $i = 0; $i < length($seq); $i++) {
+    if($seqPosAref->[$i] >= $self->cdsStart && $seqPosAref->[$i] < $self->cdsEnd) {
+      $codingSeq2 .= substr($seq, $i, 1);
+    }
+  }
+
+  if($codingSeq ne $codingSeq2) {
+    if($self->debug) {
+      say "condingSeq ne codingSeq2";
+      say "coding seq is: ";
+      p $codingSeq;
+      say "coding seq length: ";
+      my $length = length($codingSeq);
+      p $length;
+      say "coding seq 2 is: ";
+      p $codingSeq2;
+      say "coding seq 2 length: ";
+      $length = length($codingSeq2);
+      p $length;
+      say "name of transcript:";
+      p $self->name;
+      say "strand is";
+      p $self->strand;
+      
+      my $numSpliceStuff = 0;
+      for my $pos (keys %$transcriptAnnotationHref) {
+        if($transcriptAnnotationHref->{$pos} eq $self->spliceAcSiteType || 
+          $transcriptAnnotationHref->{$pos} eq $self->spliceDonSiteType) {
+          $numSpliceStuff++;
+        }
+      }
+
+      say "difference in length: " . (length($codingSeq) - length($codingSeq2) );
+      say "number of splice things: $numSpliceStuff";
+      say "can be explained by splice things?: " . 
+        (length($codingSeq) - length($codingSeq2) ) eq $numSpliceStuff ? "Yes" : "No";
+    }
+    
+    push @errors, 'coding sequence calcualted by exclusion of annotated sites not equal to the one built from exon position intersection with coding sequence';
   }
 
   if ( length($codingSeq) % 3 ) {

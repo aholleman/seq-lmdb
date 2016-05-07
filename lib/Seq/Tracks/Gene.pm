@@ -53,7 +53,6 @@ with 'Seq::Tracks::Region::Definition',
 #siteFeatureName
 'Seq::Tracks::Gene::Definition',
 #site feature keys
-'Seq::Tracks::Gene::Site::SiteKeys',
 #dbReadAll
 'Seq::Role::DBManager';
 
@@ -71,6 +70,10 @@ with 'Seq::Tracks::Region::Definition',
 state $regionTypes = ['Intergenic', 'Intronic', 'Exonic'];
 state $regionTypeKey = 'regionType';
 
+state $nearestGeneSubTrackName = 'nearest';
+
+state $siteUnpacker = Seq::Tracks::Gene::Site->new();
+
 #these are really the "region database" features
 has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
@@ -81,8 +84,14 @@ override 'BUILD' => sub {
 
   super();
 
-  $self->addFeaturesToTrackHeaders([$self->allSiteKeys, 
-    $regionTypeKey, $self->nearestGeneFeatureName], $self->name);
+  $self->addFeaturesToTrackHeaders([$siteUnpacker->allSiteKeys, 
+    $regionTypeKey], $self->name);
+
+  my @nearestFeatureNames = $self->allFeatureNames;
+  if(@nearestFeatureNames) {
+    $self->addFeaturesToTrackHeaders( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
+      $self->name);
+  }
 };
 
 #we simply replace the get method from Seq::Tracks:Get
@@ -96,13 +105,41 @@ sub get {
     goto &getBulk; #should just jump to the inherited getBulk method
   }
 
-  state $codonUnpacker = Seq::Tracks::Gene::Site->new();
+  state $nearestFeatureNames = $self->nearest;
+  #In order to get from gene track, we  need to get the values from
+  #the region track portion as well as from the main database
+  #we'll cache the region track portion to avoid wasting time
+  state $geneTrackRegionDataHref = {};
+
+  #Now get all of the region stuff
+  if(!defined $geneTrackRegionDataHref->{$chr} ) {
+    $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
+  }
+
 
   #this is what we have at a site in the main db
   my $geneData = $href->{$self->dbName};
 
+  say "href is";
+  p $href;
+  
+  say "geneData is";
+  p $geneData;
   my %out;
 
+  #a single position may
+  if(@$nearestFeatureNames) {
+    state $nearestGeneFeatureName = $self->nearestGeneFeatureName;
+    state $nearestGeneFeatureDbName = $self->getFieldDbName($nearestGeneFeatureName);
+    state $nearestGeneReference = $geneData->{$nearestGeneFeatureDbName};
+
+    say "nearest gene name is $nearestGeneFeatureName, and the db name is $nearestGeneFeatureDbName";
+    say "nearestGeneReference is $nearestGeneReference";
+    foreach (@$nearestFeatureNames) {
+      $out{"$nearestGeneSubTrackName"} = $geneTrackRegionDataHref->{$chr}->{$nearestGeneReference}
+       ->{$nearestGeneFeatureDbName}->{ $self->getFieldDbName($_) };
+    }
+  }
   #a single position may cover one or more sites
   #we expect either a single value (href in this case) or an array of them
   my $siteDetailsRef = $geneData->{$self->getFieldDbName($self->siteFeatureName) };
@@ -121,18 +158,8 @@ sub get {
     return \%out;
   }
 
-  #first let's get the site details
-  if(!ref $siteDetailsRef) {
-    $siteDetailsRef = [$siteDetailsRef];
-  }
-
-  if (!ref $siteDetailsRef eq 'ARRAY') {
-    $self->log('fatal', 'site details expected to be number or array, got ' .
-      ref $siteDetailsRef);
-  }
-
-  for my $siteDetail (@$siteDetailsRef) {
-    my $siteDetailsHref = $codonUnpacker->unpackCodon($siteDetail);
+  for my $siteDetail (ref $siteDetailsRef ? @$siteDetailsRef : ($siteDetailsRef) ) {
+    my $siteDetailsHref = $siteUnpacker->unpackCodon($siteDetail);
 
     for my $key (keys %$siteDetailsHref) {
       if(exists $out{$key} ) {
@@ -148,17 +175,17 @@ sub get {
   
   #Now check if it's Exonic, Intronic, or Intergenice
   #If we ever see a coding site, that is exonic
-  if( !ref $out{$self->siteTypeKey} ) {
+  if( !ref $out{$siteUnpacker->siteTypeKey} ) {
     #if it's a single site, just need to know if it's coding or not
-    if( $codonUnpacker->isExonicSite( $out{$self->siteTypeKey} ) ) {
+    if( $siteUnpacker->isExonicSite( $out{$siteUnpacker->siteTypeKey} ) ) {
       $out{$regionTypeKey} = $regionTypes->[2];
     } else {
       $out{$regionTypeKey} = $regionTypes->[1];
     }
   } else {
     #if it's an array, then let's check all of our site types
-    REGION_FL: foreach(@{ $out{$self->siteTypeKey}  } ) {
-      if( $codonUnpacker->isExonicSite($_) ) {
+    REGION_FL: foreach(@{ $out{$siteUnpacker->siteTypeKey}  } ) {
+      if( $siteUnpacker->isExonicSite($_) ) {
         $out{$regionTypeKey} = $regionTypes->[2];
         last REGION_FL;
       }
@@ -166,26 +193,14 @@ sub get {
     $out{$regionTypeKey} = $regionTypes->[1];
   }
 
-  #In order to get from gene track, we  need to get the values from
-  #the region track portion as well as from the main database
-  #we'll cache the region track portion to avoid wasting time
-  state $geneTrackRegionDataHref = {};
-
-  #Now get all of the region stuff
-  if(!defined $geneTrackRegionDataHref->{$chr} ) {
-    $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
-  }
-
-  #we expect either a single number or an array ref
-  if (!ref $geneRegionNumberRef) {
-    $geneRegionNumberRef = [$geneRegionNumberRef];
-  } elsif (ref $geneRegionNumberRef ne 'ARRAY') {
-    $self->log('fatal', 'gene region number expected to be number or array, got ' .
-      ref $geneRegionNumberRef);
-  }
-
   #will die if there was a different ref passed
-  my @geneData = map { $geneTrackRegionDataHref->{$chr}->{$_}->{$self->dbName} } @$geneRegionNumberRef;
+  my $regionDataAref;
+  if(ref $geneRegionNumberRef) {
+    $regionDataAref = [ map { $geneTrackRegionDataHref->{$chr}->{$_}->{$self->dbName} }
+      @$geneRegionNumberRef ];
+  } else {
+    $regionDataAref = [ $geneTrackRegionDataHref->{$chr}->{$geneRegionNumberRef}->{$self->dbName} ];
+  }
   
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
@@ -194,7 +209,7 @@ sub get {
   #also, if no features specified, then just get all of them
   #better too much than too little
   for my $featureName ($self->allFeatureNames) {
-    INNER: for my $geneDataHref (@geneData) {
+    INNER: for my $geneDataHref (@$regionDataAref) {
       if(defined $out{$featureName} ) {
         if(!ref $out{$featureName} || ref $out{$featureName} ne 'ARRAY') {
           $out{$featureName} = [ $out{$featureName} ];
