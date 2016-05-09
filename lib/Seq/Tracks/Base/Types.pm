@@ -16,7 +16,10 @@ use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
 
 #What the types must be called in the config file
-state $refType = 'ref';
+# TODO: build these track maps automatically
+# by title casing the "type" field
+# And therefore maybe don't use these at all.
+state $refType = 'reference';
 has refType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$refType});
 
 state $scoreType = 'score';
@@ -31,8 +34,11 @@ has regionType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$reg
 state $geneType = 'gene';
 has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneType});
 
+state $caddType = 'cadd';
+has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$caddType});
 
-enum TrackType => [$refType, $scoreType, $sparseType, $regionType, $geneType];
+
+enum TrackType => [$refType, $scoreType, $sparseType, $regionType, $geneType, $caddType];
 
 #Convert types; Could move the conversion code elsewehre,
 #but I wanted types definition close to implementation

@@ -385,7 +385,9 @@ sub dbPatchBulk {
       #update the stack data to include everything found at the key
       #this allows us to reuse the stack in a goto,
       $posHref->{$pos} = $href;
-      
+        
+      say "after trying to overwrite, we have";
+      p $href;
       #deep merge is much more robust, but I'm worried about performance, so trying alternative
       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
       next;

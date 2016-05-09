@@ -49,12 +49,14 @@ use Seq::Tracks::Score;
 use Seq::Tracks::Sparse;
 use Seq::Tracks::Region;
 use Seq::Tracks::Gene;
+use Seq::Tracks::Cadd;
 
 use Seq::Tracks::Reference::Build;
 use Seq::Tracks::Score::Build;
 use Seq::Tracks::Sparse::Build;
 use Seq::Tracks::Region::Build;
 use Seq::Tracks::Gene::Build;
+use Seq::Tracks::Cadd::Build;
 
 #Public, accessble
 state $trackBuilders; 
@@ -212,55 +214,6 @@ sub getRefTrackGetter {
   return $self->trackGettersByType->{$self->refType}[0];
 }
 
-#private
-has _trackMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getDataTrackClass => 'get',
-  },
-  init_arg => undef,
-  builder => '_buildTrackMap',
-  lazy => 1,
-);
-
-sub _buildTrackMap {
-  my $self = shift;
-
-  return {
-    $self->refType => 'Seq::Tracks::Reference',
-    $self->scoreType => 'Seq::Tracks::Score',
-    $self->sparseType => 'Seq::Tracks::Sparse',
-    $self->regionType => 'Seq::Tracks::Region',
-    $self->geneType => 'Seq::Tracks::Gene',
-  }
-};
-
-has _builderMap => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getBuilderTrackClass => 'get',
-  },
-  init_arg => undef,
-  builder => '_buildTrackBuilderMap',
-  lazy => 1,
-);
-
-sub _buildTrackBuilderMap {
-  my $self = shift;
-
-  return {
-    $self->refType => 'Seq::Tracks::Reference::Build',
-    $self->scoreType => 'Seq::Tracks::Score::Build',
-    $self->sparseType => 'Seq::Tracks::Sparse::Build',
-    $self->regionType => 'Seq::Tracks::Region::Build',
-    $self->geneType => 'Seq::Tracks::Gene::Build',
-  }
-};
-
 #private builder methods
 sub _buildTrackGetters {
   my $self = shift;
@@ -273,13 +226,11 @@ sub _buildTrackGetters {
   my @trackOrder;
   for my $trackHref (@{$self->tracks}) {
     #get the trackClass
-    my $trackClass = $self->getDataTrackClass($trackHref->{type} );
-    if(!$trackClass) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
-      next;
-    }
+    my $trackFileName = $self->_toTrackGetterClass($trackHref->{type} );
+    #class 
+    my $className = $self->_toTrackGetterClass( $trackHref->{type} );
 
-    my $track = $trackClass->new($trackHref);
+    my $track = $className->new($trackHref);
 
     if(exists $trackGetters->{$track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
@@ -316,13 +267,12 @@ sub _buildTrackBuilders {
   }
 
   for my $trackHref (@{$self->tracks}) {
-    my $trackClass = $self->getBuilderTrackClass($trackHref->{type} );
-    if(!$trackClass) {
-      $self->log('warn', "Invalid track type $trackHref->{type}");
-      next;
-    }
+    my $trackFileName = $self->_toTrackBuilderClass($trackHref->{type} );
+    #class 
+    my $className = $self->_toTrackBuilderClass( $trackHref->{type} );
 
-    my $track = $trackClass->new($trackHref);
+    my $track = $className->new($trackHref);
+
     if(exists $trackBuilders->{$track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
@@ -340,6 +290,31 @@ sub _buildTrackBuilders {
   
   $self->_writeTrackBuildersByName($trackBuilders);
   $self->_writeTrackBuildersByType($trackBuildersByType);
+}
+
+sub _toTitleCase {
+  my $self = shift;
+  my $name = shift;
+
+  return uc( substr($name, 0, 1) ) . substr($name, 1, length($name) - 1);
+}
+
+sub _toTrackGetterClass {
+  my $self = shift,
+  my $type = shift;
+
+  my $classNamePart = $self->_toTitleCase($type);
+
+  return "Seq::Tracks::" . $classNamePart;
+}
+
+sub _toTrackBuilderClass{
+  my $self = shift,
+  my $type = shift;
+
+  my $classNamePart = $self->_toTitleCase($type);
+
+  return "Seq::Tracks::" . $classNamePart ."::Build";
 }
 
 __PACKAGE__->meta->make_immutable;

@@ -27,18 +27,13 @@ has name => ( is => 'ro', isa => 'Str', required => 1);
 # has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
 #specifies the way we go from feature name to their database names and back
 #requires name
-with 'Seq::Tracks::Base::MapFieldNames';
+with 'Seq::Tracks::Base::MapFieldNames',
+#maps track names, which are used as to identify track data in the database
+#to some shorter record which is actually stored in the db
+'Seq::Tracks::Base::MapTrackNames';
 
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
-
-#if the user gives us a database name, we can store that as well
-#they would do that by :
-# name: 
-#   someName : someValue
-has _dbName => ( reader => 'dbName', is => 'ro', isa => 'Str', lazy => 1,
-  default => sub { my $self = shift; return $self->name; }
-);
 
 #We allow people to set a feature type for each feature
 #But not all tracks must have a feature
@@ -103,10 +98,6 @@ around BUILDARGS => sub {
   #don't mutate the input data
   my %data = %$dataHref;
 
-  if(ref $data{name} eq 'HASH') {
-    ( $data{name}, $data{_dbName} ) = %{ $data{name} };
-  }
-
   if(! defined $data{features} ) {
     return $class->$orig(\%data);
   }
@@ -149,36 +140,7 @@ around BUILDARGS => sub {
       }
     }
   }
-  #now do the same for required_fields, if specified
-  #This is currently not implemented
-  #The only goal here is to allow people to tell Seqant what their source file
-  #looks like, so that they don't have to manipulate large source file headers
-  #help them avoid using command lilne
-  #However, this is a relatively minor concern; few will be doing this
-    # if( !defined $data{required_fields} ) {
-    #   return $class->$orig($data);
-    # }
-
-    # if( ref $data{required_fields} ne 'ARRAY') {
-    #   $class->log('error', 'required_fields must be array');
-    #   die 'required_fields must be array';
-    # }
-
-    # #we convert the features into a hashRef
-    # # {
-    # #  featureNameAsAppearsInHeader => <Str> (what we store it as)
-    # #}
-    # my %reqFieldLabels;
-    # for my $field (@{$data{required_fields} } ) {
-    #   if (ref $field eq 'HASH') {
-    #     my ($name, $type) = %$field; #Thomas Wingo method
-
-    #     $reqFieldLabels{$name} = $name;
-    #     $data{_requiredFieldDataTypes}{$name} = $type;
-    #   }
-    # }
-    # $data{required_fields} = \%reqFieldLabels;
-
+  
   return $class->$orig(\%data);
 };
 

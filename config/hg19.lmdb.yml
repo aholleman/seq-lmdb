@@ -30,9 +30,8 @@ genome_name: hg19
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:
-- name: 
-    reference: 0
-  type: ref
+- name: reference
+  type: reference
   local_files:
     - chr1.fa.gz
     - chr2.fa.gz
@@ -86,8 +85,7 @@ tracks:
     - chrM.fa.gz
     - chrX.fa.gz
     - chrY.fa.gz
-- name: 
-    phastCons: 1
+- name: phastCons
   type: score
   local_files:
     - chr1.phastCons100way.wigFix.gz
@@ -142,8 +140,7 @@ tracks:
     - chrX.phastCons100way.wigFix.gz
     - chrY.phastCons100way.wigFix.gz
     - chrM.phastCons100way.wigFix.gz
-- name:
-    phyloP: 2
+- name: phyloP
   type: score
   local_files:
     - chr1.phyloP100way.wigFix.gz
@@ -198,8 +195,7 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name:
-    refSeq: 3
+- name: refSeq
   type: gene
   features:
     - kgID
@@ -242,8 +238,7 @@ tracks:
     - hg19.refGene.chrY.txt
   sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
     = hg19.refGene.name
-- name: 
-    snp: 4
+- name: snp142
   type: sparse
   features:
     - name
@@ -284,10 +279,10 @@ tracks:
     - hg19.snp142.chrM.txt
     - hg19.snp142.chrY.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
-# - name: cadd
-#   type: score
-#   local_files:
-#     - hg19.cadd.fixed.gz
-#   remote_dir: NA
-#   remote_files:
-#   - NA
+- name: cadd
+  type: cadd
+  local_files:
+    - hg19.cadd.fixed.gz
+  remote_dir: NA
+  remote_files:
+  - NA
