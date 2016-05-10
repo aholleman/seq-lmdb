@@ -75,7 +75,7 @@ has configfile => (
 
 has overwrite => (
   is          => 'ro',
-  isa         => 'Bool',
+  isa         => 'Int',
   default     => 0,
   required    => 0,
   metaclass => 'Getopt',

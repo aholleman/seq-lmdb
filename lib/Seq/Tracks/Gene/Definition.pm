@@ -8,7 +8,7 @@ use Moose::Role 2;
 
 #these are two features that are used in the main database
 has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
-has nearestGeneFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'ngene');
+has nearestGeneFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
 
 #these is features used in the region database
 has geneTrackRegionDatabaseTXerrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');

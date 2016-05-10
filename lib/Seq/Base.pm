@@ -76,9 +76,9 @@ sub BUILD {
 
   #todo: finisih ;for now we have only one level
   if ( $self->debug) {
-    $self->setLogLevel('debug');
+    #$self->setLogLevel('debug');
   } else {
-    $self->setLogLevel('info');
+    #$self->setLogLevel('info');
   }
 }
 

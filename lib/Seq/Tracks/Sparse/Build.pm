@@ -65,7 +65,16 @@ state $reqFields = [$chrom, $cStart, $cEnd];
 #   $href->{required_fields} = [$chrom, $cStart, $cEnd];
 #   $class->$orig($href);
 # }
+sub BUILD {
+  my $self = shift;
 
+  #do this before starting to buidl, because we could, theoretically,
+  #run into race condition issues between threads trying to map fields
+  #to db names that don't yet exist
+  for my $name (@$reqFields) {
+    $self->getFieldDbName($name);
+  }
+}
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.
 my $pm = Parallel::ForkManager->new(26); 

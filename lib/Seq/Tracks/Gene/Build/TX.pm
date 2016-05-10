@@ -252,9 +252,17 @@ sub _buildTranscript {
     #This doesn't work for some reason.
     #https://ideone.com/1sJC69
     #$txSequence .= reduce { ref $a ? $refTrack->get($a) : $a . $refTrack->get($b) } @$dAref;
-
-    foreach my $href (@$dAref) {
-      $txSequence .= $refTrack->get($href);
+    # say "length is " . scalar @$dAref;
+    # exit;
+    for (my $i = 0; $i < scalar @$dAref; $i++) {
+      my $refBase = $refTrack->get( $dAref->[$i] );
+      
+      if(!$refBase) {
+        $self->log('fatal', "Position $i doesn't exist in our " . $self->chrom . " database."
+         . "\nWe've either selected the wrong assembly," .
+         "\nor haven't built the reference database for this chromosome" );
+      }
+      $txSequence .= $refBase;
     }
     
     # The above replaces this from _build_transcript_db; 

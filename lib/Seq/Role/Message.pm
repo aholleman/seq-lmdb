@@ -20,7 +20,7 @@ use namespace::autoclean;
 #with 'MooX::Role::Logger';
 
 use Cpanel::JSON::XS;
-use DDP;
+use DDP return_value => 'dump';
 #TODO: figure out how to not need peopel to do if $self->debug
 #instead just use noop
 
@@ -152,6 +152,10 @@ sub log {
   #log a bunch of messages, helpful on ocassaion
   if(ref $_[2] eq 'ARRAY') {
     $_[2] = join('; ', @{$_[2]} );
+  }
+
+  if(ref $_[2] eq 'HASH') {
+    $_[2] = p $_[2];
   }
   #interestingly some kind of message bufferring occurs, such that
   #this will actually make it through to the rest of the log function

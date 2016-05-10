@@ -81,6 +81,18 @@ has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
 );
 
+sub BUILD {
+  my $self = shift;
+
+  #normal features are mapped at build time
+  #We have some extras, so make sure those are mapped before we start 
+  #any parallel processing
+
+  $self->getFieldDbName($self->nearestGeneFeatureName);
+  $self->getFieldDbName($self->regionReferenceFeatureName);
+  $self->getFieldDbName($self->siteFeatureName);
+}
+
 #note, if the user chooses to specify features, but doesn't include whatever
 #the Build::TX class needs, they'll get an ugly message, and that's just ok
 #because they need to know :)
@@ -412,9 +424,13 @@ sub makeNearestGenes {
       for(my $y = $i; $y < $txStart; $y++) {
 
         if($count >= $self->commitEvery && %out) {
-          # say "if we had been inserting we would have inserted";
-          # p %out;
-          $self->dbPatchBulk($chr, \%out);
+          if($self->debug) {
+            say "the nearest gene track wants to insert";
+            p %out;
+          }
+          #1 flag to merge whatever is held in the $self->name value in the db
+          #since this is basically a 2nd insertion step
+          $self->dbPatchBulk($chr, \%out, 1);
           %out = ();
           $count = 0;
         }
@@ -433,58 +449,10 @@ sub makeNearestGenes {
     if(%out) {
       # say "if we had been inserting we would have inserted";
       # p %out;
-      $self->dbPatchBulk($chr, \%out);
+      $self->dbPatchBulk($chr, \%out, 1);
     }
   }
 }
 __PACKAGE__->meta->make_immutable;
 1;
 
-
-#TODO: Try to make sites work as array refs instead of packed values
- # So from the TX class, we can get this data, and it is stored
-        # # and fetched by that class. We don't need to know exactly how it's stored
-        # # but for our amusement, it's packed into a single string
-        # POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
-        #   my $dataHref = {
-        #     #remember, we always insert some very short name in the database
-        #     #to save on space
-        #     #the reference to the region database entry
-        #     #Region tracks also do this, so we get the name from Region::Definition
-        #     $regionReferenceDbFieldName => $txNumber,
-        #     #every detail related to the gene that is specific to that site in the ref
-        #     #like codon sequence, codon number, codon position,
-        #     #strand also stored here, but only for convenience
-        #     #could be taken out later to save space
-        #     #stored as an array; this is worse from separation of concerns
-        #     #but I believe it will result in better fetch performance
-        #     $siteFeatureDbFieldName => $txInfo->getTranscriptSite($pos),
-        #   };
-
-        #   if(defined $perSiteData{$wantedChr}->{$pos} ) {
-        #     for my $key (keys %$dataHref) {
-        #       if(defined $perSiteData{$wantedChr}->{$pos}{$key} ) {
-        #         #$perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
-
-        #         #say "key is $key";
-        #         if(!ref $perSiteData{$wantedChr}->{$pos}{$key}) {
-        #           $perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
-        #         } 
-        #         if($key eq $siteFeatureDbFieldName) {
-        #           push @{$perSiteData{$wantedChr}->{$pos}{$key}}, @{$dataHref->{$key}};
-        #         } else {
-        #           push @ { $perSiteData{$wantedChr}->{$pos}{$key} }, $dataHref->{$key};
-        #         }
-                
-        #         # if(!ref $dataHref->{$key} eq 'ARRAY') {
-        #         #   $dataHref->{$key} = [$dataHref->{$key}];
-        #         # } 
-
-                
-
-        #       } else {
-        #         $perSiteData{$wantedChr}->{$pos}{$key} = $dataHref->{$key};
-        #       }
-        #       say "after multiple position, now we have";
-        #          p $perSiteData{$wantedChr}->{$pos};
-        #     }

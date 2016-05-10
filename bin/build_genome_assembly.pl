@@ -65,7 +65,7 @@ my $builder_options_href = {
   wantedChr    => $wantedChr,
   wantedType   => $wantedType,
   wantedName   => $wantedName,
-  overwrite    => $overwrite,
+  overwrite    => $overwrite || 0,
   debug        => $debug,
   logPath      => $logPath,
 };

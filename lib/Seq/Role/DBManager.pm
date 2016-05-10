@@ -38,6 +38,7 @@ use MooseX::Types::Path::Tiny qw/AbsPath/;
 use Sort::XS;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
+use Hash::Merge::Simple qw/ merge /;
 
 #weird error handling in LMDB_FILE for the low level api
 #the most common errors mean nothign bad (ex: not found for get operations)
@@ -84,9 +85,10 @@ has commitEvery => (
   lazy => 1,
 );
 
+#0, 1, 2
 has overwrite => (
   is => 'ro',
-  isa => 'Bool',
+  isa => 'Int',
   default => 0,
   lazy => 1,
 );
@@ -231,7 +233,7 @@ sub dbRead {
 #dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 #i.e some key in the hash found at the key in the kv database
 sub dbPatch {
-  my ( $self, $chr, $pos, $dataHref, $noOverwrite) = @_;
+  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
@@ -243,6 +245,8 @@ sub dbPatch {
 
   my $json; #zero-copy
   my $href;
+
+  my $overwrite = $overrideOverwrite || $self->overwrite;
 
   #First get the old data,
   $txn->get($dbi, $pos, $json);
@@ -268,94 +272,9 @@ sub dbPatch {
     # don't overwrite if the user doesn't want it
     # just mark to skip
     if( defined $href->{$featureID} ) {
-      if(defined $noOverwrite) {
-        if($noOverwrite) {
-          return;
-        }
-      } elsif(!$self->overwrite) {
-        return;
+      if(!$overwrite) {
+        return
       }
-    }
-    
-    # else we want to overwrite
-    # We take one of two very simple approaches
-    # The first: At one feature ID, both things are hashes
-    # In this case merge them, with right-hand precedence
-    # Imagine:
-    # gene: {
-    #  ref: 0,
-    #  site: 1,
-    #}
-    # gene: {
-    #   ref: [0, 1, 2],
-    #   ngene: 0,
-    # }
-    #result:
-    #gene: {
-    #   ref: [0, 1, 2],
-    #   ngene: 0,
-    #   site: 1,
-    # }
-    # https://ideone.com/SBbfYV
-    if(ref $href->{$featureID} eq 'HASH' && ref $dataHref->{$featureID} eq 'HASH') {
-      $href->{$featureID} = { $href->{$featureID}, $dataHref->{$featureID} };
-    }
-    #For everything else, it's really simple: we just replace whatever is at the feature ID
-    #in the database with the new stuff 
-    $href->{$featureID} = $dataHref->{$featureID};
-    #update the stack copy of data to include everything found at the pos (key)
-    #_[3] == $dataHref, but the actual reference to it
-    $_[3] = $href;
-  }
-  
-  #reset the calls error variable, to avoid crazy error reporting later
-  $LMDB_File::last_err = 0;
-  
-  #Then write the new data
-  #re-use the stack for efficiency
-  goto &dbPut;
-}
-
-#expects one track per call ; each posHref should have {pos => {trackName => trackData} }
-sub dbPatchBulk {
-  my ( $self, $chr, $posHref, $noOverwrite) = @_;
-
-  my $db = $self->_getDbi($chr);
-  my $dbi = $db->{dbi};
-  
-  #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-  my $cnt = 0;
-
-  #https://ideone.com/Y0C4tX
-  my $tOverWrite = $noOverwrite ? 0 : ($self->overwrite ? 1 : 0);
-
-  #modifies the stack, but hopefully a smaller change than a full
-  #new stack + function call (look to goto below)
-  $_[3] = xsort([keys %{$posHref} ] );
-  
-  for my $pos (@{$_[3] }) { #want sequential
-    my $json; #zero-copy
-    my $href;
-
-    $txn->get($dbi, $pos, $json);
-
-    if($json) {
-      my ($featureID) = %{$posHref->{$pos} };
-      #can't modify $json, read-only value, from memory map
-      $href = $mp->unpack($json);
-
-      if(!$tOverWrite) {
-        if(defined $href->{$featureID} ) {
-          #since we already have this feature, no need to write it
-          #since we don't want to overwrite
-          #requires us to check if $posHref->{$pos} is defined in 
-          delete $posHref->{$pos};
-
-          next;
-        }
-      } 
       # else we want to overwrite
       # We take one of two very simple approaches
       # The first: At one feature ID, both things are hashes
@@ -376,18 +295,110 @@ sub dbPatchBulk {
       #   site: 1,
       # }
       # https://ideone.com/SBbfYV
-      if(ref $href->{$featureID} eq 'HASH' && ref $posHref->{$pos}{$featureID} eq 'HASH') {
-        $href->{$featureID} = { $href->{$featureID}, $posHref->{$pos}{$featureID} };
+      if($overwrite == 1) {
+        $href = merge $href, $dataHref;
+      } elsif ($overwrite == 2) {
+        $href->{$featureID} = $dataHref->{$featureID};
+      } else {
+        $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
       }
-      #For everything else, it's really simple: we just replace whatever is at the feature ID
-      #in the database with the new stuff 
-      $href->{$featureID} = $posHref->{$pos}{$featureID};
+    } else {
+      $href->{$featureID} = $dataHref->{$featureID};
+    }
+    
+    #update the stack copy of data to include everything found at the pos (key)
+    #_[3] == $dataHref, but the actual reference to it
+    $_[3] = $href;
+  }
+  
+  #reset the calls error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
+  
+  #Then write the new data
+  #re-use the stack for efficiency
+  goto &dbPut;
+}
+
+#expects one track per call ; each posHref should have {pos => {trackName => trackData} }
+#Note::posHref is modified with the representation of the full dataset
+#as found in the db, after merging with the stuff in the database already
+sub dbPatchBulk {
+  #don't modify stack for re-use
+  my ( $self, $chr, $posHref) = @_;
+  #remove from stack to allow us to re-assign $_[3] without read-only errors when
+  #a literal is passed for $overrideOverwrite (ex: dbPatchBulk($chr, $posHref, 1))
+  my $overrideOverwrite = pop;
+
+  my $db = $self->_getDbi($chr);
+  my $dbi = $db->{dbi};
+  
+  #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  my $cnt = 0;
+
+  #https://ideone.com/Y0C4tX
+  #$self->overwrite can take 0, 1, 2
+  my $overwrite = $overrideOverwrite || $self->overwrite;
+
+  #modifies the stack, but hopefully a smaller change than a full
+  #new stack + function call (look to goto below)
+  $_[3] = xsort( [keys %$posHref ] );
+  
+  for my $pos ($_[3]) { #want sequential
+    my $json; #zero-copy
+    my $href;
+
+    $txn->get($dbi, $pos, $json);
+
+    #if json is defined, we modify what $PosHref contains
+    #otherwise, we don't care and goto &putBulk
+    if($json) {
+      my ($featureID) = %{$posHref->{$pos} };
+      #can't modify $json, read-only value, from memory map
+      $href = $mp->unpack($json);
+
+      if(defined $href->{$featureID} ) {
+        if(!$overwrite) {
+          #since we already have this feature, no need to write it
+          #since we don't want to overwrite
+          #requires us to check if $posHref->{$pos} is defined in 
+          delete $posHref->{$pos};
+
+          next;
+        }
+
+        if($self->debug) {
+          say "data we're trying to insert at position $pos is ";
+          p $posHref->{$pos};
+          say "we found at this position";
+          p $href;
+          say "we're intersted in overwriting the feature $featureID";
+        }
+
+        if($overwrite == 1) {
+          $href = merge $href, $posHref->{$pos};
+          next;
+        }
+
+        if($overwrite == 2) {
+          $href->{$featureID} = $posHref->{$pos}{$featureID};
+        }
+      } else {
+        $href->{$featureID} = $posHref->{$pos}{$featureID};
+      }
+
+      if($self->debug) {
+        say "after overwriting we have at this position";
+        p $href;
+      }
+
       #update the stack data to include everything found at the key
       #this allows us to reuse the stack in a goto,
       $posHref->{$pos} = $href;
-        
-      say "after trying to overwrite, we have";
-      p $href;
+
+      # say "after trying to overwrite, we have";
+      # p $href;
       #deep merge is much more robust, but I'm worried about performance, so trying alternative
       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
       next;

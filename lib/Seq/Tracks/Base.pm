@@ -125,6 +125,7 @@ around BUILDARGS => sub {
   }
   $data{features} = \@featureLabels;
 
+  #note that if you don't have any features listed, this part won't run
   if( defined $data{nearest} ) {
     if( ref $data{nearest} ne 'ARRAY' || !@{ $data{nearest} } ) {
       $class->log('fatal', 'Cannot set "nearest" property without providing 
@@ -143,6 +144,19 @@ around BUILDARGS => sub {
   
   return $class->$orig(\%data);
 };
+
+sub BUILD {
+  my $self = shift;
+
+  #this should happen first, becuase in multithreaded environment
+  #we could get conflict as we try to write to the exact same resource
+  #by multiple threads
+  for my $featureName ($self->allFeatureNames) {
+    $self->getFieldDbName($featureName);
+  }
+  
+  $self->buildDbName();
+}
 
 #TODO: we should allow casting of required_fields.
 #we'll expect that modules will constrain the hash ref values

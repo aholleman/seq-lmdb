@@ -45,7 +45,6 @@ with 'Seq::Tracks::Headers';
 
 sub BUILD {
   my $self = shift;
-
   #once feature exclusion is ready 
   # my @includedFeatures;
 
