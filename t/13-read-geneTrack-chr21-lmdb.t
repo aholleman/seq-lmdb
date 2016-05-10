@@ -32,24 +32,30 @@ my $dataHref = $tracks->dbRead('chr21', [0..4]);
 say "dataHref is";
 p $dataHref;
 
-$dataHref = $tracks->dbRead('chr21', 41384342);
+$dataHref = $tracks->dbRead('chr21', 10987841);
 
 say "dataHref is";
 p $dataHref;
 
-$dataHref = $tracks->dbRead('chr21', 48e6);
+# # $dataHref = $tracks->dbRead('chr21', 48e6);
 
-say "dataHref is";
-p $dataHref;
-#UCSC: chr22:19,999,999 == ‘A' on hg19
-#https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
-my $geneTrackData = $geneTrack->get($dataHref, 'chr21');
-say "geneTrack data is";
-p $geneTrackData;
+# # say "dataHref is";
+# # p $dataHref;
 
-my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
-ok($geneSymbol eq 'DSCAM', 'geneSymbol correct');
-ok($geneTrackData->{regionType} eq 'Coding', 'reads Intronic entry ok');
+# # $dataHref = $tracks->dbRead('chr21', 17443433-1);
+
+# # say "dataHref is";
+# # p $dataHref;
+
+# #UCSC: chr22:19,999,999 == ‘A' on hg19
+# #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
+# my $geneTrackData = $geneTrack->get($dataHref, 'chr21');
+# say "geneTrack data is";
+# p $geneTrackData;
+
+# my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
+# ok($geneSymbol eq 'DSCAM', 'geneSymbol correct');
+# ok($geneTrackData->{regionType} eq 'Coding', 'reads Intronic entry ok');
 
 
 #testing snp142 track and chr1

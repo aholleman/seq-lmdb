@@ -378,14 +378,11 @@ sub dbPatchBulk {
 
         if($overwrite == 1) {
           $href = merge $href, $posHref->{$pos};
-          next;
-        }
-
-        if($overwrite == 2) {
-          $href->{$featureID} = $posHref->{$pos}{$featureID};
+        }elsif($overwrite == 2) {
+          $href->{$featureID} = $posHref->{$pos}->{$featureID};
         }
       } else {
-        $href->{$featureID} = $posHref->{$pos}{$featureID};
+        $href->{$featureID} = $posHref->{$pos}->{$featureID};
       }
 
       if($self->debug) {

@@ -366,7 +366,7 @@ sub buildTrack {
         my $accumCount;
 
         for my $pos (keys %{ $perSiteData{$chr} } ) {
-          $accumDataHref->{$pos} = $self->prepareData( $perSiteData{$chr}{$pos} );
+          $accumDataHref->{$pos} = $self->prepareData( $perSiteData{$chr}->{$pos} );
           $accumCount++;
           
           if($accumCount > $self->commitEvery) {
@@ -398,8 +398,7 @@ sub buildTrack {
 #http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
 sub makeNearestGenes {
   my ($self, $perChromosomeTranscriptStarts) = @_;
-
-  say "starting nearest build";
+  
   my $ngFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
   #$perSiteData holds everything that has been covered
   for my $chr (keys %$perChromosomeTranscriptStarts) {
@@ -424,10 +423,6 @@ sub makeNearestGenes {
       for(my $y = $i; $y < $txStart; $y++) {
 
         if($count >= $self->commitEvery && %out) {
-          if($self->debug) {
-            say "the nearest gene track wants to insert";
-            p %out;
-          }
           #1 flag to merge whatever is held in the $self->name value in the db
           #since this is basically a 2nd insertion step
           $self->dbPatchBulk($chr, \%out, 1);
