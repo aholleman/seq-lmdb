@@ -250,8 +250,6 @@ tracks:
     - alleles
     - alleleNs: int
     - alleleFreqs: float
-  annotation_exclude_features:
-    - strand
   local_files:
     - hg19.snp142.chr1.txt
     - hg19.snp142.chr2.txt
@@ -286,3 +284,24 @@ tracks:
   remote_dir: NA
   remote_files:
   - NA
+- name: clinvar
+  type: sparse
+  features:
+    - ClinicalSignificance
+    - Type
+    - Origin
+    - ReviewStatus
+    - OtherIDs
+    - ReferenceAllele
+    - AlternateAllele
+    - PhenotypeIDs
+  local_files:
+    - clinvar_variant_summary.txt
+  build_features_filters:
+    Assembly: == GRCh37
+  required_fields_map:
+    - Chromosome: chrom
+    - Start: chromStart
+    - Stop: chromEnd
+  
+

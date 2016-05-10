@@ -48,10 +48,11 @@ extends 'Seq::Tracks::Build';
 #TOOD: make this role work, remove the $reqFields and featureFields stuff below
 #with 'Seq::Tracks::Base::MapFields';
 
-state $chrom = 'chrom';
-state $cStart = 'chromStart';
-state $cEnd   = 'chromEnd';
-state $reqFields = [$chrom, $cStart, $cEnd];
+#can be overwritten if needed
+has chrom_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chrom');
+has chromStart_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromStart');
+has chromEnd_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromEnd');
+
 #TODO: add types here, so that we can check at build time whether 
 #the right stuff has been passed
 # I don't think this will work, because buildargs in parent will be called
@@ -60,21 +61,6 @@ state $reqFields = [$chrom, $cStart, $cEnd];
 #   default => sub{ [$chrom, $cStart, $cEnd] },
 # );
 
-# before BUILDARGS => sub {
-#   my ($orig, $class, $href) = @_;
-#   $href->{required_fields} = [$chrom, $cStart, $cEnd];
-#   $class->$orig($href);
-# }
-sub BUILD {
-  my $self = shift;
-
-  #do this before starting to buidl, because we could, theoretically,
-  #run into race condition issues between threads trying to map fields
-  #to db names that don't yet exist
-  for my $name (@$reqFields) {
-    $self->getFieldDbName($name);
-  }
-}
 #1 more process than # of chr in human, to allow parent process + simult. 25 chr
 #if N < 26 processes needed, N will be used.
 my $pm = Parallel::ForkManager->new(26); 
@@ -82,6 +68,12 @@ sub buildTrack {
   my $self = shift;
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+
+  state $chrom = $self->chrom_field_name;
+  state $cStart = $self->chromStart_field_name;
+  state $cEnd   = $self->chromEnd_field_name;
+
+  state $reqFields = [$chrom, $cStart, $cEnd];
 
   for my $file ($self->all_local_files) {
     $pm->start and next;
@@ -110,8 +102,6 @@ sub buildTrack {
         my @fields = split("\t", $_);
 
         if($. == 1) {
-          # say "fields are";
-          # p @fields;
 
           REQ_LOOP: for my $field (@$reqFields) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
@@ -120,7 +110,7 @@ sub buildTrack {
               next REQ_LOOP; #label for clarity
             }
             
-            $self->log('error', 'Required field $field missing in $file header');
+            $self->log('fatal', 'Required field $field missing in $file header');
           }
 
           # say 'all features wanted are';
@@ -129,12 +119,13 @@ sub buildTrack {
           FEATURE_LOOP: for my $fname ($self->allFeatureNames) {
             my $idx = firstidx {$_ eq $fname} @fields;
             if(~$idx) { #only non-0 when non-negative, ~0 > 0
-              $featureIdxHref->{ $self->getFieldDbName($fname) } = $idx;
+              $featureIdxHref->{ $fname } = $idx;
               next FEATURE_LOOP;
             }
             $self->log('warn', "Feature $fname missing in $file header");
           }
-
+          say "feature idx is";
+          p $featureIdxHref;
           next FH_LOOP;
         }
 
@@ -191,6 +182,7 @@ sub buildTrack {
         #this is an insertion; the only case when start should == stop
         #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
         #logging currently is synchronous, and very, very slow compared to CPU speed
+        #example where this happens: clinvar
         if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
           $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
         } else { #it's a normal change, or a deletion
@@ -203,11 +195,22 @@ sub buildTrack {
         #coerceFeatureType will return if no type specified for feature
         #otherwise will try to coerce the field into the type specified for $name
         my $fDataHref;
-        for my $name (keys %$featureIdxHref) {
-          $fDataHref->{$name} = 
-            $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
+        say "features are";
+        p $featureIdxHref;
+        FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
+          my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
+          say "has filter for $name? " . $self->hasFilter($name);
+          if($self->hasFilter($name) ) {
+            say "testing $name for value " . $fDataHref->{$name} ;
+            if(!$self->passesFilter($name) ) {
+              say "didn't pass";
+              next FNAMES_LOOP;
+            }
+          }
+          $fDataHref->{ $self->getFieldDbName($name) } = $value;
         }
 
+        
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);
 

@@ -27,15 +27,15 @@ my $geneTrack = $tracks->getTrackGetterByName('refSeq');
 
 p $geneTrack;
 
-my $dataHref = $tracks->dbRead('chr21', [0..4]);
+my $dataHref = $tracks->dbReadAll('chr21');
 
-say "dataHref is";
-p $dataHref;
+# say "dataHref is";
+# p $dataHref;
 
-$dataHref = $tracks->dbRead('chr21', 10987841);
+# $dataHref = $tracks->dbRead('chr21', 10987841);
 
-say "dataHref is";
-p $dataHref;
+# say "dataHref is";
+# p $dataHref;
 
 # # $dataHref = $tracks->dbRead('chr21', 48e6);
 

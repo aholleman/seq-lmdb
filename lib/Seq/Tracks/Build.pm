@@ -14,8 +14,11 @@ our $VERSION = '0.001';
 use Moose 2;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
+use DDP;
 
 use MooseX::Types::Path::Tiny qw/AbsDir/;
+use Scalar::Util qw/looks_like_number/;
+
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO'; #all build methods need to read files
 
@@ -81,14 +84,52 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 #modify their input files
 has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 
-#some tracks, like reference & score won't have this, so we lazy initialize
-#(and memoize as a result)
+# name => 'command'
+has build_features_filters => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    hasFilter => 'exists',
+  },
+  lazy => 1,
+  required => 0,
+  default => sub { {} },
+);
 
+# some tracks may have required fields
+# we allow users to map these to whatever the equivalent field is called
+# in their file, so that they don't have to open huge source files to edit headers
+#this config field is called required_field_map
+#we don't actually need to instantiate it as a property
+#instead, around BUIDLARGS, we will make a bunch of properties based
+#on the mappings
+#as long as the consuming class defined them, they'll be used
+#example:
+#required_field_map:
+## - source_file_name : we_require_name
+## - Chromosome : chrom
+##
+##this will result in a Moose attribute called chrom_field_name
 #local files are given as relative paths, relative to the files_dir
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
   my %data = %$href;
+  
+  #First map required_field_mappings to required_field
+  if(defined $data{required_fields_map} ) {
+    if(ref $data{required_fields_map} ne 'ARRAY') {
+      $class->log('fatal','required_field_map must be an array (Ex: -name: required_name )');
+    }
+    for my $nameHref (@{ $data{required_fields_map} } ){
+      if(ref $nameHref ne 'HASH') {
+        $class->log('fatal', 'Each entry of required_field_map must be a name: required_name pair');
+      }
+      my ($mapped_name, $required_name) = %$nameHref;
+      $data{$required_name . "_field_name"} = $mapped_name;
+    }
+  }
 
   my @localFiles;
   my $fileDir = $href->{files_dir};
@@ -139,6 +180,12 @@ sub prepareData {
   # }
 }
 
+sub BUILD {
+  my $self = shift;
+  say "the build filters are";
+  my $filters = $self->build_features_filters;
+  p $filters;
+}
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
@@ -181,6 +228,64 @@ sub coerceFeatureType {
   }
 
   return $_[0]->convert($_[2], $type);
+}
+
+state $cachedFilters;
+sub passesFilter {
+  my ($self, $featureName, $featureValue) = @_;
+
+  if( $cachedFilters->{$featureName} ) {
+    return &{ $cachedFilters->{$featureName} }($featureValue);
+  }
+
+  my $command = $self->build_features_filters->{$featureName};
+
+  my ($infix, $value) = split(' ', $command);
+
+  if ($infix eq '==') {
+    if(looks_like_number($value) ) {
+      $cachedFilters->{$featureName} = sub {
+        my $testVal = shift;
+        
+        return $testVal == $value; 
+      } 
+    } else {
+      $cachedFilters->{$featureName} = sub {
+        my $testVal = shift;
+        
+        return $testVal eq $value; 
+      }
+    }
+    
+  } elsif($infix eq '>') {
+    $cachedFilters->{$featureName} = sub {
+      my $testVal = shift;
+      return $value > $testVal;
+    }
+  } elsif($infix eq '>=') {
+    $cachedFilters->{$featureName} = sub {
+      my $testVal = shift;
+      return $value >= $testVal;
+    }
+  } elsif ($infix eq '<') {
+    $cachedFilters->{$featureName} = sub {
+      my $testVal = shift;
+      return $value < $testVal;
+    }
+  } elsif ($infix eq '<=') {
+    $cachedFilters->{$featureName} = sub {
+      my $testVal = shift;
+      return $value <= $testVal;
+    }
+  } else {
+    $self->log('warn', "This filter, ".  $self->build_features_filters->{$featureName} . 
+      ", uses an  operator $infix that isn\'t supported.
+      Therefore this filter won\'t be run, and all values for $featureName will be allowed");
+    #allow all
+    $cachedFilters->{$featureName} = sub { return 1; };
+  }
+
+  return &{ $cachedFilters->{$featureName} }($featureValue);
 }
 
 #Not currently used; I find it simpler to read to just subtract $self->based

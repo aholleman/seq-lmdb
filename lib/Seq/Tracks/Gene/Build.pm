@@ -362,22 +362,23 @@ sub buildTrack {
       #for out of order multi-chr files
       #so we wait until the end
       for my $chr (keys %perSiteData) {
-        my $accumDataHref;
+        my %accumData;
         my $accumCount;
 
         for my $pos (keys %{ $perSiteData{$chr} } ) {
-          $accumDataHref->{$pos} = $self->prepareData( $perSiteData{$chr}->{$pos} );
+          $accumData{$pos} = $self->prepareData( $perSiteData{$chr}->{$pos} );
+
           $accumCount++;
           
           if($accumCount > $self->commitEvery) {
-            $self->dbPatchBulk($chr, $accumDataHref);
-            $accumDataHref = {};
+            $self->dbPatchBulk($chr, \%accumData);
+            %accumData = ();
             $accumCount = 0;
           }
         }
         #leftovers
-        if(%$accumDataHref) {
-          $self->dbPatchBulk($chr, $accumDataHref);
+        if(%accumData) {
+          $self->dbPatchBulk($chr, \%accumData);
         }
       }
 
@@ -442,8 +443,6 @@ sub makeNearestGenes {
 
     #leftovers
     if(%out) {
-      # say "if we had been inserting we would have inserted";
-      # p %out;
       $self->dbPatchBulk($chr, \%out, 1);
     }
   }

@@ -324,10 +324,9 @@ sub dbPatch {
 #as found in the db, after merging with the stuff in the database already
 sub dbPatchBulk {
   #don't modify stack for re-use
-  my ( $self, $chr, $posHref) = @_;
+  my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
   #remove from stack to allow us to re-assign $_[3] without read-only errors when
   #a literal is passed for $overrideOverwrite (ex: dbPatchBulk($chr, $posHref, 1))
-  my $overrideOverwrite = pop;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
@@ -343,9 +342,9 @@ sub dbPatchBulk {
 
   #modifies the stack, but hopefully a smaller change than a full
   #new stack + function call (look to goto below)
-  $_[3] = xsort( [keys %$posHref ] );
-  
-  for my $pos ($_[3]) { #want sequential
+  my $sortedPositionsAref = xsort( [keys %$posHref ] );
+
+  for my $pos ( @$sortedPositionsAref) { #want sequential
     my $json; #zero-copy
     my $href;
 
@@ -368,14 +367,6 @@ sub dbPatchBulk {
           next;
         }
 
-        if($self->debug) {
-          say "data we're trying to insert at position $pos is ";
-          p $posHref->{$pos};
-          say "we found at this position";
-          p $href;
-          say "we're intersted in overwriting the feature $featureID";
-        }
-
         if($overwrite == 1) {
           $href = merge $href, $posHref->{$pos};
         }elsif($overwrite == 2) {
@@ -385,11 +376,13 @@ sub dbPatchBulk {
         $href->{$featureID} = $posHref->{$pos}->{$featureID};
       }
 
-      if($self->debug) {
-        say "after overwriting we have at this position";
-        p $href;
-      }
-
+      # if($self->debug) {
+      #   say "data we're trying to insert at position $pos is ";
+      #   p $posHref->{$pos};
+      #   say "after merging, or overwriting we have for this position";
+      #   p $href;
+      # }
+      
       #update the stack data to include everything found at the key
       #this allows us to reuse the stack in a goto,
       $posHref->{$pos} = $href;
@@ -418,8 +411,10 @@ sub dbPatchBulk {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  #re-use the stack for efficiency
-  goto &dbPutBulk;
+ # say "stuff in stack";
+ # pop @_;
+  #p @_;
+  $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
 }
 
 sub dbPut {
@@ -588,6 +583,9 @@ sub dbReadAll {
     }
 
     $out{$key} = $mp->unpack($value);
+
+    say "out is";
+    p $out{$key};
   }
 
   $txn->commit();
