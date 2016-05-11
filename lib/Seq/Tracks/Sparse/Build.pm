@@ -124,13 +124,15 @@ sub buildTrack {
             }
             $self->log('warn', "Feature $fname missing in $file header");
           }
-          say "feature idx is";
-          p $featureIdxHref;
           next FH_LOOP;
         }
 
-        $chr = $fields[ $reqIdxHref->{$chrom} ];
-
+        if($self->hasTransform($chrom) ) {
+          $chr = $self->transformField($chrom, $fields[ $reqIdxHref->{$chrom} ] );
+        } else {
+          $chr = $fields[ $reqIdxHref->{$chrom} ];
+        }
+        
         #this will not work well if chr are significantly out of order
         #because we won't be able to benefit from sequential read/write
         #we could move to building a larger hash of {chr => { pos => data } }
@@ -195,11 +197,13 @@ sub buildTrack {
         #coerceFeatureType will return if no type specified for feature
         #otherwise will try to coerce the field into the type specified for $name
         my $fDataHref;
-        say "features are";
-        p $featureIdxHref;
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
-          say "has filter for $name? " . $self->hasFilter($name);
+
+          if($self->hasTransform($name) ) {
+            $value = $self->transformField($name, $value);
+          }
+
           if($self->hasFilter($name) ) {
             say "testing $name for value " . $fDataHref->{$name} ;
             if(!$self->passesFilter($name) ) {
@@ -214,6 +218,9 @@ sub buildTrack {
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);
 
+        say "data to print is";
+        p $fDataHref;
+        
         for my $pos (@$pAref) {
           $data{$pos} = $fDataHref;
           $count++;

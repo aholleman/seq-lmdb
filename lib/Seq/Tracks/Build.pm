@@ -97,6 +97,18 @@ has build_features_filters => (
   default => sub { {} },
 );
 
+has transform => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    hasTransform => 'exists',
+  },
+  lazy => 1,
+  required => 0,
+  default => sub { {} },
+);
+
 # some tracks may have required fields
 # we allow users to map these to whatever the equivalent field is called
 # in their file, so that they don't have to open huge source files to edit headers
@@ -232,11 +244,12 @@ sub coerceFeatureType {
 
 state $cachedFilters;
 sub passesFilter {
-  my ($self, $featureName, $featureValue) = @_;
-
-  if( $cachedFilters->{$featureName} ) {
-    return &{ $cachedFilters->{$featureName} }($featureValue);
+  if( $cachedFilters->{$_[1]} ) {
+    return &{ $cachedFilters->{$_[1]} }($_[2]);
   }
+
+  #   $_[0],      $_[1],    $_[2]
+  my ($self, $featureName, $featureValue) = @_;
 
   my $command = $self->build_features_filters->{$featureName};
 
@@ -245,37 +258,37 @@ sub passesFilter {
   if ($infix eq '==') {
     if(looks_like_number($value) ) {
       $cachedFilters->{$featureName} = sub {
-        my $testVal = shift;
+        my $fieldValue = shift;
         
-        return $testVal == $value; 
+        return $fieldValue == $value; 
       } 
     } else {
       $cachedFilters->{$featureName} = sub {
-        my $testVal = shift;
+        my $fieldValue = shift;
         
-        return $testVal eq $value; 
+        return $fieldValue eq $value; 
       }
     }
     
   } elsif($infix eq '>') {
     $cachedFilters->{$featureName} = sub {
-      my $testVal = shift;
-      return $value > $testVal;
+      my $fieldValue = shift;
+      return $fieldValue > $value;
     }
   } elsif($infix eq '>=') {
     $cachedFilters->{$featureName} = sub {
-      my $testVal = shift;
-      return $value >= $testVal;
+      my $fieldValue = shift;
+      return $fieldValue >= $value;
     }
   } elsif ($infix eq '<') {
     $cachedFilters->{$featureName} = sub {
-      my $testVal = shift;
-      return $value < $testVal;
+      my $fieldValue = shift;
+      return $fieldValue < $value;
     }
   } elsif ($infix eq '<=') {
     $cachedFilters->{$featureName} = sub {
-      my $testVal = shift;
-      return $value <= $testVal;
+      my $fieldValue = shift;
+      return $fieldValue <= $value;
     }
   } else {
     $self->log('warn', "This filter, ".  $self->build_features_filters->{$featureName} . 
@@ -288,6 +301,61 @@ sub passesFilter {
   return &{ $cachedFilters->{$featureName} }($featureValue);
 }
 
+state $cachedTransform;
+#for now I only need string concatenation
+state $transformOperators = ['.',];
+sub transformField {
+  if( defined $cachedTransform->{$_[1]} ) {
+    return &{ $cachedTransform->{$_[1]} }($_[2]);
+  }
+  #   $_[0],      $_[1],    $_[2]
+  my ($self, $featureName, $featureValue) = @_;
+
+  my $command = $self->transform->{$featureName};
+
+  my ($leftHand, $rightHand) = split(' ', $command);
+
+  my $codeRef;
+
+  if($self->_isTransformOperator($leftHand) ) {
+    if($leftHand eq '.') {
+      $codeRef = sub {
+        # my $fieldValue = shift;
+        # same as $_[0];
+
+        return $_[0] . $rightHand;
+      }
+    }
+  } elsif($self->_isTransformOperator($rightHand) ) {
+    if($rightHand eq '.') {
+      $codeRef = sub {
+       # my $fieldValue = shift;
+       # same as $_[0];
+        return $leftHand . $_[0];
+      }
+    }
+  }
+
+  if(!defined $codeRef) {
+    $self->log('warn', "Requested transformation, $command, for $featureName, not understood");
+    return $featureValue;
+  }
+  
+  $cachedTransform->{$featureName} = $codeRef;
+
+  return &{$codeRef}($featureValue);
+}
+
+sub _isTransformOperator {
+  my ($self, $value) = @_;
+
+  for my $operator (@$transformOperators) {
+    if(index($value, $operator) > -1 ) {
+      return 1;
+    }
+  }
+  return 0;
+}
 #Not currently used; I find it simpler to read to just subtract $self->based
 #where that is needed, and that also saves sub call overhead
 #takes a potentially non-0 based thing, makes it 0 based

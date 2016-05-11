@@ -299,9 +299,12 @@ tracks:
     - clinvar_variant_summary.txt
   build_features_filters:
     Assembly: == GRCh37
+  transform:
+    Chromosome: chr .
   required_fields_map:
     - Chromosome: chrom
     - Start: chromStart
     - Stop: chromEnd
+  
   
 
