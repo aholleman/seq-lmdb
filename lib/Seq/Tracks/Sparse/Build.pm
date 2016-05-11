@@ -155,10 +155,9 @@ sub buildTrack {
         }
 
         #If the user wants to modify the values of any fields, do that first
-
         for my $fieldName ($self->allFieldsToTransform) {
           $fields[ $fieldsToTransformIdx->{$fieldName} ] = 
-            $self->transformField($fieldName, $fieldsToTransformIdx->{$fieldName} );
+            $self->transformField($fieldName, $fields[ $fieldsToTransformIdx->{$fieldName} ] );
 
             # say "after transformation, $fieldName becomes";
             # p $fields[ $fieldsToTransformIdx->{$fieldName} ];
@@ -250,17 +249,14 @@ sub buildTrack {
         
         #get it ready for insertion, one func call instead of for N pos
         $fDataHref = $self->prepareData($fDataHref);
-
-        say "data to print is";
-        p $fDataHref;
         
         for my $pos (@$pAref) {
           $data{$pos} = $fDataHref;
           $count++;
         }
 
-        # say "matching positions are";
-        # p $pAref;
+        # say "data to print is";
+        # p %data;
       }
 
       #we're done with the file, and stuff is left over;
