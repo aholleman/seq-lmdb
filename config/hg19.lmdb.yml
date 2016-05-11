@@ -297,9 +297,9 @@ tracks:
     - PhenotypeIDs
   local_files:
     - clinvar_variant_summary.txt
-  build_features_filters:
+  build_row_filters:
     Assembly: == GRCh37
-  transform:
+  build_field_transformations:
     Chromosome: chr .
   required_fields_map:
     - Chromosome: chrom

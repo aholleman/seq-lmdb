@@ -86,6 +86,14 @@ sub buildTrack {
       my $featureIdxHref;
       my $reqIdxHref;
 
+      # these are fields that may or may not be included in the output
+      # and may or may not be required fields
+      # These are also fields the user told us they want to either transform
+      # or whose values they want to use in deciding whether or not to exclude
+      # a row
+      my $fieldsToTransformIdx;
+      my $fieldsToFilterOnIdx;
+
       my $count = 0;
 
       # sparse track should be 1 based
@@ -122,17 +130,54 @@ sub buildTrack {
               $featureIdxHref->{ $fname } = $idx;
               next FEATURE_LOOP;
             }
-            $self->log('warn', "Feature $fname missing in $file header");
+            $self->log('fatal', "Feature $fname missing in $file header");
           }
+
+          FILTER_LOOP: for my $fname ($self->allFieldsToFilterOn) {
+            my $idx = firstidx {$_ eq $fname} @fields;
+            if(~$idx) { #only non-0 when non-negative, ~0 > 0
+              $fieldsToFilterOnIdx->{ $fname } = $idx;
+              next FILTER_LOOP;
+            }
+            $self->log('fatal', "Feature $fname missing in $file header");
+          }
+
+          TRANSFORM_LOOP: for my $fname ($self->allFieldsToTransform) {
+            my $idx = firstidx {$_ eq $fname} @fields;
+            if(~$idx) { #only non-0 when non-negative, ~0 > 0
+              $fieldsToTransformIdx->{ $fname } = $idx;
+              next TRANSFORM_LOOP;
+            }
+            $self->log('fatal', "Feature $fname missing in $file header");
+          }
+
           next FH_LOOP;
         }
 
-        if($self->hasTransform($chrom) ) {
-          $chr = $self->transformField($chrom, $fields[ $reqIdxHref->{$chrom} ] );
-        } else {
-          $chr = $fields[ $reqIdxHref->{$chrom} ];
+        #If the user wants to modify the values of any fields, do that first
+
+        for my $fieldName ($self->allFieldsToTransform) {
+          $fields[ $fieldsToTransformIdx->{$fieldName} ] = 
+            $self->transformField($fieldName, $fieldsToTransformIdx->{$fieldName} );
+
+            # say "after transformation, $fieldName becomes";
+            # p $fields[ $fieldsToTransformIdx->{$fieldName} ];
         }
-        
+
+        # Then, if the user wants to exclude rows that don't pass some criteria
+        # that they defined in the YAML file, allow that.
+        for my $fieldName ($self->allFieldsToFilterOn) {
+          #say "testing $fieldName filter, whose value is " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
+          if(!$self->passesFilter($fieldName, $fields[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
+            #say "$fieldName doesn't pass with value " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
+            next FH_LOOP;
+          }
+        }
+
+        $chr = $fields[ $reqIdxHref->{$chrom} ];
+
+        #say "chr is $chr";
+
         #this will not work well if chr are significantly out of order
         #because we won't be able to benefit from sequential read/write
         #we could move to building a larger hash of {chr => { pos => data } }
@@ -199,18 +244,6 @@ sub buildTrack {
         my $fDataHref;
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
-
-          if($self->hasTransform($name) ) {
-            $value = $self->transformField($name, $value);
-          }
-
-          if($self->hasFilter($name) ) {
-            say "testing $name for value " . $fDataHref->{$name} ;
-            if(!$self->passesFilter($name) ) {
-              say "didn't pass";
-              next FNAMES_LOOP;
-            }
-          }
           $fDataHref->{ $self->getFieldDbName($name) } = $value;
         }
 

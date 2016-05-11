@@ -85,24 +85,26 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
 
 # name => 'command'
-has build_features_filters => (
+has build_row_filters => (
   is => 'ro',
   isa => 'HashRef',
   traits => ['Hash'],
   handles => {
     hasFilter => 'exists',
+    allFieldsToFilterOn => 'keys',
   },
   lazy => 1,
   required => 0,
   default => sub { {} },
 );
 
-has transform => (
+has build_field_transformations => (
   is => 'ro',
   isa => 'HashRef',
   traits => ['Hash'],
   handles => {
     hasTransform => 'exists',
+    allFieldsToTransform => 'keys',
   },
   lazy => 1,
   required => 0,
@@ -192,12 +194,15 @@ sub prepareData {
   # }
 }
 
-sub BUILD {
-  my $self = shift;
-  say "the build filters are";
-  my $filters = $self->build_features_filters;
-  p $filters;
-}
+# sub BUILD {
+#   my $self = shift;
+#   say "the build filters are";
+#   my $filters = $self->build_row_filters;
+#   p $filters;
+
+#   say "all fields to transform:";
+#   p $self->build_field_transformations;
+# }
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
@@ -251,7 +256,7 @@ sub passesFilter {
   #   $_[0],      $_[1],    $_[2]
   my ($self, $featureName, $featureValue) = @_;
 
-  my $command = $self->build_features_filters->{$featureName};
+  my $command = $self->build_row_filters->{$featureName};
 
   my ($infix, $value) = split(' ', $command);
 
@@ -291,7 +296,7 @@ sub passesFilter {
       return $fieldValue <= $value;
     }
   } else {
-    $self->log('warn', "This filter, ".  $self->build_features_filters->{$featureName} . 
+    $self->log('warn', "This filter, ".  $self->build_row_filters->{$featureName} . 
       ", uses an  operator $infix that isn\'t supported.
       Therefore this filter won\'t be run, and all values for $featureName will be allowed");
     #allow all
@@ -311,7 +316,7 @@ sub transformField {
   #   $_[0],      $_[1],    $_[2]
   my ($self, $featureName, $featureValue) = @_;
 
-  my $command = $self->transform->{$featureName};
+  my $command = $self->build_field_transformations->{$featureName};
 
   my ($leftHand, $rightHand) = split(' ', $command);
 
