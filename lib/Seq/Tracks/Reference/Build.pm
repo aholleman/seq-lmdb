@@ -43,10 +43,8 @@ sub buildTrack{
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  $self->log('info', "starting to build " . $self->name );
+  #$self->log('info', "starting to build " . $self->name );
 
-  my $fStep = 'fixedStep';
-  my $vStep = 'variableStep';
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
@@ -57,17 +55,16 @@ sub buildTrack{
   my $based = 0; #$self->based;
 
   for my $file ( $self->all_local_files ) {
-    unless ( -f $file ) {
-      return $self->log('error', "ERROR: cannot find $file");
-    }
+    
     #simple forking; could do something more involvd if we had guarantee
     #that a single file would be in order of chr
     #expects that if n+1 files, each file has a single chr (one writer per chr)
     #important, because we'll probably get slower writes due to locks otherwise
     #unless we pass the slurped file to the fork, it doesn't seem to actually
     $pm->start and next; 
-      #say "entering fork with $file";
-      #my @lines = $self->get_file_lines($file);
+      if ( ! -f $file ) {
+        $self->log('fatal', "ERROR: cannot find $file");
+      }
       my $fh = $self->get_read_fh($file);
 
       my %data = ();
@@ -94,41 +91,43 @@ sub buildTrack{
             $self->log('fatal', 'Require chr in fasta file headers');
           }
 
-          if ($wantedChr && $wantedChr eq $chr) {
-            next;
-          }
+          
+          if($wantedChr) {
+            #this is old news to us, so we have nothing to do in this header
+            #row
+            if($wantedChr eq $chr) {
+              next;
+            }
 
-          #ok, we found something new, 
-          if($wantedChr && $wantedChr ne $chr) {
-            #so let's write whatever we have for the previous chr
-            $self->dbPatchBulk($wantedChr, \%data );
+            #ok, we found something new, 
+            if($wantedChr ne $chr){
+              #so let's write whatever we have for the previous chr
+              $self->dbPatchBulk($wantedChr, \%data );
 
-            #since this is new, let's reset our data and count
-            #we've already updated the chrPosition above
-            %data = ();
-            $count = 0;
+              #since this is new, let's reset our data and count
+              #we've already updated the chrPosition above
+              %data = ();
+              $count = 0;
+
+              #and figure out if we want the current chromosome
+              $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+            }
+          } else {
+            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
           }
 
           #this allows us to use a single fasta file as well
           #although in the current setup, using such a file will prevent
           #forking use (since we read the file in the fork)
           #we could always spawn a fork within the fork
-          if ( $self->chrIsWanted($chr) ) {
-            $wantedChr = $chr;
-            next;
-          }
-
           #if we're expecting one chr per file, no need to read through the
           #rest of the file if we don't want the current header chr
-          if ( $chrPerFile ) {
-            last FH_LOOP; 
+          if(!$wantedChr) {
+            if($chrPerFile) {
+              last FH_LOOP;
+            }
+            next FH_LOOP;
           }
-
-          # chr isn't wanted if we got here
-          $self->log('warn', "skipping unrecognized chromsome: $chr");
-
-          #so let's erase the remaining data associated with this chr
-          undef $wantedChr;
 
           #restart chrPosition count at 0, since we're storing 0 indexed pos
           $chrPosition = $based;
@@ -139,7 +138,7 @@ sub buildTrack{
         #but the user should know, because it portends other issues
         if ( !$wantedChr ) {
           $self->log('warn', "No wanted chr after first line " .
-            'could be malformed wig file');
+            'could be malformed reference file');
           next;
         }
         
@@ -169,7 +168,6 @@ sub buildTrack{
               #and we haven't changed chromosomes
             }
           }
-
         }
       }
 
@@ -178,17 +176,17 @@ sub buildTrack{
         if(!$wantedChr) { #sanity check, 'error' log dies
          return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
-
         #and we could still have some data to write
         $self->dbPatchBulk($wantedChr, \%data );
 
         #now we're done with the process, so no need to undef memory
       }
+
     $pm->finish;
   }
-  $pm->wait_all_children;
 
-  $self->log('debug', 'finished building track: ' . $self->name);
+  $pm->wait_all_children;
+  $self->log('info', 'finished building track: ' . $self->name);
 };
 
 

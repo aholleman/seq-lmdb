@@ -202,7 +202,7 @@ sub buildTrack {
           if($chrPerFile) {
             last FH_LOOP;
           }
-          next;
+          next FH_LOOP;
         }
 
         #be a bit conservative with the count, since what happens below
@@ -262,7 +262,7 @@ sub buildTrack {
       #we're done with the file, and stuff is left over;
       if(%data) {
         if(!$wantedChr) {
-          return $self->log('error', 'After file read, data left, but no wantecChr');
+          return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
         #let's write that stuff
         $self->dbPatchBulk($wantedChr, \%data);
@@ -270,6 +270,7 @@ sub buildTrack {
 
     $pm->finish;
   }
+  
   $pm->wait_all_children;
   $self->log('info', 'finished building: ' . $self->name);
 }

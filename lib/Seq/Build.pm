@@ -83,14 +83,12 @@ sub BUILD {
     p @builders;
   }
   
-  for my $bTypeAref (@builders) {
-    for my $builder (@$bTypeAref) {
-      $builder->buildTrack();
-      $self->log('debug', "finished building " . $builder->name );
-    }
+  for my $builder (@builders) {
+    $builder->buildTrack();
+    $self->log('debug', "finished building " . $builder->name );
   }
 
-  $self->log('debug', "finished building all requested tracks: " 
+  $self->log('info', "finished building all requested tracks: " 
     . join(@builders, ', ') );
 }
 

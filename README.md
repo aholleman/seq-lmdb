@@ -7,13 +7,18 @@ Seq
 - The assembly has some basic features, e.g., name, description, chromosomes,
 and information about the mongo instance for storing some of the track
 information.
-- There are 2 types of information that an assembly can contain, but the exact
-number of either is flexible except for one - all assemblies need a genome
-sequence.
-	- *sparse tracks* can hold information on genomic site annotation or genomic
-	variation.
-	- *genome-sized tracks* hold the genomic sequence, various scores, or
+  - *reference tracks*: Any multi-fasta file containin assembly info.
+	- *sparse tracks*: Accepts any bed file.
+	- *score tracks*: Accepts any wigFix file. 
+    - Used for phastCons, phyloP
+  - *cadd tracks*: Accepts any CADD file. 
+    - CADD uses a completely non-standard input file. We also accept a 3 column wigFix file that does not have a header. Where each column corresponds to the alphabetically-ordered alternative alleles
+      - Ex: if ref is T: A C G
+      - Ex: if ref is A: C G T    
+  - *gene tracks*: This is a specific kind of region track, which accepts either UCSC knownGenes or refSeq gene .sql files.
+  - *region tracks*: Accepts any bed file. Is like a sparse track, but more space-efficient when many lines in the track cover more than one base
 	annotations that cover a substantial portion of the genome.
+
 
 Each genome has features and steps enumerated for creating the needed data to
 index and annotate it. Follow the keys and conventions in the example for genome

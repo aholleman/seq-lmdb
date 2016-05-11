@@ -30,7 +30,7 @@ genome_name: hg19
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 tracks:
-- name: reference
+- name: hg19
   type: reference
   local_files:
     - chr1.fa.gz
