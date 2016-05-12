@@ -166,6 +166,7 @@ sub unpackCodon {
   #   goto &_unpackCodonBulk;
   # }
   my @codon = unpack('cAlcc', $_[1]);
+
   return {
     $siteTypeKey => defined $codon[0] ? $_[0]->getSiteTypeFromNum($codon[0]) : undef,
     $strandKey => $codon[1],

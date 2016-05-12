@@ -27,11 +27,12 @@ sub codon2Num {
   return $codonMap->{ $_[1] };
 }
 
-state $codonInverseMap => map { $codonMap->{$_} => $_ } keys %$codonMap;
+state $codonInverseMap = { map { $codonMap->{$_} => $_ } keys %$codonMap };
 
 sub num2Codon {
   #my ( $self, $codon ) = @_;
   #will return undefined if not found
+  
   return $codonInverseMap->{ $_[1] };
 }
 

@@ -68,27 +68,27 @@ say "geneTrack data is";
 p $geneTrackData;
 
 
-$dataHref = $tracks->dbRead('chrY', 16634487  - 1);
+# $dataHref = $tracks->dbRead('chrY', 16634487  - 1);
 
-$geneTrackData = $geneTrack->get($dataHref, 'chrY');
-say "geneTrack data is";
-p $geneTrackData;
-ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
+# $geneTrackData = $geneTrack->get($dataHref, 'chrY');
+# say "geneTrack data is";
+# p $geneTrackData;
+# ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
 
 
-$dataHref = $tracks->dbRead('chrY', 16955848  - 1);
+# $dataHref = $tracks->dbRead('chrY', 16955848  - 1);
 
-$geneTrackData = $geneTrack->get($dataHref, 'chrY');
-say "geneTrack data is";
-p $geneTrackData;
-ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
+# $geneTrackData = $geneTrack->get($dataHref, 'chrY');
+# say "geneTrack data is";
+# p $geneTrackData;
+# ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
 
-$dataHref = $tracks->dbRead('chrY', 1  - 1);
+# $dataHref = $tracks->dbRead('chrY', 1  - 1);
 
-$geneTrackData = $geneTrack->get($dataHref, 'chrY');
-say "geneTrack data is";
-p $geneTrackData;
-ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
+# $geneTrackData = $geneTrack->get($dataHref, 'chrY');
+# say "geneTrack data is";
+# p $geneTrackData;
+# ok($geneTrackData->{geneSymbol} eq 'AY358562', 'reads AY358562 entry ok');
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 # $dataAref = $tracks->dbRead('chr1', [40370176] );

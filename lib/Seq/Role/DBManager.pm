@@ -583,9 +583,6 @@ sub dbReadAll {
     }
 
     $out{$key} = $mp->unpack($value);
-
-    say "out is";
-    p $out{$key};
   }
 
   $txn->commit();

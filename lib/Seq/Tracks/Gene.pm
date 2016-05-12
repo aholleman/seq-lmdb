@@ -120,11 +120,6 @@ sub get {
   #this is what we have at a site in the main db
   my $geneData = $href->{$self->dbName};
 
-  say "href is";
-  p $href;
-  
-  say "geneData is";
-  p $geneData;
   my %out;
 
   #a single position may
@@ -133,11 +128,11 @@ sub get {
     state $nearestGeneFeatureDbName = $self->getFieldDbName($nearestGeneFeatureName);
     state $nearestGeneReference = $geneData->{$nearestGeneFeatureDbName};
 
-    say "nearest gene name is $nearestGeneFeatureName, and the db name is $nearestGeneFeatureDbName";
-    say "nearestGeneReference is $nearestGeneReference";
-    foreach (@$nearestFeatureNames) {
-      $out{"$nearestGeneSubTrackName"} = $geneTrackRegionDataHref->{$chr}->{$nearestGeneReference}
-       ->{$nearestGeneFeatureDbName}->{ $self->getFieldDbName($_) };
+    #get the nearest gene data
+    #outputted as "nearest.someFeature" => value if "nearest" is the nearestGeneFeatureName
+    for my $nFeature (@$nearestFeatureNames) {
+      $out{"$nearestGeneSubTrackName.$nFeature"} = $geneTrackRegionDataHref->{$chr}
+        ->{$nearestGeneReference}->{$self->dbName}->{ $self->getFieldDbName($nFeature) };
     }
   }
   #a single position may cover one or more sites
@@ -184,13 +179,16 @@ sub get {
     }
   } else {
     #if it's an array, then let's check all of our site types
-    REGION_FL: foreach(@{ $out{$siteUnpacker->siteTypeKey}  } ) {
-      if( $siteUnpacker->isExonicSite($_) ) {
+    REGION_FL: for my $siteType (@{ $out{$siteUnpacker->siteTypeKey}  } ) {
+      if( $siteUnpacker->isExonicSite($siteType) ) {
         $out{$regionTypeKey} = $regionTypes->[2];
         last REGION_FL;
       }
     }
-    $out{$regionTypeKey} = $regionTypes->[1];
+    
+    if( !$out{$regionTypeKey} ) {
+      $out{$regionTypeKey} = $regionTypes->[1];
+    }
   }
 
   #will die if there was a different ref passed
