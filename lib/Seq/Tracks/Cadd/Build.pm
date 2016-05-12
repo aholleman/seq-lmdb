@@ -50,7 +50,6 @@ sub buildTrack {
   #the one that binds them
   my ($file) = $self->all_local_files;
 
-  say "file is $file";
   my $fh = $self->get_read_fh($file);
 
   my %data = ();
@@ -184,7 +183,6 @@ sub buildTrack {
 sub buildTrackFromHeaderlessWigFix {
   my $self = shift;
 
-  $self->log('debug', "in wigfix version");
   #there can only be ONE
   #the one that binds them
   my ($file) = $self->all_local_files;
@@ -227,7 +225,7 @@ sub buildTrackFromHeaderlessWigFix {
       #if we changed chromosomes, lets write the previous chr's data
       if($wantedChr ne $chr) {
 
-        $self->finishingBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
+        $self->finishBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
         #$self->dbPatchBulk($wantedChr, \%data);
 
         @inputData = ();
@@ -246,7 +244,7 @@ sub buildTrackFromHeaderlessWigFix {
     #be a bit conservative with the count, since what happens below
     #could bring us all the way to segfault
     if($count >= $self->commitEvery) {
-      $self->finishingBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
+      $self->finishBuildingFromHeaderlessWigfix($wantedChr, \@inputData);
 
       @inputData = ();
       $count = 0;
@@ -257,11 +255,8 @@ sub buildTrackFromHeaderlessWigFix {
 
   #we're done with the file, and stuff is left over;
   if(@inputData) {
-    if(!$wantedChr) {
-      return $self->log('fatal', 'After file read, data left, but no wantecChr');
-    }
     #let's write that stuff
-    $self->finishingBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
+    $self->finishBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
   }
 
   $pm->wait_all_children;
@@ -274,7 +269,13 @@ sub buildTrackFromHeaderlessWigFix {
 sub finishBuildingFromHeaderlessWigfix {
   $pm->start and return;
 
-  my ($self, $chr, $inputFieldsAref) = @_;
+    my ($self, $chr, $inputFieldsAref) = @_;
+
+    if(!$chr || @$inputFieldsAref) {
+      return $self->log('fatal', "Either no chromosome or an empty array 
+        provided when writing CADD entries");
+    }
+
     my %posData;
     
     #This file is expected to have the correct order already

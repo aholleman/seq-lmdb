@@ -65,15 +65,15 @@ sub buildTrack{
   #I worry about maintainability
   #my $based = $self->based;
   for my $file ( $self->all_local_files ) {
-    unless ( -f $file ) {
-      return $self->log('fatal', "ERROR: cannot find $file");
-    }
     #simple forking; could do something more involvd if we had guarantee
     #that a single file would be in order of chr
     #expects that if n+1 files, each file has a single chr (one writer per chr)
     #important, because we'll probably get slower writes due to locks otherwise
     #unless we pass the slurped file to the fork, it doesn't seem to actually
     $pm->start and next; 
+      unless ( -f $file ) {
+        return $self->log('fatal', "ERROR: cannot find $file");
+      }
       #say "entering fork with $file";
       #my @lines = $self->get_file_lines($file);
       my $fh = $self->get_read_fh($file);
