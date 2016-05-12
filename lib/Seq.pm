@@ -86,7 +86,7 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 #   my $self = shift;
 # }
 
-my $pm = Parallel::ForkManager->new(12);
+my $pm = Parallel::ForkManager->new(16);
 
 #TODO: Need to implement unknown chr check, LOW/MESS check
 sub annotate_snpfile {
@@ -216,6 +216,7 @@ sub annotateLines {
   foreach (@$linesAref) {
     @fields = split(/\t/, $self->clean_line( $_ ) );
 
+    $self->log('info', "hello $_");
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
     my @snpFields = map { $fields[$_] } $self->allSnpFieldIdx;

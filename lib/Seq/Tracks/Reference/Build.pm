@@ -43,8 +43,11 @@ sub buildTrack{
   #compare these to first and last entry in the resulting string
   #if identical, and identical length for that chromosome, 
   #don't do any writing.
-  #$self->log('info', "starting to build " . $self->name );
-
+  $self->log('info', "starting to build " . $self->name );
+$self->log('info', "starting to build " . $self->name );
+$self->log('info', "starting to build " . $self->name );
+$self->log('info', "starting to build " . $self->name );
+  say "past info start";
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 

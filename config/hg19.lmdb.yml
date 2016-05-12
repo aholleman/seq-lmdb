@@ -277,13 +277,13 @@ tracks:
     - hg19.snp142.chrM.txt
     - hg19.snp142.chrY.txt
   sql_statement: SELECT _snp_fields FROM hg19.snp142
-# - name: cadd
-#   type: cadd
-#   local_files:
-#     - hg19.cadd.fixed.gz
-#   remote_dir: NA
-#   remote_files:
-#   - NA
+- name: cadd
+  type: cadd
+  local_files:
+    - hg19.cadd.fixed.gz
+  remote_dir: NA
+  remote_files:
+  - NA
 - name: clinvar
   type: sparse
   features:
