@@ -57,13 +57,6 @@ sub buildDbName {
     $self->_addTrackNameMeta();
   }
 
-  if($self->debug) {
-    say "after fetchMetaFields, trackNamesMap is";
-    p $trackNamesMap;
-    say "and trackDbNamesMap is";
-    p $trackDbNamesMap;
-  }
-
   return $trackNamesMap->{$self->name};
 }
 
@@ -87,6 +80,14 @@ sub _fetchTrackNameMeta {
   for my $trackName (keys %$nameHref ) {
     $trackDbNamesMap->{ $nameHref->{$trackName} } = $trackName;
   }
+
+  if($self->debug) {
+    say "fetched trackNamesMap  in _fetchTrackNameMeta";
+    p $trackNamesMap;
+    say "and the trackDbNamesMap is";
+    p $trackDbNamesMap;
+  }
+
 }
 
 sub _addTrackNameMeta {

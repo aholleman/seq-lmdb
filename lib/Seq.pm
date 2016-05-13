@@ -33,6 +33,10 @@ use Parallel::ForkManager;
 
 use DDP;
 
+use MCE::Loop;
+use MCE::Candy;
+use MCE::Shared;
+
 extends 'Seq::Base';
 
 # use Seq::Progress;
@@ -86,70 +90,89 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 #   my $self = shift;
 # }
 
-my $pm = Parallel::ForkManager->new(16);
+#my $pm = Parallel::ForkManager->new(40);
 
-#TODO: Need to implement unknown chr check, LOW/MESS check
+#MCE version
 sub annotate_snpfile {
-  my $self = shift;
-
-  $self->commitEvery(1e4);
+  our $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
 
-  my $fh = $self->get_read_fh( $self->snpfile_path );
+  #this is much slower
+  #my $fh = $self->get_read_fh( $self->snpfile_path );
 
-  my ( %ids, @sample_ids, @snp_annotations );
-  my @sampleIDs;
-  my %sampleIDsToIndexesMap;
-  my @lines;
-  my $count = 0;
-  my $partNumber = 0;
-
+  open(my $fh, '<', $self->snpfile_path);
+  # my $count = 0;
   our $heterozygousIdsKey;
   our $homozygousIdsKey;
   our $compoundIdsKey;
+  our $partNumber = 0;
+  
+  our $sampleIDsToIndexesMap;
+  our $taint_check_regex = $self->taint_check_regex; 
+  our $endOfLineChar = $self->endOfLineChar;
+  our $delimiter = $self->delimiter;
 
-  while(<$fh>) {
-    #If we don't have sampleIDs, this should be the first line of the file
-    if(!@sampleIDs) {
-      my $fieldsAref = $self->getCleanFields($_);
-     
-      $self->checkHeader( $fieldsAref );
+  our $sampleIDaref;
+  
+  my $firstLine = $fh->getline();
 
-      #needs to happen before we get into writing anything in children
-      #to make sure we have one header state
-      #We have a few additional fields we will be adding as pseudo-features
-      $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
+  chomp $firstLine;
+  if ( $firstLine =~ m/$taint_check_regex/xm ) {
+    $firstLine = [ split $delimiter, $1 ];
 
-      %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
+    $self->checkHeader($firstLine);
 
-      # save list of ids within the snpfile
-      @sampleIDs =  sort keys %sampleIDsToIndexesMap;
+    $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
 
-      next;
-    }
-    chomp;
-    push @lines, $_;
+    $sampleIDsToIndexesMap = { $self->getSampleNamesIdx( $firstLine ) };
 
-    #$self->commitEvery from DBManager
-    if($count > $self->commitEvery) {
-      $partNumber++;
-      
-      $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
-      
-      @lines = ();
-      $count = 0;
-    }
-    $count++
+    # save list of ids within the snpfile
+    $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
+
+  } else {
+    $self->log('fatal', "First line of input file has illegal characters");
   }
+
+  open(my $outFh, '>', $self->output_path);
+  say $outFh $self->makeHeaderString();
+
+  MCE::Loop::init {
+    chunk_size => 8100, #max i think
+    max_workers => 30,
+    gather => MCE::Candy::out_iter_fh($outFh),
+  };
+
+  #our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
+  mce_loop_f {
+   my ( $mce, $chunk_ref, $chunk_id ) = @_;
+
+   chomp @{$_};
+
+   if($chunk_id == 1) {
+    shift @{$_};
+   }
+
+    for my $line (@{$_}) {
+      if ( $line =~ m/$taint_check_regex/xm ) {
+        $line = [ split $delimiter, $1 ];
+      } else {
+        $self->log('fatal', "$line contains characters we don't accept")
+      }
+    }
+
+    #$self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id);
+    MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
+  } $fh;
 
   #get anything left over
-  if(@lines) {
-    $partNumber++;
-    $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
-  }
+  # if(@lines) {
+  #   say "stuff remains";
+  #   $partNumber++;
+  #   $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
+  # }
 
-  $pm->wait_all_children();
+ # $pm->wait_all_children();
 
   #TODO: return # of discordant bases from children if wanted
 
@@ -158,24 +181,109 @@ sub annotate_snpfile {
   #first write the header to the output file, becuase pre-pending takes a temp
   #file step afaik
 
-  $self->printHeader($self->output_path);
-  my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $partNumber);
-  my $concatTheseFiles = join (' ', @partPaths);
+  
 
-  $self->log('info', 'Concatenating output files');
+  # my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $lastChunkID);
+  # my $concatTheseFiles = join (' ', @partPaths);
 
-  my $err = system("cat $concatTheseFiles >> " . $self->output_path);
+  # $self->log('info', 'Concatenating output files');
 
-  if($err) {
-    $self->log('fatal', 'Concatenation of output file parts failed');
-  }
+  # my $err = system("cat $concatTheseFiles >> " . $self->output_path);
+
+  # if($err) {
+  #   $self->log('fatal', 'Concatenation of output file parts failed');
+  # }
 }
+
+#TODO: Need to implement unknown chr check, LOW/MESS check
+# sub annotate_snpfile {
+#   my $self = shift;
+
+#   $self->commitEvery(1e4);
+
+#   $self->log( 'info', 'Beginning annotation' );
+
+#   my $fh = $self->get_read_fh( $self->snpfile_path );
+
+#   my ( %ids, @sample_ids, @snp_annotations );
+#   my @sampleIDs;
+#   my %sampleIDsToIndexesMap;
+#   my @lines;
+#   my $count = 0;
+#   my $partNumber = 0;
+
+#   our $heterozygousIdsKey;
+#   our $homozygousIdsKey;
+#   our $compoundIdsKey;
+
+#   while (my $line = $fh->getline() ) {
+#     #If we don't have sampleIDs, this should be the first line of the file
+#     if(!@sampleIDs) {
+#       my $fieldsAref = $self->getCleanFields($line);
+     
+#       $self->checkHeader( $fieldsAref );
+
+#       #needs to happen before we get into writing anything in children
+#       #to make sure we have one header state
+#       #We have a few additional fields we will be adding as pseudo-features
+#       $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
+
+#       %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
+
+#       # save list of ids within the snpfile
+#       @sampleIDs =  sort keys %sampleIDsToIndexesMap;
+
+#       next;
+#     }
+#     chomp $line;
+#     push @lines, $line;
+
+#     #$self->commitEvery from DBManager
+#     if($count > $self->commitEvery) {
+#       $partNumber++;
+      
+#       $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
+      
+#       @lines = ();
+#       $count = 0;
+#     }
+#     $count++
+#   }
+
+#   #get anything left over
+#   if(@lines) {
+#     $partNumber++;
+#     $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
+#   }
+
+#   $pm->wait_all_children();
+
+#   #TODO: return # of discordant bases from children if wanted
+
+#   #provided everyone finished, we will have N parts; concatenate them into the 
+#   #output file
+#   #first write the header to the output file, becuase pre-pending takes a temp
+#   #file step afaik
+
+#   $self->printHeader($self->output_path);
+#   my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $partNumber);
+#   my $concatTheseFiles = join (' ', @partPaths);
+
+#   $self->log('info', 'Concatenating output files');
+
+#   my $err = system("cat $concatTheseFiles >> " . $self->output_path);
+
+#   if($err) {
+#     $self->log('fatal', 'Concatenation of output file parts failed');
+#   }
+# }
 
 #after we've accumulated lines, process them
 sub annotateLines {
-  $pm->start and return;
+  #$pm->start and return;
   my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref, $partNumber) = @_;
 
+  #die;
   state $pubProg;
   state $writeProg;
 
@@ -213,13 +321,14 @@ sub annotateLines {
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   my @fields;
   #Note: Expects first 3 fields to be chr, position, reference
-  foreach (@$linesAref) {
-    @fields = split(/\t/, $self->clean_line( $_ ) );
+  for my $fieldsAref (@$linesAref) {
+   # @fields = split(/\t/, $self->clean_line( $line ) );
 
-    $self->log('info', "hello $_");
+   # say "field is ;";
+   # p $fieldsAref;
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-    my @snpFields = map { $fields[$_] } $self->allSnpFieldIdx;
+    my @snpFields = map { $fieldsAref->[$_] } $self->allSnpFieldIdx;
     
     push @inputData, \@snpFields;
 
@@ -242,7 +351,7 @@ sub annotateLines {
     #$ref_allele == $snpFields[2]
     my $sampleIDtypesAref; 
     for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
-      my $geno = $fields[ $idsIdxMapHref->{$id} ];
+      my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
 
       if( $geno eq 'N' || $geno eq $snpFields[2] ) {
         next;
@@ -286,12 +395,12 @@ sub annotateLines {
   }
 
   #write everything for this part
-  $self->printAnnotations(\@output, \@inputData, $Seq::tempOutPath . $partNumber);
+  return $self->makeAnnotationString(\@output, \@inputData);
 
   #TODO: need also to take care of statistics stuff,
   #but that will need to wait a bit, since that will require 
   #inter-process data sharing
-  $pm->finish;
+  #$pm->finish;
 }
 
 #This iterates over some database data, and gets all of the associated track info
@@ -313,7 +422,11 @@ sub finishAnnotatingLines {
         You may have chosen the wrong assembly");
     }
 
-    push @$outAref, { map { $_->name => $_->get($dataFromDbAref->[$i], $chr) } @trackGetters };
+    #some tracks may also want the alternative alleles, so give those as last arg
+    push @$outAref, { 
+      map { 
+        $_->name => $_->get($dataFromDbAref->[$i], $chr, $dataFromInputAref->[2]) } 
+      @trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
     $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];

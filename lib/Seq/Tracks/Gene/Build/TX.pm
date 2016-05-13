@@ -210,7 +210,7 @@ sub _buildTranscript {
 
   state $tracks = Seq::Tracks::SingletonTracks->new();
 
-  my $refTrack = $tracks->getRefTrackGetter();
+  state $refTrack = $tracks->getRefTrackGetter();
 
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {

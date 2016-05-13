@@ -48,10 +48,26 @@ with 'Seq::Role::Message';
 # tried various ways of assigning this to an attrib, with the intention that
 # one could change the taint checking characters allowed but this is the simpliest
 # one that worked; wanted it precompiled to improve the speed of checking
-my $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
+our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
 
-my $delimiter = "\t";
-my $endOfLine = "\n";
+has taint_check_regex => (
+  is => 'ro',
+  lazy => 1,
+  init_arg => undef,
+  default => sub{ $taint_check_regex },
+);
+
+has delimiter => (
+  is => 'ro',
+  lazy => 1,
+  default => "\t",
+); 
+
+has endOfLineChar => (
+  is => 'ro',
+  lazy => 1,
+  default => "\n",
+); 
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -81,36 +97,18 @@ sub get_read_fh {
   return $fh;
 }
 
+# not used
 #version based on File::Slurper, advantage is it uses our get_read_fh to support
 #compressed files
-sub get_file_lines {
-  my ($self, $filename) = @_;
-  
-  my $fh = $self->get_read_fh($filename);
-  
-  my @buf = <$fh>;
-  close $fh;
-  chomp @buf;
-  return \@buf;
-}
-
 # sub get_file_lines {
-#   my ( $self, $filePath ) = @_;
-#   if ( !-f $filePath ) {
-#     confess sprintf( "ERROR: file does not exist for reading: %s", $filePath );
-#   }
-#   my @lines = path($filePath)->lines; #returns array
-# }
-
-#another version, seems slower in practice
-#if using this no need to chomp each individual line
-# sub slurp_file_lines {
-#   my ( $self, $filePath ) = @_;
-#   if ( !-f $filePath ) {
-#     confess sprintf( "ERROR: file does not exist for reading: %s", $filePath );
-#   }
-#   return File::Slurper::read_lines( $filePath, 'utf-8', { chomp => 1 } )
-#     ; #returns array
+#   my ($self, $filename) = @_;
+  
+#   my $fh = $self->get_read_fh($filename);
+  
+#   my @buf = <$fh>;
+#   close $fh;
+#   chomp @buf;
+#   return \@buf;
 # }
 
 sub get_write_fh {
@@ -149,49 +147,6 @@ sub clean_line {
   }
   return;
 }
-
-sub splitLine {
-  #my ( $class, $line ) = @_;
-
-  return split(/$delimiter/, $_[1]);
-}
-
-
-sub getCleanFields {
-  # my ( $self, $line ) = @_;
-  # could be called millions of times, so don't copy arguments
-
-  # if(ref $_[1]) {
-  #   goto &getCleanFieldsBulk;
-  # }
-
-  #https://ideone.com/WVrYxg
-  if ( $_[1] =~ m/$taint_check_regex/xm ) {
-    my @out;
-    foreach ( split($endOfLine, $1) ) {
-      push @out, [ split($delimiter, $_) ];
-    }
-    return @out == 1 ? $out[0] : \@out;
-  }
-  return;
-}
-
-# sub getCleanFieldsBulk {
-#   # my ( $self, $lines ) = @_;
-#   # could be called millions of times, so don't copy arguments
-#   if(!ref $_[0]) {
-#     goto &getCleanFields;
-#   }
-
-#   my @out;
-#   foreach ( @{ $_[0] } ) { #== foreach my $line (@$lines)
-#     if ( $_ =~ m/$taint_check_regex/xm ) { #== if ($line =~ ...)
-#       push @out, split($delimiter, $1); #$1 == the regex match
-#     }
-#   }
-  
-#   return \@out;
-# }
 
 no Moose::Role;
 

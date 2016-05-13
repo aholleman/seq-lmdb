@@ -145,13 +145,13 @@ sub getRequiredFileHeaderFieldNames {
 #and whatever else we added to it
 #and an array of <ArrayRef> input data, which contains our original input fields
 #which we are going to re-use in our output (namely chr, position, type alleles)
-sub printAnnotations {
-  my ( $self, $outputDataAref, $inputDataAref, $filePath ) = @_;
+sub makeAnnotationString {
+  my ( $self, $outputDataAref, $inputDataAref ) = @_;
 
   # cache header attributes
   my ($headerKeysAref, $inputIdxAref) = $self->makeOutputHeader();
 
-  open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
+  #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $totalCount = 0;
   for my $href (@$outputDataAref) {
@@ -229,17 +229,17 @@ sub printAnnotations {
         $accum .= "$_;";
       }
       chop $accum;
-      push @singleLineOutput, $accum;
+      push @singleLineOutput, $accum . "\n";
     }
 
-    say $fh join("\t", @singleLineOutput);
+    return join("\t", @singleLineOutput);
   }
   #this should happen automatically
   #close($fh);
 }
 
-sub printHeader {
-  my ($self, $filePath) = @_;
+sub makeHeaderString {
+  my $self = shift;
 
   my ($headersAref, $inputFieldIdxAref) = $self->makeOutputHeader();
 
@@ -254,8 +254,8 @@ sub printHeader {
     }
     push @out, $feature;
   }
-  open (my $fh, '>', $filePath);
-  say $fh join("\t", @out);
+  #open (my $fh, '>', $filePath);
+  return join("\t", @out) . "\n";
 }
 #TODO: Set order of tracks based on order presented in configuration file
 #we get
@@ -330,6 +330,7 @@ sub compress_output {
 
 sub checkHeader {
   my ( $self, $field_aref, $die_on_unknown ) = @_;
+
   $die_on_unknown = defined $die_on_unknown ? $die_on_unknown : 1;
   my $err;
 
