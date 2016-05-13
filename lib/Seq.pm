@@ -34,7 +34,6 @@ use Parallel::ForkManager;
 use DDP;
 
 use MCE::Loop;
-use MCE::Candy;
 
 extends 'Seq::Base';
 
@@ -78,11 +77,6 @@ with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
 B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 
 =cut
-# sub BUILD {
-#   my $self = shift;
-# }
-
-#my $pm = Parallel::ForkManager->new(40);
 
 #MCE version
 sub annotate_snpfile {
@@ -93,7 +87,7 @@ sub annotate_snpfile {
   #this is much slower
   #my $fh = $self->get_read_fh( $self->snpfile_path );
 
-  open(my $fh, '<', $self->snpfile_path);
+  my $fh = $self->get_read_fh($self->snpfile_path);
   # my $count = 0;
   
   my $sampleIDsToIndexesMap;
@@ -103,7 +97,7 @@ sub annotate_snpfile {
 
   my $sampleIDaref;
   
-  my $firstLine = $fh->getline();
+  my $firstLine = <$fh>;
 
   chomp $firstLine;
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
@@ -126,7 +120,7 @@ sub annotate_snpfile {
     $self->log('fatal', "First line of input file has illegal characters");
   }
 
-  open(my $outFh, '>', $self->output_path);
+  my $outFh = $self->get_write_fh( $self->output_path );
   say $outFh $self->makeHeaderString();
 
   MCE::Loop::init {

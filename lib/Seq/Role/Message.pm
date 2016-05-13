@@ -106,15 +106,15 @@ sub setLogLevel {
 # );
 
 # #note: not using native traits because they don't support Maybe attrs
-state $messanger;
-has messanger => (
-  is       => 'rw',
-  isa      => 'Maybe[HashRef]',
-  required => 0,
-  lazy     => 1,
-  writer   => '_setMessanger',
-  default  => sub { $messanger},
-);
+# state $messanger;
+# has messanger => (
+#   is       => 'rw',
+#   isa      => 'Maybe[HashRef]',
+#   required => 0,
+#   lazy     => 1,
+#   writer   => '_setMessanger',
+#   default  => sub { $messanger},
+# );
 
 # has _publisher => (
 #   is        => 'ro',
@@ -229,11 +229,11 @@ sub log {
     die $_[2];
   }
 
-  if($_[0]->messanger) {
-    $_[0]->messanger->{message}{data} = $_[1] . $_[2];
-    $_[0]->notify(
-      [ 'publish', $_[0]->messanger->{event}, encode_json( $_[0]->messanger ) ] );
-  }
+  # if($_[0]->messanger) {
+  #   $_[0]->messanger->{message}{data} = $_[1] . $_[2];
+  #   $_[0]->notify(
+  #     [ 'publish', $_[0]->messanger->{event}, encode_json( $_[0]->messanger ) ] );
+  # }
   
   #&{ $Seq::Role::Message::LOG->${ $Seq::Role::mapLevels->{$_[1] } } }( $_[2] );
   #save some performance; could move this to anyevent as well

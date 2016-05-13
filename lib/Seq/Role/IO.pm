@@ -1,7 +1,7 @@
 use 5.10.0;
 use strict;
 use warnings;
-
+# TODO: Also support reading zipped files (right now only gzip files)
 package Seq::Role::IO;
 
 our $VERSION = '0.001';
@@ -37,9 +37,8 @@ use Moose::Role;
 
 use Carp qw/ confess /;
 use PerlIO::utf8_strict;
-use IO::File;
-use IO::Compress::Gzip qw/ $GzipError /;
-use IO::Uncompress::AnyUncompress qw/ $AnyUncompressError /;
+use PerlIO::gzip;
+
 use Path::Tiny;
 use Try::Tiny;
 use DDP;
@@ -86,13 +85,14 @@ sub get_read_fh {
   }
   #duck type compressed files
   try {
-    $fh = IO::Uncompress::AnyUncompress->new($filePath);
+    open($fh, "<:gzip", $filePath) or die "Not a gzip file";
   } catch {
-    $self->log('debug', "$filePath probably isn't an archive");
+    $self->log('debug', "$filePath isn't a gzip archive");
+    open($fh, '<', $filePath);
   };
     
-  $fh = IO::File->new($filePath, 'r') unless $fh;
-  return $self->log('error', "Unable to open file $filePath") unless $fh;
+  #open($fh, '<', $filePath) unless $fh;
+  return $self->log('fatal', "Unable to open file $filePath") unless $fh;
 
   return $fh;
 }
@@ -112,29 +112,28 @@ sub get_read_fh {
 # }
 
 sub get_write_fh {
-  my ( $class, $file ) = @_;
+  my ( $self, $file ) = @_;
 
   confess "\nError: get_fh() expected a filename\n" unless $file;
 
   my $fh;
   if ( $file =~ m/\.gz\Z/ ) {
-    $fh = IO::Compress::Gzip->new($file)
-      || confess "gzip failed: $GzipError\n";
-  }
-  else {
-    $fh = IO::File->new( $file, 'w' )
-      || confess "\nError: unable to open file ($file) for writing: $!\n";
+    open($fh, ">:gzip", $file) or die "Couldn't open gzip $file for writing";
+  } else {
+    open($fh, ">", $file) or die "Couldn't open $file for writing";
   }
   return $fh;
 }
 
 sub get_write_bin_fh {
-  my ( $class, $file ) = @_;
+  my ( $self, $file ) = @_;
 
-  confess "\nError: get_write_bin_fh() expects a filename\n" unless $file;
+  if(!$file) {
+    confess "\nError: get_write_bin_fh() expects a filename\n";
+  }
 
-  my $fh = IO::File->new( $file, 'w' )
-    || confess "\nError: unable to open file ($file) for writing: $!\n";
+  my $fh = $self->get_write_fh($file);
+
   binmode $fh;
   return $fh;
 }
