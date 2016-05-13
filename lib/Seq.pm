@@ -161,7 +161,8 @@ sub annotate_snpfile {
       }
     }
 
-    #$self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id);
+    #say "the lines are: " ;
+    #p $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id);
     MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
   } $fh;
 

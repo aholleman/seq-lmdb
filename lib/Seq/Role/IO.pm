@@ -148,6 +148,25 @@ sub clean_line {
   return;
 }
 
+sub getCleanFields {
+  # my ( $self, $line ) = @_;
+  #       $_[0]  $_[1]
+  # could be called millions of times, so don't copy arguments
+
+  # if(ref $_[1]) {
+  #   goto &getCleanFieldsBulk;
+  # }
+
+  #https://ideone.com/WVrYxg
+  if ( $_[1] =~ m/$taint_check_regex/xm ) {
+    my @out;
+    foreach ( split($_[0]->endOfLineChar, $1) ) {
+      push @out, [ split($_[0]->delimiter, $_) ];
+    }
+    return @out == 1 ? $out[0] : \@out;
+  }
+  return;
+}
 no Moose::Role;
 
 1;

@@ -154,6 +154,7 @@ sub makeAnnotationString {
   #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $totalCount = 0;
+  my $outStr;
   for my $href (@$outputDataAref) {
     #first map everything we want from the input file
     my @singleLineOutput = map { $inputDataAref->[$totalCount]->[$_] } @$inputIdxAref;
@@ -232,10 +233,11 @@ sub makeAnnotationString {
       push @singleLineOutput, $accum . "\n";
     }
 
-    return join("\t", @singleLineOutput);
+    $outStr .= join("\t", @singleLineOutput);
   }
   #this should happen automatically
   #close($fh);
+  return $outStr;
 }
 
 sub makeHeaderString {
