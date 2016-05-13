@@ -35,7 +35,6 @@ use DDP;
 
 use MCE::Loop;
 use MCE::Candy;
-use MCE::Shared;
 
 extends 'Seq::Base';
 
@@ -64,8 +63,6 @@ has out_file => (
 #   lazy => 1,
 # );
 
-$Seq::tempOutPath = '';
-
 #we also add a few of our own annotation attributes
 #trying global prpoerties because they work a bit better with some
 #multi-process perl packages
@@ -73,11 +70,6 @@ $Seq::heterozygousIdsKey = 'heterozygotes';
 $Seq::compoundIdsKey = 'compoundHeterozygotes';
 $Seq::homozygousIdsKey = 'homozygotes';
 
-sub BUILD {
-  my $self = shift;
-
-  $Seq::tempOutPath = path( tempdir( CLEANUP => 1 ) )->child($self->out_file->basename)->stringify;
-}
 #come after all attributes to meet "requires '<attribute>'"
 with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
 
@@ -94,7 +86,7 @@ B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
 
 #MCE version
 sub annotate_snpfile {
-  our $self = shift;
+  my $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
 
@@ -103,23 +95,23 @@ sub annotate_snpfile {
 
   open(my $fh, '<', $self->snpfile_path);
   # my $count = 0;
-  our $heterozygousIdsKey;
-  our $homozygousIdsKey;
-  our $compoundIdsKey;
-  our $partNumber = 0;
   
-  our $sampleIDsToIndexesMap;
-  our $taint_check_regex = $self->taint_check_regex; 
-  our $endOfLineChar = $self->endOfLineChar;
-  our $delimiter = $self->delimiter;
+  my $sampleIDsToIndexesMap;
+  my $taint_check_regex = $self->taint_check_regex; 
+  my $endOfLineChar = $self->endOfLineChar;
+  my $delimiter = $self->delimiter;
 
-  our $sampleIDaref;
+  my $sampleIDaref;
   
   my $firstLine = $fh->getline();
 
   chomp $firstLine;
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
     $firstLine = [ split $delimiter, $1 ];
+
+    our $heterozygousIdsKey;
+    our $homozygousIdsKey;
+    our $compoundIdsKey;
 
     $self->checkHeader($firstLine);
 
@@ -140,7 +132,7 @@ sub annotate_snpfile {
   MCE::Loop::init {
     chunk_size => 8100, #max i think
     max_workers => 30,
-    gather => MCE::Candy::out_iter_fh($outFh),
+    #gather => MCE::Candy::out_iter_fh($outFh),
   };
 
   #our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
@@ -161,128 +153,21 @@ sub annotate_snpfile {
       }
     }
 
-    #say "the lines are: " ;
-    #p $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id);
-    MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
+    # http://www.perlmonks.org/?node_id=1110235
+    # MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
+    MCE->print($outFh, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref) );
   } $fh;
 
-  #get anything left over
-  # if(@lines) {
-  #   say "stuff remains";
-  #   $partNumber++;
-  #   $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
-  # }
-
- # $pm->wait_all_children();
-
-  #TODO: return # of discordant bases from children if wanted
-
-  #provided everyone finished, we will have N parts; concatenate them into the 
-  #output file
-  #first write the header to the output file, becuase pre-pending takes a temp
-  #file step afaik
-
-  
-
-  # my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $lastChunkID);
-  # my $concatTheseFiles = join (' ', @partPaths);
-
-  # $self->log('info', 'Concatenating output files');
-
-  # my $err = system("cat $concatTheseFiles >> " . $self->output_path);
-
-  # if($err) {
-  #   $self->log('fatal', 'Concatenation of output file parts failed');
-  # }
+  close $outFh;
 }
 
 #TODO: Need to implement unknown chr check, LOW/MESS check
-# sub annotate_snpfile {
-#   my $self = shift;
-
-#   $self->commitEvery(1e4);
-
-#   $self->log( 'info', 'Beginning annotation' );
-
-#   my $fh = $self->get_read_fh( $self->snpfile_path );
-
-#   my ( %ids, @sample_ids, @snp_annotations );
-#   my @sampleIDs;
-#   my %sampleIDsToIndexesMap;
-#   my @lines;
-#   my $count = 0;
-#   my $partNumber = 0;
-
-#   our $heterozygousIdsKey;
-#   our $homozygousIdsKey;
-#   our $compoundIdsKey;
-
-#   while (my $line = $fh->getline() ) {
-#     #If we don't have sampleIDs, this should be the first line of the file
-#     if(!@sampleIDs) {
-#       my $fieldsAref = $self->getCleanFields($line);
-     
-#       $self->checkHeader( $fieldsAref );
-
-#       #needs to happen before we get into writing anything in children
-#       #to make sure we have one header state
-#       #We have a few additional fields we will be adding as pseudo-features
-#       $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
-
-#       %sampleIDsToIndexesMap = $self->getSampleNamesIdx( $fieldsAref );
-
-#       # save list of ids within the snpfile
-#       @sampleIDs =  sort keys %sampleIDsToIndexesMap;
-
-#       next;
-#     }
-#     chomp $line;
-#     push @lines, $line;
-
-#     #$self->commitEvery from DBManager
-#     if($count > $self->commitEvery) {
-#       $partNumber++;
-      
-#       $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
-      
-#       @lines = ();
-#       $count = 0;
-#     }
-#     $count++
-#   }
-
-#   #get anything left over
-#   if(@lines) {
-#     $partNumber++;
-#     $self->annotateLines(\@lines, \%sampleIDsToIndexesMap, \@sampleIDs, $partNumber);
-#   }
-
-#   $pm->wait_all_children();
-
-#   #TODO: return # of discordant bases from children if wanted
-
-#   #provided everyone finished, we will have N parts; concatenate them into the 
-#   #output file
-#   #first write the header to the output file, becuase pre-pending takes a temp
-#   #file step afaik
-
-#   $self->printHeader($self->output_path);
-#   my @partPaths = map { $Seq::tempOutPath . $_ } (1 .. $partNumber);
-#   my $concatTheseFiles = join (' ', @partPaths);
-
-#   $self->log('info', 'Concatenating output files');
-
-#   my $err = system("cat $concatTheseFiles >> " . $self->output_path);
-
-#   if($err) {
-#     $self->log('fatal', 'Concatenation of output file parts failed');
-#   }
-# }
+#TODO: return # of discordant bases from children if wanted
 
 #after we've accumulated lines, process them
 sub annotateLines {
   #$pm->start and return;
-  my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref, $partNumber) = @_;
+  my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref) = @_;
 
   #die;
   state $pubProg;
@@ -443,7 +328,6 @@ sub finishAnnotatingLines {
     #then it will fetch the required sites, and get the gene track
     #TODO: finish implementing
     #$self->annotateIndel( $chr, \%singleLineOutput, $dataFromInputAref->[$i] );
-    
   }
 
   return $outAref;
