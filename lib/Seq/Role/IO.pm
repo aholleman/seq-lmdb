@@ -85,9 +85,10 @@ sub get_read_fh {
   }
   #duck type compressed files
   try {
+    # to open with pipe needs something like IPC module to catch stderr
+    # open ($fh, '-|', "pigz -d -c $file") or die "not a gzip file";
     open($fh, "<:gzip", $filePath) or die "Not a gzip file";
   } catch {
-    $self->log('debug', "$filePath isn't a gzip archive");
     open($fh, '<', $filePath);
   };
     

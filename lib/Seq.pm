@@ -124,7 +124,7 @@ sub annotate_snpfile {
   say $outFh $self->makeHeaderString();
 
   MCE::Loop::init {
-    chunk_size => 8100, #max i think
+    chunk_size => 8192, #beyond this will read in bytes
     max_workers => 30,
     #gather => MCE::Candy::out_iter_fh($outFh),
   };
@@ -142,9 +142,10 @@ sub annotate_snpfile {
     for my $line (@{$_}) {
       if ( $line =~ m/$taint_check_regex/xm ) {
         $line = [ split $delimiter, $1 ];
-      } else {
-        $self->log('fatal', "$line contains characters we don't accept")
-      }
+        next;
+      } 
+      
+      $self->log('fatal', "$line contains characters we don't accept");
     }
 
     # http://www.perlmonks.org/?node_id=1110235
@@ -152,6 +153,7 @@ sub annotate_snpfile {
     MCE->print($outFh, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref) );
   } $fh;
 
+  MCE::Loop::finish;
   close $outFh;
 }
 
@@ -297,16 +299,16 @@ sub finishAnnotatingLines {
   my @trackGetters = $self->getAllTrackGetters();
   #@$dataFromDBaRef == @$dataFromInputAref
   for (my $i = 0; $i < @$dataFromInputAref; $i++) {
-    if(!$dataFromDbAref->[$i] ) {
+    if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $dataFromInputAref->[$i][1] . " not found.
         You may have chosen the wrong assembly");
     }
 
     #some tracks may also want the alternative alleles, so give those as last arg
-    push @$outAref, { 
-      map { 
-        $_->name => $_->get($dataFromDbAref->[$i], $chr, $dataFromInputAref->[2]) } 
-      @trackGetters };
+    #example: cadd track needs this
+    push @$outAref, {map { 
+      $_->name => $_->get($dataFromDbAref->[$i], $chr, $dataFromInputAref->[2]) 
+    } @trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
     $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];

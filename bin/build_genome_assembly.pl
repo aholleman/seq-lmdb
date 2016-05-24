@@ -32,7 +32,7 @@ GetOptions(
   'v|verbose'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
-  'o|overwrite'  => \$overwrite,
+  'o|overwrite=i'  => \$overwrite,
   'chr|wanted_chr=s' => \$wantedChr,
 );
 

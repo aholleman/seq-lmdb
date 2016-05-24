@@ -28,10 +28,13 @@ use DDP;
 # state $alt   = 'Alt';
 # state $reqFields = [$chrom, $pos, $alt];
 
-my $pm = Parallel::ForkManager->new(26); 
+use MCE::Loop;
+
+#my $pm = Parallel::ForkManager->new(26); 
 sub buildTrack {
   my ($self) = @_;
 
+  say "in buildTrack";
   # $self = $_[0]
   # not shifting to allow goto
 
@@ -55,22 +58,24 @@ sub buildTrack {
   my $based = $self->based;
 
 
-  FH_LOOP: while (<$fh>) {
-    chomp $_; #$_ not nec. , but more cross-language understandable
-    #this may be too aggressive, like a super chomp, that hits 
-    #leading whitespace as well; wouldn't give us undef fields
-    #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
-
-    if($. == 1 && ! ~index $_, '#' ) {
-      close $fh;
-      goto &buildTrackFromHeaderlessWigFix;
-     #$_ not nec. here, but this is less idiomatic, more cross-language
-    }
-
-    #TODO: Finish building the read-from-native-cadd file version,
-    #should that be of interest.
-    
+  if( ! ~index $fh->getline(), '#') {
+    close $fh;
+    goto &buildTrackFromHeaderlessWigFix;
   }
+
+  # finish for regular cadd file
+  # FH_LOOP: while (my $line = $fh->getline() ) {
+  #   chomp $line; #$_ not nec. , but more cross-language understandable
+  #   #this may be too aggressive, like a super chomp, that hits 
+  #   #leading whitespace as well; wouldn't give us undef fields
+  #   #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
+
+   
+
+  #   #TODO: Finish building the read-from-native-cadd file version,
+  #   #should that be of interest.
+    
+  # }
     
 }
 
@@ -81,13 +86,18 @@ sub buildTrackFromHeaderlessWigFix {
   #the one that binds them
   my ($file) = $self->all_local_files;
 
+  #open my $fh, '-|', "pigz -d -c $file";
   my $fh = $self->get_read_fh($file);
-
+  
   my %data = ();
   my $wantedChr;
   
-  my @allWantedChr = $self->allWantedChrs;
-  
+  my $singleWantedChrRegex;
+  if($self->wantedChr) {
+    $singleWantedChrRegex = $self->wantedChr;
+    $singleWantedChrRegex = qr/$singleWantedChrRegex/;
+  }
+
   my $chr;
   my $featureIdxHref;
   my $reqIdxHref;
@@ -96,100 +106,82 @@ sub buildTrackFromHeaderlessWigFix {
 
   my @positions;
   my @inputData;
+
   # sparse track should be 1 based
   # we have a method ->zeroBased, but in practice I find it more confusing to use
   my $based = $self->based;
 
-  FH_LOOP: while (<$fh>) {
-    chomp $_; #$_ not nec. , but more cross-language understandable
-    #this may be too aggressive, like a super chomp, that hits 
-    #leading whitespace as well; wouldn't give us undef fields
-    #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
-    my @fields = split "\t";
+  my $delimiter = $self->delimiter;
 
-    my $chr = $fields[0];
+  my %results;
 
-    #this will not work well if chr are significantly out of order
-    #because we won't be able to benefit from sequential read/write
-    #we could move to building a larger hash of {chr => { pos => data } }
-    #but would need to check commit limits then on a per-chr basis
-    #easier to just ask people to give sorted files?
-    #or could sort ourselves.
-    if($wantedChr) {
-      #save a few cycles by not reassigning $wantedChr for every pos
-      #if we changed chromosomes, lets write the previous chr's data
-      if($wantedChr ne $chr) {
+  MCE::Loop::init {
+    chunk_size => 2e8, #about 2 million lines
+    max_workers => 30,
+    gather => \&writeToDatabase,
+  };
 
-        $self->finishBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
-        #$self->dbPatchBulk($wantedChr, \%data);
+  mce_loop_f {
+    my ( $mce, $chunk_ref, $chunk_id ) = @_;
 
-        @inputData = ();
-        $count = 0;
-        
-        $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+    # chr => {
+      #pos => [val1, val2, val3]
+    #}
+    my %out;
+
+    #count up number of positions recorded for each chr 
+    my %count;
+
+    LINE_LOOP: for my $line (@{$_}) {
+      if($singleWantedChrRegex && $line !~ $singleWantedChrRegex) {
+        next LINE_LOOP;
+      } 
+
+      chomp $line;
+
+      my @sLine = split $delimiter, $line;
+
+      #if no single --chr is specified at run time,
+      #check against list of genome_chrs
+      if(! $singleWantedChrRegex && ! $self->chrIsWanted( $sLine[0] ) ) {
+        next;
       }
-    } else {
-      $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+      if(! defined $out{ $sLine[0] } ) {
+        $out{ $sLine[0] } = {};
+        $count{ $sLine[0] } = 0;
+      }
+
+      #if this chr has more than $self->commitEvery records, put it in db
+      if( $count{ $sLine[0] } == $self->commitEvery ) {
+        MCE->gather($self, { $sLine[0] => $out{ $sLine[0] } } );
+        $out{ $sLine[0] } = {};
+        $count{ $sLine[0] } = 0;
+      }
+
+      $out{ $sLine[0] }{ $sLine[1] - $based } = $self->prepareData( [$sLine[2], $sLine[3], $sLine[4]] );
+      $count{ $sLine[0] }++;
     }
 
-    if(!$wantedChr) {
-      next FH_LOOP;
+    # http://www.perlmonks.org/?node_id=1110235
+    if(%out) {
+      say "found out stuff, also, we just read 200MB";
+      MCE->gather($self, \%out);
     }
+  } $fh;
 
-    #position, A, C, G (or whatever bases, in alphabetical order starting from the reference)
-    push @inputData, [ $fields[1], $fields[2], $fields[3], $fields[4] ];
-
-    #be a bit conservative with the count, since what happens below
-    #could bring us all the way to segfault
-  }
-
-  #we're done with the file, and stuff is left over;
-  if(@inputData) {
-    #let's write that stuff
-    $self->finishBuildingFromHeaderlessWigFix($wantedChr, \@inputData);
-  }
-
-  $pm->wait_all_children;
-
+  MCE::Loop::finish;
   $self->log('info', 'finished building: ' . $self->name);
 }
 
-#order is alphabetical
+sub writeToDatabase {
+  my ($self, $resultRef) = @_;
 
-sub finishBuildingFromHeaderlessWigfix {
-  $pm->start and return;
-    my ($self, $chr, $inputFieldsAref) = @_;
-
-    if(!$chr || !@$inputFieldsAref) {
-      $self->log('fatal', "Either no chromosome or an empty array 
-        provided when writing CADD entries");
+  for my $chr (keys %$resultRef) {
+    if( %{ $resultRef->{$chr} } ) {
+      $self->dbPatchBulk($chr, $resultRef->{$chr} );
     }
-
-    my %posData;
-    my $count = 0;
-
-    #This file is expected to have the correct order already
-    for my $fieldsAref (@$inputFieldsAref) {
-      $posData{ $fieldsAref->[0] } = $self->prepareData(
-        [$fieldsAref->[1], $fieldsAref->[2], $fieldsAref->[3] ]
-      );
-
-      if($count >= $self->commitEvery) {
-        $self->dbPatchBulk($chr, \%posData);
-
-        %posData = ();
-        $count = 0;
-      }
-
-      $count++;
-
-    }
-
-    if(%posData) {
-      $self->dbPatchBulk($chr, \%posData);
-    }
-    
-  $pm->finish;
+  }
 }
 
 __PACKAGE__->meta->make_immutable;

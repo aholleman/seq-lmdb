@@ -118,7 +118,7 @@ sub buildTrack {
               next REQ_LOOP; #label for clarity
             }
             
-            $self->log('fatal', 'Required field $field missing in $file header');
+            $self->log('fatal', "Required field $field missing in $file header");
           }
 
           # say 'all features wanted are';

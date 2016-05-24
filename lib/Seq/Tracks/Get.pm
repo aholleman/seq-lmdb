@@ -12,37 +12,6 @@ use Moose 2;
 extends 'Seq::Tracks::Base';
 with 'Seq::Tracks::Headers';
 
-#TODO: figure out how to neatly add feature exclusion
-# has annotation_exclude_features => (
-#   is => 'ro',
-#   isa => 'ArrayRef',
-#   lazy => 1,
-#   default => sub { [] },
-# );
-
-# my @featureLabels;
-#   my @exludedFeatures = defined $data{annotation_exclude_features} 
-#     ? @{$data{annotation_exclude_features} } : ();
-
-#   for my $feature (@{$data{features} } ) {
-#     if (ref $feature eq 'HASH') {
-#       my ($name, $type) = %$feature; #Thomas Wingo method
-
-#       if(@exludedFeatures && first { $_ eq $name } @exludedFeatures ) {
-#         next;
-#       }
-#       push @featureLabels, $name;
-#       $data{_featureDataTypes}{$name} = $type;
-
-#       next;
-#     }
-
-#     if(@exludedFeatures && first { $_ eq $feature } @exludedFeatures ) {
-#       next;
-#     }
-#     push @featureLabels, $feature;
-#   }
-
 sub BUILD {
   my $self = shift;
   #once feature exclusion is ready 
@@ -145,3 +114,34 @@ sub getBulk {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+#TODO: figure out how to neatly add feature exclusion
+# has annotation_exclude_features => (
+#   is => 'ro',
+#   isa => 'ArrayRef',
+#   lazy => 1,
+#   default => sub { [] },
+# );
+
+# my @featureLabels;
+#   my @exludedFeatures = defined $data{annotation_exclude_features} 
+#     ? @{$data{annotation_exclude_features} } : ();
+
+#   for my $feature (@{$data{features} } ) {
+#     if (ref $feature eq 'HASH') {
+#       my ($name, $type) = %$feature; #Thomas Wingo method
+
+#       if(@exludedFeatures && first { $_ eq $name } @exludedFeatures ) {
+#         next;
+#       }
+#       push @featureLabels, $name;
+#       $data{_featureDataTypes}{$name} = $type;
+
+#       next;
+#     }
+
+#     if(@exludedFeatures && first { $_ eq $feature } @exludedFeatures ) {
+#       next;
+#     }
+#     push @featureLabels, $feature;
+#   }

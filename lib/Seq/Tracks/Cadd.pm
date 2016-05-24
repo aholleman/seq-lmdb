@@ -17,8 +17,10 @@ sub BUILD {
   state $tracks = Seq::Tracks::SingletonTracks->new();
 
   $refTrack = $tracks->getRefTrackGetter();
-}
-
+} 
+  
+#accepts $self, $dataHref, $chr (not used), $altAlleles
+#@param <String|ArrayRef> $altAlleles : the alleles, like A,C,T,G or ['A','C','T','G'] 
 sub get {
   state $order = {
     A => {
@@ -43,25 +45,63 @@ sub get {
     }
   };
 
-  ## finish
+  state $dbName = $_[0]->dbName;
+
   #my ($self, $href, $chr, $altAlleles) = @_;
   #==   $_[0], $_[1], $_[2], $_[3]
+  # $altAlleles are the alleles present in the samples
+  #ex A,G; ex2: A
   my $refBase = $refTrack->get($_[1]);
 
   if (!defined $order->{$refBase} ) {
-    $_[0]->('warn', "got reference base $refBase, which doesn't look like valid, in Cadd.pm");
-    return;
+    $_[0]->('warn', "reference base $refBase doesn't look valid, in Cadd.pm");
+    return undef;
   }
 
   #note that if an allele doesn't have a defined value,
   #this will push an "undef" value in the array of CADD alleles
   #this is useful because we may want to know which CADD score belongs to 
   #which allele
-  return {
-    $_[0]->name => [ map { $_[1]->{ $_[0]->dbName }->[ $order->{ $refBase }->{ $_ } ] } split ( ",", $_[3] ) ]
+ 
+    if( defined $order->{ $refBase }->{ $_[3] } ) {
+      return {
+        $_[0]->name => $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_[3] } ]
+      }
+    } 
+    
+    #if we end up splitting the string, then we expect no whitespace around the 
+    #alternative alleles
+    return {
+      $_[0]->name => [ map {
+        defined  $order->{ $refBase }->{ $_ } ? $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_ } ] : undef
+      } !ref $_[3] ? split ',', $_[3] : @{ $_[3] } ]
+    }
+    # foreach( ( $_[3] =~ m/[ACTG]/g ) ) {
+    #   if( defined $order->{ $refBase }->{ $_[3] } ) {
+    #     return {
+    #       $_[0]->name => $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_[3] } ],
+    #     }
+    #   } 
+    # }
+
+  # foreach (split ( ",", $_[3] )) {
+  #   say "for allele $_, cadd score is";
+  #   p $_[1];
+  #   p $_[1]->{ $dbName };
+  #   p  $order->{ $refBase };
+  #   p $order->{ $refBase }->{ $_ };
+  #   p $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_ } ];
+  # }
+  # return {
+  #   $_[0]->name => [ map {
+  #     if(! defined $order->{ $refBase }->{ $_ } ) {
+  #       $_[0]->log('warn', '$_ is not a valid allele; you may have included an extra')
+  #     }
+  #     defined $order->{ $refBase }->{ $_ } ? $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_ } ] : undef 
+  #   } ! ref $_[3] ? split ( ",", $_[3] ) : $_[3] ]
     #translation:
-    #$self->name => [ map { $href->{ $self->dbName }->[ $order->{ $refBase }->{ $_ } ] } split ( ",", $altAlleles ) ]
-  }
+    #$self->name => [ map { $href->{ $self->dbName }->[ $order->{ $refBase }->{ $_ } ] } !ref $altAlleles ? split ( ",", $altAlleles ) : $altAlleles ]
+  #}
 
   # Same as:
   # my @out;

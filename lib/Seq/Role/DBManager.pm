@@ -369,8 +369,10 @@ sub dbPatchBulk {
 
         if($overwrite == 1) {
           $href = merge $href, $posHref->{$pos};
-        }elsif($overwrite == 2) {
+        } elsif($overwrite == 2) {
           $href->{$featureID} = $posHref->{$pos}->{$featureID};
+        } else {
+          $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
         }
       } else {
         $href->{$featureID} = $posHref->{$pos}->{$featureID};
@@ -411,9 +413,6 @@ sub dbPatchBulk {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
- # say "stuff in stack";
- # pop @_;
-  #p @_;
   $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
 }
 

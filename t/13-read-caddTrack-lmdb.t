@@ -23,56 +23,71 @@ my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
 );
 
-my $geneTrack = $tracks->getTrackGetterByName('refSeq');
 my $caddTrack = $tracks->getTrackGetterByName('cadd');
+my $refTrack = $tracks->getTrackGetterByName('hg19');
 
-p $geneTrack;
 p $caddTrack;
+p $refTrack;
 
 my $dataHref = $tracks->dbRead('chr1', 18193  - 1);
 
 say "dataHref is";
 p $dataHref;
 
-$dataHref = $tracks->dbRead('chr22', 29445184  - 1);
-
-say "dataHref is";
-p $dataHref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
-my $geneTrackData = $geneTrack->get($dataHref, 'chr22');
-say "geneTrack data is";
-p $geneTrackData;
+my $caddTrackData = $caddTrack->get($dataHref, undef, 'T,G,C');
 
-my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
-ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct');
-ok($geneTrackData->{regionType} eq 'Intronic', 'reads Intronic entry ok');
+say "caddTrackData is";
+p $caddTrackData;
+
+$caddTrackData = $caddTrack->get($dataHref, undef, ['T', 'G', 'C'] );
+
+say "caddTrackData is";
+p $caddTrackData;
+
+$caddTrackData = $caddTrack->get($dataHref, undef, 'T' );
+
+say "caddTrackData is";
+p $caddTrackData;
+
+# $dataHref = $tracks->dbRead('chr22', 29445184  - 1);
+
+# say "dataHref is";
+# p $dataHref;
+
+# say "geneTrack data is";
+# p $geneTrackData;
+
+# my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
+# ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct');
+# ok($geneTrackData->{regionType} eq 'Intronic', 'reads Intronic entry ok');
 
 
-$dataHref = $tracks->dbRead('chr22', 1 - 1 );
-say "dataHref is";
-p $dataHref;
-$geneTrackData = $geneTrack->get($dataHref, 'chr22');
-say "geneTrack data is";
-p $geneTrackData;
-ok($geneTrackData->{regionType} eq 'Intergenic', 'reads Intergenic entry ok');
+# $dataHref = $tracks->dbRead('chr22', 1 - 1 );
+# say "dataHref is";
+# p $dataHref;
+# $geneTrackData = $geneTrack->get($dataHref, 'chr22');
+# say "geneTrack data is";
+# p $geneTrackData;
+# ok($geneTrackData->{regionType} eq 'Intergenic', 'reads Intergenic entry ok');
 
 
-$dataHref = $tracks->dbRead('chr22', 29445184 + 100 );
-say "dataHref is";
-p $dataHref;
-$geneTrackData = $geneTrack->get($dataHref, 'chr22');
-say "geneTrack data is";
-p $geneTrackData;
+# $dataHref = $tracks->dbRead('chr22', 29445184 + 100 );
+# say "dataHref is";
+# p $dataHref;
+# $geneTrackData = $geneTrack->get($dataHref, 'chr22');
+# say "geneTrack data is";
+# p $geneTrackData;
 
-ok($geneTrackData->{regionType} eq 'Exonic', 'reads exonic entry ok');
+# ok($geneTrackData->{regionType} eq 'Exonic', 'reads exonic entry ok');
 
-$dataHref = $tracks->dbRead('chr22', 29445184 + 103 );
-say "dataHref is";
-p $dataHref;
-$geneTrackData = $geneTrack->get($dataHref, 'chr22');
-say "geneTrack data is";
-p $geneTrackData;
+# $dataHref = $tracks->dbRead('chr22', 29445184 + 103 );
+# say "dataHref is";
+# p $dataHref;
+# $geneTrackData = $geneTrack->get($dataHref, 'chr22');
+# say "geneTrack data is";
+# p $geneTrackData;
 
 
 # $dataHref = $tracks->dbRead('chrY', 16634487  - 1);
