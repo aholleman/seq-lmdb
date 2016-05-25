@@ -45,13 +45,6 @@ use Scalar::Util qw/ reftype /;
 # enum BinType => [ 'C', 'n' ];
 extends 'Seq::Tracks::Get';
 
-override 'BUILD' => sub {
-  my $self = shift;
-
-  $self->addFeaturesToTrackHeaders($self->name);
-
-  super();
-};
 #Every track needs to have a feature name for each of the values it returns
 #(values can be scalar, hashRef, arrayRef)
 #for a score track, that is simply the name of the track itself

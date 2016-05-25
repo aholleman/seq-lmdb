@@ -47,13 +47,6 @@ use namespace::autoclean;
 
 extends 'Seq::Tracks::Get';
 
-override 'BUILD' => sub {
-  my $self = shift;
-
-  $self->addFeaturesToTrackHeaders($self->name);
-
-  super();
-};  
 #This really is a simple class
 #The default get method handles this just fine, as defined in Seq::Tracks::Get
 

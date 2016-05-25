@@ -26,7 +26,12 @@ sub BUILD {
 
   #register all features for this track
   #@params $parent, $child
-  $self->addFeaturesToTrackHeaders([$self->allFeatureNames], $self->name);;
+  #if this class has no features, then the track's name is also its feature
+  if($self->noFeatures) {
+    return $self->addFeaturesToTrackHeaders($self->name);
+  }
+
+  $self->addFeaturesToTrackHeaders([$self->allFeatureNames], $self->name);
 }
 #The only track that needs to modify this function is RegionTrack
 #They're fundamentally different in that they have a 2nd database that 

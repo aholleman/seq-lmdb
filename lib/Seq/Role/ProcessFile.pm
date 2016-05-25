@@ -184,7 +184,8 @@ sub makeAnnotationString {
           }
 
           if(ref $href->{$parent}{$child} ne 'ARRAY') {
-            $self->log('warn', "Can\'t process non-array parent values, skipping $parent->$child");
+            $self->log('warn', "Can\'t process non-array parent values, skipping $child");
+            
             push @singleLineOutput, 'NA';
             next CHILD;
           }
@@ -203,7 +204,7 @@ sub makeAnnotationString {
         next PARENT;
       }
 
-      # say "feature is $feature";
+      #say "feature is $feature";
       #p $href->{feature};
       if(!defined $href->{$feature} ) {
         push @singleLineOutput, 'NA';
@@ -216,6 +217,11 @@ sub makeAnnotationString {
       }
 
       if(ref $href->{$feature} ne 'ARRAY') {
+        # say "value for $feature is";
+        # p $href->{$feature};
+        # say 'ref is '. ref $href->{$feature};
+        
+          
         $self->log('warn', "Can\'t process non-array parent values, skipping $feature");
         push @singleLineOutput, 'NA';
         next PARENT;
@@ -230,13 +236,12 @@ sub makeAnnotationString {
         $accum .= "$_;";
       }
       chop $accum;
-      push @singleLineOutput, $accum . "\n";
+      push @singleLineOutput, $accum;
     }
 
-    $outStr .= join("\t", @singleLineOutput);
+    $outStr .= join("\t", @singleLineOutput) . "\n";
   }
-  #this should happen automatically
-  #close($fh);
+  chop $outStr;
   return $outStr;
 }
 
@@ -257,7 +262,7 @@ sub makeHeaderString {
     push @out, $feature;
   }
   #open (my $fh, '>', $filePath);
-  return join("\t", @out) . "\n";
+  return join("\t", @out);
 }
 #TODO: Set order of tracks based on order presented in configuration file
 #we get

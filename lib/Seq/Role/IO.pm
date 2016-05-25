@@ -47,7 +47,7 @@ with 'Seq::Role::Message';
 # tried various ways of assigning this to an attrib, with the intention that
 # one could change the taint checking characters allowed but this is the simpliest
 # one that worked; wanted it precompiled to improve the speed of checking
-our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
+our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d/]+)\z};
 
 has taint_check_regex => (
   is => 'ro',

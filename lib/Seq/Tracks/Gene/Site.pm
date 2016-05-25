@@ -97,7 +97,7 @@ sub packCodon {
     $self->log('fatal', 'codon position & Number must be numeric');
   }
 
-  if(defined $codonSeq && (!defined $codonPosition || !defined $codonNumber) ) {
+  if(defined $codonSeq && !(defined $codonPosition && defined $codonNumber) ) {
     $self->log('fatal', 'codon sequence requires codonPosition or codonNumber');
   }
 
@@ -106,12 +106,10 @@ sub packCodon {
   if(defined $codonSeq) {
     $codonSeqNumber = $self->codon2Num($codonSeq);
 
-    # say "codon2SeqNumber is ";
-    # p $codonSeqNumber;
-    
+    #warning for now, this mimics the original codebase
+    #TODO: do we want to store this as an error in the TX?
     if(!$codonSeqNumber) {
-      die 'couldn\'t convert codon sequence $codonSeq to a number';
-      $self->log('fatal', "couldn\'t convert codon sequence $codonSeq to a number");
+      $self->log('warn', "couldn\'t convert codon sequence $codonSeq to a number");
     }
   }
 

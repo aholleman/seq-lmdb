@@ -88,6 +88,7 @@ sub annotate_snpfile {
   #my $fh = $self->get_read_fh( $self->snpfile_path );
 
   my $fh = $self->get_read_fh($self->snpfile_path);
+
   # my $count = 0;
   
   my $sampleIDsToIndexesMap;
@@ -96,7 +97,9 @@ sub annotate_snpfile {
   my $delimiter = $self->delimiter;
 
   my $sampleIDaref;
-  
+    
+  #first line is header
+  #strip it from the file, and write it to disk
   my $firstLine = <$fh>;
 
   chomp $firstLine;
@@ -123,38 +126,47 @@ sub annotate_snpfile {
   my $outFh = $self->get_write_fh( $self->output_path );
   say $outFh $self->makeHeaderString();
 
+  #initialize our parallel engine; re-uses forks
   MCE::Loop::init {
-    chunk_size => 8192, #beyond this will read in bytes
-    max_workers => 30,
-    #gather => MCE::Candy::out_iter_fh($outFh),
+    #slurpio is optimized with auto chunk
+    chunk_size => 'auto',
+    max_workers => 32,
+    use_slurpio => 1,
+    #doesn't seem to improve performance
+    #and apparently slow on shared storage
+   # parallel_io => 1,
   };
 
-  #our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d]+)\z};
   mce_loop_f {
-   my ( $mce, $chunk_ref, $chunk_id ) = @_;
+    my ($mce, $slurp_ref, $chunk_id) = @_;
 
-   chomp @{$_};
+    # Quickly determine if a match is found.
+    # Process the slurped chunk only if true.
 
-   if($chunk_id == 1) {
-    shift @{$_};
-   }
+     my @lines;
 
-    for my $line (@{$_}) {
-      if ( $line =~ m/$taint_check_regex/xm ) {
-        $line = [ split $delimiter, $1 ];
-        next;
-      } 
-      
-      $self->log('fatal', "$line contains characters we don't accept");
-    }
+     # http://search.cpan.org/~marioroy/MCE-1.706/lib/MCE.pod
+     # The following is fast on Unix, but performance degrades
+     # drastically on Windows beyond 4 workers.
+
+     open my $MEM_FH, '<', $slurp_ref;
+     binmode $MEM_FH, ':raw';
+
+     while (<$MEM_FH>) {
+      if (/$taint_check_regex/) {
+        if(/MESS|LOW/) {
+          next;
+        }
+        chomp;
+        push @lines, [ split $delimiter, $_ ];
+      }
+     }
+     close  $MEM_FH;
 
     # http://www.perlmonks.org/?node_id=1110235
     # MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
-    MCE->print($outFh, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref) );
+    MCE->say($outFh, $self->annotateLines(\@lines, $sampleIDsToIndexesMap, $sampleIDaref) );
   } $fh;
-
-  MCE::Loop::finish;
-  close $outFh;
 }
 
 #TODO: Need to implement unknown chr check, LOW/MESS check
@@ -212,6 +224,11 @@ sub annotateLines {
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
     my @snpFields = map { $fieldsAref->[$_] } $self->allSnpFieldIdx;
     
+    if( $snpFields[2] eq $snpFields[4] ) {
+      $self->log('warn', "Reference equals minor allele on $chr:$pos");
+      next;
+    }
+
     push @inputData, \@snpFields;
 
     #$snpFields[0] expected to be chr
@@ -304,10 +321,19 @@ sub finishAnnotatingLines {
         You may have chosen the wrong assembly");
     }
 
+    my $alleles;
+
+    #if this site has more than one minor allele
+    if(length($dataFromInputAref->[$i][2]) > 1) {
+      #split on comma
+      $alleles = [split(',', $dataFromInputAref->[$i][2] ) ];
+    } else {
+      $alleles = $dataFromInputAref->[$i][2];
+    }
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
     push @$outAref, {map { 
-      $_->name => $_->get($dataFromDbAref->[$i], $chr, $dataFromInputAref->[2]) 
+      $_->name => $_->get($dataFromDbAref->[$i], $chr, $alleles) 
     } @trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
@@ -324,6 +350,8 @@ sub finishAnnotatingLines {
     #then it will fetch the required sites, and get the gene track
     #TODO: finish implementing
     #$self->annotateIndel( $chr, \%singleLineOutput, $dataFromInputAref->[$i] );
+
+    #Indels
   }
 
   return $outAref;
