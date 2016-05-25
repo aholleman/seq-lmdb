@@ -23,7 +23,7 @@ my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
 );
 my $refTrack = $tracks->getRefTrackGetter();
-my $snpTrack = $tracks->getTrackGetterByName('snp');
+my $snpTrack = $tracks->getTrackGetterByName('snp142');
 my $phyloPTrack = $tracks->getTrackGetterByName('phyloP');
 my $phastConsTrack = $tracks->getTrackGetterByName('phastCons');
 my $geneTrack = $tracks->getTrackGetterByName('refSeq');
@@ -221,7 +221,7 @@ ok($phyloPval == -1.937, "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 say "Starting snp testing";
 my $snp_meta = $tracks->dbRead('snp_meta', 'name');
 p $snp_meta;
-$dataAref = $tracks->dbRead('chr22', 16050074 );
+$dataAref = $tracks->dbRead('chr22', 16050074 - 1 );
 p $dataAref;
 my $snpValHref = $snpTrack->get($dataAref);
 p $dataAref;
@@ -282,6 +282,11 @@ p $geneTrackData;
 my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
 ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct (ZNRF3)');
 
+$dataHref = $tracks->dbRead('chr1', 40370176 - 1 );
+say "datahref is ";
+p $dataHref;
+$snpValHref = $snpTrack->get($dataHref);
+ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370176");
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 # $dataAref = $tracks->dbRead('chr1', [40370176] );

@@ -71,7 +71,7 @@ sub BUILD {
 
   my @builders;
   if($self->wantedType) {
-    @builders = $self->getTrackBuildersByType($self->wantedType);
+    @builders = @{ $self->getTrackBuildersByType($self->wantedType) };
   } elsif($self->wantedName) {
     @builders = ( $self->getTrackBuilderByName($self->wantedName) );
   } else {
@@ -82,7 +82,9 @@ sub BUILD {
     say "requested builders are";
     p @builders;
   }
-  
+    
+  #TODO: check whether ref built, and if not, build it, since many packages
+  #may need it
   for my $builder (@builders) {
     $builder->buildTrack();
     $self->log('debug', "finished building " . $builder->name );
