@@ -35,19 +35,11 @@ use namespace::autoclean;
 extends 'Seq::Tracks::Build';
 
 my $pm = Parallel::ForkManager->new(25);
+use DDP;
 
 sub buildTrack{
   my $self = shift;
 
-  #TODO: use cursor to read first and last position;
-  #compare these to first and last entry in the resulting string
-  #if identical, and identical length for that chromosome, 
-  #don't do any writing.
-  $self->log('info', "starting to build " . $self->name );
-$self->log('info', "starting to build " . $self->name );
-$self->log('info', "starting to build " . $self->name );
-$self->log('info', "starting to build " . $self->name );
-  say "past info start";
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
@@ -79,7 +71,8 @@ $self->log('info', "starting to build " . $self->name );
       # specifies something else; to allow fasta-formatted data sources that
       # aren't reference
       my $chrPosition = $based;
-      
+        
+      my %visitedChrs;
       FH_LOOP: while ( <$fh> ) {
         #super chomp; also helps us avoid weird characters in the fasta data string
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
@@ -132,6 +125,7 @@ $self->log('info', "starting to build " . $self->name );
             next FH_LOOP;
           }
 
+          $visitedChrs{$wantedChr} = 1;
           #restart chrPosition count at 0, since we're storing 0 indexed pos
           $chrPosition = $based;
         }
@@ -185,6 +179,10 @@ $self->log('info', "starting to build " . $self->name );
         #now we're done with the process, so no need to undef memory
       }
 
+      foreach ( keys %visitedChrs ) {
+        $self->recordCompletion($_);
+      }
+      
     $pm->finish;
   }
 
@@ -192,6 +190,55 @@ $self->log('info', "starting to build " . $self->name );
   $self->log('info', 'finished building track: ' . $self->name);
 };
 
+#TODO: need to catch errors if any
+#not 100% sure how to do this with the present LMDB API without losing perf
+state $metaKey = 'completed';
+state $completed;
+sub recordCompletion {
+  my ($self, $chr) = @_;
+  
+  # overwrite any existing entry for $chr
+  my $err = $self->dbPatchMeta($self->name, $metaKey, {
+    $chr => 1,
+  }, 1 );
+
+  if(!$err) {
+    $completed = 1;
+  } else {
+    $completed = 0;
+    $self->log('error', $err);
+  }
+
+  say "recorded completion for $chr as $completed";
+};
+
+sub isCompleted {
+  my ($self, $chr) = @_;
+
+  if(defined $completed) {
+    return $completed;
+  }
+
+  my $allCompleted = $self->dbReadMeta($self->name, $metaKey);
+
+  if($self->debug) {
+    say "found meta data for ". $self->name . " $chr" ;
+    p $allCompleted;
+    say "checked if was completed, found: " . ( $completed ? 'YES' : 'NO');
+
+    $self->log('debug', 'found data in meta for ' . $self->name, $allCompleted);
+    $self->log('debug', "checked if was completed, found: " . ($completed ? 'YES' : 'NO') );
+  }
+  
+  if(defined $allCompleted && $allCompleted->{$chr} == 1) {
+    $completed = 1;
+  } else {
+    $completed = 0;
+  }
+
+  
+  return $completed;
+};
 
 __PACKAGE__->meta->make_immutable;
 

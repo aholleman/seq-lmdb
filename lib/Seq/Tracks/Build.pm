@@ -155,6 +155,7 @@ around BUILDARGS => sub {
 
   $data{local_files} = \@localFiles;
 
+
   if(defined $data{genome_chrs} &&  ref $data{genome_chrs} eq 'ARRAY') {
     my %genome_chrs = map { $_ => 1 } @{$data{genome_chrs} };
     $data{genome_chrs} = \%genome_chrs;

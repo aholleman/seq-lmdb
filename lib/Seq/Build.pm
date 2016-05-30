@@ -78,20 +78,49 @@ sub BUILD {
     @builders = $self->getAllTrackBuilders();
   }
 
+  my @chrs = $builders[0]->allWantedChrs;
+
   if($self->debug) {
     say "requested builders are";
     p @builders;
+  }
+
+  my $refTrackBuilder = $self->getRefTrackBuilder();
+
+  #this could be cleaner, we're assuming buildTrack also knows about the wanted chr
+  #would be nice to be able to pass the wanted chr to the buildTrack method
+  for my $chr (@chrs) {
+    if( !$refTrackBuilder->isCompleted($chr) ) {
+      $self->log('info', "Detected that reference track isn\'t built for $chr. Building");
+      
+      $refTrackBuilder->buildTrack();
+      
+      $self->log('info', "Finished building the requisite reference track, 
+        called " . $refTrackBuilder->name);
+    }
   }
     
   #TODO: check whether ref built, and if not, build it, since many packages
   #may need it
   for my $builder (@builders) {
+    #we already built the refTrackBuilder
+    #could also just check for reference equality,
+    #but this is more robust if we end up not using singletons at some point
+    #all track names must be unique as a global requirement, so this is safe
+    #and of course if the user requests we overwrite, lets respect that
+    if($builder->name eq $refTrackBuilder->name && ! $self->overwrite) {
+      next;
+    }
+
+    $self->log('info', "started building " . $builder->name );
+   
     $builder->buildTrack();
-    $self->log('debug', "finished building " . $builder->name );
+    
+    $self->log('info', "finished building " . $builder->name );
   }
 
   $self->log('info', "finished building all requested tracks: " 
-    . join(@builders, ', ') );
+    . join(", ", map{ $_->name } @builders) );
 }
 
 __PACKAGE__->meta->make_immutable;

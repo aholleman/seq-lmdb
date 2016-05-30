@@ -42,6 +42,10 @@ my $refBase = $refTrack->get($dataAref);
 ok($refBase eq 'A', 'ref track ok in ~middle of chr22');
 p $dataAref;
 
+$dataAref = $tracks->dbRead('chr1', 60523-1 );
+$refBase = $refTrack->get($dataAref);
+ok($refBase eq 'T', 'ref track ok @ chr1: 60523');
+p $dataAref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
 $dataAref = $tracks->dbRead('chr22', 21e6-1 );
@@ -287,6 +291,12 @@ say "datahref is ";
 p $dataHref;
 $snpValHref = $snpTrack->get($dataHref);
 ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370176");
+
+$dataHref = $tracks->dbRead('chr1', 40370426 - 1 );
+say "datahref is ";
+p $dataHref;
+$snpValHref = $snpTrack->get($dataHref);
+ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370426");
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 # $dataAref = $tracks->dbRead('chr1', [40370176] );

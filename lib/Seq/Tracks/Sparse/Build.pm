@@ -73,7 +73,10 @@ sub buildTrack {
   state $cStart = $self->chromStart_field_name;
   state $cEnd   = $self->chromEnd_field_name;
 
-  state $reqFields = [$chrom, $cStart, $cEnd];
+  my @requiredFields = ($self->chrom_field_name, 
+    $self->chromStart_field_name, $self->chromEnd_field_name);
+
+  $self->log('debug', 'requiredFields are ' . join(',', @requiredFields ) );
 
   for my $file ($self->all_local_files) {
     $pm->start and next;
@@ -110,8 +113,7 @@ sub buildTrack {
         my @fields = split("\t", $_);
 
         if($. == 1) {
-
-          REQ_LOOP: for my $field (@$reqFields) {
+          REQ_LOOP: for my $field (@requiredFields) {
             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
             if(~$idx) { #bitwise complement, makes -1 0
               $reqIdxHref->{$field} = $idx;
@@ -272,7 +274,6 @@ sub buildTrack {
   }
   
   $pm->wait_all_children;
-  $self->log('info', 'finished building: ' . $self->name);
 }
 
 __PACKAGE__->meta->make_immutable;

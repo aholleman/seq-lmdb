@@ -119,9 +119,11 @@ sub addMetaField {
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
+  #passing 1 to overwrite existing fields
+  #since the below mapping ends up relying on our new values
   $self->dbPatchMeta($self->name, $metaKey, {
     $fieldName => $fieldNumber
-  });
+  }, 1);
 
   $fieldNamesMap->{$self->name}->{$fieldName} = $fieldNumber;
   $fieldDbNamesMap->{$self->name}->{$fieldNumber} = $fieldName;

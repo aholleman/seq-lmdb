@@ -400,13 +400,13 @@ sub buildTrack {
 sub makeNearestGenes {
   my ($self, $perChromosomeTranscriptStarts) = @_;
   
+  #get the nearest gene feature name that we want to use in our database (expect some integer)
   my $ngFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
-  #$perSiteData holds everything that has been covered
+  
+  #$perChromosomeTranscriptStarts holds everything that has been covered
   for my $chr (keys %$perChromosomeTranscriptStarts) {
     #length of the database
     #assumes that the database is built, using reference track
-    #TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
-    my $dbEntries = $self->dbGetNumberOfEntries($chr);
 
     #coveredGenes is either one, or an array
     my @allTranscriptStarts = sort {
@@ -418,9 +418,10 @@ sub makeNearestGenes {
     my $i = 0;
     for my $txStart (@allTranscriptStarts) {
       my $txNumber = $perChromosomeTranscriptStarts->{$chr}->{$txStart};
+
+      #returns trackName => { $ngFeatureDbName => $txNumber }
       my $txData = $self->prepareData( { $ngFeatureDbName => $txNumber } );
-      # say "txData is";
-      # p $txData;
+
       for(my $y = $i; $y < $txStart; $y++) {
 
         if($count >= $self->commitEvery && %out) {
