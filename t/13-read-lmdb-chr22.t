@@ -42,10 +42,6 @@ my $refBase = $refTrack->get($dataAref);
 ok($refBase eq 'A', 'ref track ok in ~middle of chr22');
 p $dataAref;
 
-$dataAref = $tracks->dbRead('chr1', 60523-1 );
-$refBase = $refTrack->get($dataAref);
-ok($refBase eq 'T', 'ref track ok @ chr1: 60523');
-p $dataAref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
 $dataAref = $tracks->dbRead('chr22', 21e6-1 );
@@ -223,10 +219,10 @@ ok($phyloPval == -1.937, "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 
 ##snp testing
 say "Starting snp testing";
-my $snp_meta = $tracks->dbRead('snp_meta', 'name');
-p $snp_meta;
-$dataAref = $tracks->dbRead('chr22', 16050074 - 1 );
+$dataAref = $tracks->dbRead('chr22', [16049824 .. 16050325 - 1] );
 p $dataAref;
+
+exit;
 my $snpValHref = $snpTrack->get($dataAref);
 p $dataAref;
 say "snpValHref is";
@@ -240,7 +236,7 @@ p $dataAref;
 say "snpValHref is";
 p $snpValHref;
 $rsNumber = $snpValHref->{name};
-ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112390");
+ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112391");
 
 #test an indel
 $dataAref = $tracks->dbRead('chr22', [16140742 .. 16140746 - 1] );
@@ -286,17 +282,22 @@ p $geneTrackData;
 my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
 ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct (ZNRF3)');
 
-$dataHref = $tracks->dbRead('chr1', 40370176 - 1 );
-say "datahref is ";
-p $dataHref;
-$snpValHref = $snpTrack->get($dataHref);
-ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370176");
+# $dataAref = $tracks->dbRead('chr1', 60523-1 );
+# $refBase = $refTrack->get($dataAref);
+# ok($refBase eq 'T', 'ref track ok @ chr1: 60523');
+# p $dataAref;
 
-$dataHref = $tracks->dbRead('chr1', 40370426 - 1 );
-say "datahref is ";
-p $dataHref;
-$snpValHref = $snpTrack->get($dataHref);
-ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370426");
+# $dataHref = $tracks->dbRead('chr1', 40370176 - 1 );
+# say "datahref is ";
+# p $dataHref;
+# $snpValHref = $snpTrack->get($dataHref);
+# ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370176");
+
+# $dataHref = $tracks->dbRead('chr1', 40370426 - 1 );
+# say "datahref is ";
+# p $dataHref;
+# $snpValHref = $snpTrack->get($dataHref);
+# ok($snpValHref->{name} eq "rs564192510", "snp142 sparse track ok @ chr1:40370426");
 #testing snp142 track and chr1
 #it has 4477.000000,531.000000 alleleNs
 # $dataAref = $tracks->dbRead('chr1', [40370176] );

@@ -244,15 +244,15 @@ sub _buildTrackGetters {
     #because at the moment, users are allowed to rename their tracks
     #by name : 
       #   something : someOtherName
-    #TODO: make this go away by automating track name conversion/storing in db
     $trackGetters->{$track->{name} } = $track;
     push @{$trackGettersByType->{$trackHref->{type} } }, $trackGetters->{$track->{name} };
-    #push @{$out{$trackHref->{type} } }, $trackClass->new($trackHref);
   }
 
   $self->_writeTrackGettersByName($trackGetters);
   $self->_writeTrackGettersByType($trackGettersByType);
 
+  # ensure that the order of the headers in any output, is the same as it is
+  # in the output file we give to the user
   $self->orderTrackHeaders(\@trackOrder);
 }
 
@@ -273,6 +273,10 @@ sub _buildTrackBuilders {
 
     my $track = $className->new($trackHref);
 
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
     if(exists $trackBuilders->{$track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
         exists: $trackHref->{name}. Each track name must be unique
@@ -291,6 +295,8 @@ sub _buildTrackBuilders {
   $self->_writeTrackBuildersByName($trackBuilders);
   $self->_writeTrackBuildersByType($trackBuildersByType);
 }
+
+### Helper methods for _buildTrackBulders & _buildTrackGetters methods
 
 sub _toTitleCase {
   my $self = shift;

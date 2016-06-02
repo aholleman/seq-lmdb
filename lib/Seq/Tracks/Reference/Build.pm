@@ -220,6 +220,13 @@ sub isCompleted {
   }
 
   my $allCompleted = $self->dbReadMeta($self->name, $metaKey);
+  
+  if( defined $allCompleted && defined $allCompleted->{$chr} 
+  && $allCompleted->{$chr} == 1 ) {
+    $completed = 1;
+  } else {
+    $completed = 0;
+  }
 
   if($self->debug) {
     say "found meta data for ". $self->name . " $chr" ;
@@ -229,13 +236,6 @@ sub isCompleted {
     $self->log('debug', 'found data in meta for ' . $self->name, $allCompleted);
     $self->log('debug', "checked if was completed, found: " . ($completed ? 'YES' : 'NO') );
   }
-  
-  if(defined $allCompleted && $allCompleted->{$chr} == 1) {
-    $completed = 1;
-  } else {
-    $completed = 0;
-  }
-
   
   return $completed;
 };

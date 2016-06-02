@@ -17,7 +17,7 @@ use Moose;
 extends 'Seq::Tracks::Build';
 with 'Seq::Role::DBManager';
 
-use Parallel::ForkManager;
+# use Parallel::ForkManager;
 use DDP;
 
 #TODO: like with sparse tracks, allow users to map 
@@ -33,8 +33,6 @@ use MCE::Loop;
 #my $pm = Parallel::ForkManager->new(26); 
 sub buildTrack {
   my ($self) = @_;
-
-  say "in buildTrack";
   # $self = $_[0]
   # not shifting to allow goto
 
@@ -84,9 +82,15 @@ sub buildTrackFromHeaderlessWigFix {
 
   #there can only be ONE
   #the one that binds them
-  my ($file) = $self->all_local_files;
+  my @files = $self->all_local_files;
 
-  #open my $fh, '-|', "pigz -d -c $file";
+  my ($file) = @files;
+
+  if(@files > 1) {
+    $self->log('warn', 'In Cadd/Buil more than one local_file specified. Taking first,
+      which is ' . $file);
+  }
+
   my $fh = $self->get_read_fh($file);
   
   my %data = ();
@@ -116,7 +120,7 @@ sub buildTrackFromHeaderlessWigFix {
   my %results;
 
   MCE::Loop::init {
-    chunk_size => 2e8, #about 2 million lines
+    chunk_size => 2e8, #read in chunks of 200MB
     max_workers => 30,
     gather => \&writeToDatabase,
   };
@@ -124,12 +128,16 @@ sub buildTrackFromHeaderlessWigFix {
   mce_loop_f {
     my ( $mce, $chunk_ref, $chunk_id ) = @_;
 
+    # storing
     # chr => {
-      #pos => [val1, val2, val3]
+      #pos => {
+    #    $self->dbName => [val1, val2, val3]
+    #  }
     #}
     my %out;
 
-    #count up number of positions recorded for each chr 
+    #count number of positions recorded for each chr  so that 
+    #we can comply with $self->commitEvery
     my %count;
 
     LINE_LOOP: for my $line (@{$_}) {
@@ -165,12 +173,10 @@ sub buildTrackFromHeaderlessWigFix {
 
     # http://www.perlmonks.org/?node_id=1110235
     if(%out) {
-      say "found out stuff, also, we just read 200MB";
       MCE->gather($self, \%out);
     }
   } $fh;
 
-  MCE::Loop::finish;
   $self->log('info', 'finished building: ' . $self->name);
 }
 

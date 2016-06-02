@@ -40,21 +40,22 @@ sub get {
     }
   };
 
-  state $dbName = $_[0]->dbName;
-
   state $tracks = Seq::Tracks::SingletonTracks->new();
 
   state $refTrack = $tracks->getRefTrackGetter();
 
-  #my ($self, $href, $chr, $altAlleles) = @_;
-  #==   $_[0], $_[1], $_[2], $_[3]
+  #my ($self, $href, $chr, $altAlleles) ==   $_[0], $_[1], $_[2], $_[3]
+  
   # $altAlleles are the alleles present in the samples
   #ex A,G; ex2: A
+  #my $refBase = $refTrack->get($href);
   my $refBase = $refTrack->get($_[1]);
 
   if (!defined $order->{$refBase} ) {
-    $_[0]->('warn', "reference base $refBase doesn't look valid, in Cadd.pm");
+    $_[0]->log('warn', "reference base $refBase doesn't look valid, in Cadd.pm");
     
+    #explicitly return undef as a value, this is what our program treats as missing data
+    #simply returning nothing is not the same, in list context
     return undef;
   }
 
@@ -62,22 +63,30 @@ sub get {
   #this will push an "undef" value in the array of CADD alleles
   #this is useful because we may want to know which CADD score belongs to 
   #which allele
+  #if( !ref $altAlleles) { .. }
   if( !ref $_[3] ) {
     if (defined $order->{ $refBase }->{ $_[3] } ) {
-      return $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_[3] } ];
+      #return $href->{ $self->dbName }->[ $order->{ $refBase }->{ $altAlleles } ]
+      return $_[1]->{ $_[0]->dbName }->[ $order->{ $refBase }->{ $_[3] } ];
     }
 
     return undef;
   }
 
-  say "couldn't find allele $_[3] under $refBase"; 
-  p $_[1];
-  p $_[3];
-  #if we end up splitting the string, then we expect no whitespace around the 
-  #alternative alleles
-  return [ map { defined  $order->{ $refBase }->{ $_ } ? $_[1]->{ $dbName }->[ $order->{ $refBase }->{ $_ } ] : undef
-    } @{ $_[3] } ]
+  my @out;
+
+  for my $allele ( @{ $_[3] } ) {
+    if($allele ne $refBase) {
+      
+      #https://ideone.com/ZBQzNC
+      if(defined $order->{ $refBase }->{ $allele } ) {
+         push @out, $_[1]->{ $_[0]->dbName }->[ $order->{ $refBase }->{ $allele } ];
+      }
+     
+    }
+  }
   
+  return \@out;
 }
 
 __PACKAGE__->meta->make_immutable;

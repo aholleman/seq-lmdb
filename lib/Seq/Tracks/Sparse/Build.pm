@@ -69,12 +69,11 @@ sub buildTrack {
 
   my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
 
-  state $chrom = $self->chrom_field_name;
-  state $cStart = $self->chromStart_field_name;
-  state $cEnd   = $self->chromEnd_field_name;
+  my $chrom = $self->chrom_field_name;
+  my $cStart = $self->chromStart_field_name;
+  my $cEnd   = $self->chromEnd_field_name;
 
-  my @requiredFields = ($self->chrom_field_name, 
-    $self->chromStart_field_name, $self->chromEnd_field_name);
+  my @requiredFields = ($chrom, $cStart, $cEnd);
 
   $self->log('debug', 'requiredFields are ' . join(',', @requiredFields ) );
 

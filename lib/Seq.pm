@@ -237,7 +237,7 @@ sub annotateLines {
       my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
       $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-        \@sampleData, \@output);
+        \@sampleData, \@positions, \@output);
       @positions = ();
       @inputData = ();
       @sampleData = ();
@@ -290,7 +290,7 @@ sub annotateLines {
     my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-      \@sampleData, \@output);
+      \@sampleData, \@positions, \@output);
   }
 
   #write everything for this part
@@ -305,7 +305,8 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbRef, $dataFromInputAref, $sampleGenotypesAref, $outAref) = @_;
+  my ($self, $chr, $dataFromDbRef, $dataFromInputAref, $sampleGenotypesAref, 
+    $positionsAref, $outAref) = @_;
 
   our $heterozygousIdsKey;
   our $homozygousIdsKey;
@@ -321,19 +322,13 @@ sub finishAnnotatingLines {
         You may have chosen the wrong assembly");
     }
 
-    my $alleles;
+    my @alleles = split(',', $dataFromInputAref->[$i][3] );
 
-    #if this site has more than one minor allele
-    if(length($dataFromInputAref->[$i][2]) > 1) {
-      #split on comma
-      $alleles = [split(',', $dataFromInputAref->[$i][2] ) ];
-    } else {
-      $alleles = $dataFromInputAref->[$i][2];
-    }
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
-    push @$outAref, {map { 
-      $_->name => $_->get($dataFromDbAref->[$i], $chr, $alleles) 
+    push @$outAref, { map { 
+      $_->name => $_->get( 
+        $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
     } @trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );

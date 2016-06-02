@@ -72,6 +72,8 @@ state $regionTypeKey = 'regionType';
 
 state $nearestGeneSubTrackName = 'nearest';
 
+state $siteTypeKey = 'siteType';
+
 state $siteUnpacker = Seq::Tracks::Gene::Site->new();
 
 #these are really the "region database" features
@@ -85,7 +87,7 @@ override 'BUILD' => sub {
   super();
 
   $self->addFeaturesToTrackHeaders([$siteUnpacker->allSiteKeys, 
-    $regionTypeKey], $self->name);
+    $regionTypeKey, $siteTypeKey], $self->name);
 
   my @nearestFeatureNames = $self->allFeatureNames;
   if(@nearestFeatureNames) {
@@ -98,12 +100,12 @@ override 'BUILD' => sub {
 #because we also need to get ther region portion
 #TODO: when we implement region tracks just override their method
 #and call super() for the $self->allFeatureNames portion
-sub get {
-  my ($self, $href, $chr) = @_;
 
-  if(ref $href eq 'ARRAY') {
-    goto &getBulk; #should just jump to the inherited getBulk method
-  }
+#@param <String|ArrayRef> $allAlleles : the alleles (including ref potentially)
+# that are found in the user's experiment, for this position that we're annotating
+#@param <Number> $dbPosition : The 0-index position of the current data
+sub get {
+  my ($self, $href, $chr, $allAlleles, $dbPosition) = @_;
 
   state $nearestFeatureNames = $self->nearest;
   #In order to get from gene track, we  need to get the values from
@@ -111,34 +113,59 @@ sub get {
   #we'll cache the region track portion to avoid wasting time
   state $geneTrackRegionDataHref = {};
 
-  #Now get all of the region stuff
+  #Now get all of the region stuff and store it in our static variable if not already fetched
+  #we expect the region database to llok like
+  # {
+  #  someNumber => {
+  #    $self->name => {
+  #     someFeatureDbName1 => val1,
+  #     etc  
+  #} } }
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
   }
 
-
-  #this is what we have at a site in the main db
+  #all of our gene track data stored in the main database, for this position
   my $geneData = $href->{$self->dbName};
 
   my %out;
 
   #a single position may
   if(@$nearestFeatureNames) {
-    state $nearestGeneFeatureName = $self->nearestGeneFeatureName;
-    state $nearestGeneFeatureDbName = $self->getFieldDbName($nearestGeneFeatureName);
-    state $nearestGeneReference = $geneData->{$nearestGeneFeatureDbName};
+    #get the database name of the nearest gene track
+    #but this never changes, so store as static
+    state $nearestGeneFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
 
-    #get the nearest gene data
-    #outputted as "nearest.someFeature" => value if "nearest" is the nearestGeneFeatureName
-    for my $nFeature (@$nearestFeatureNames) {
-      $out{"$nearestGeneSubTrackName.$nFeature"} = $geneTrackRegionDataHref->{$chr}
-        ->{$nearestGeneReference}->{$self->dbName}->{ $self->getFieldDbName($nFeature) };
+    # this is a reference to something stored in the gene tracks' region database
+    my $nearestGeneNumber = $geneData->{$nearestGeneFeatureDbName};
+
+    #may not have one at the end of a chromosome
+    if($nearestGeneNumber) {
+      
+      #get the nearest gene data
+      #outputted as "nearest.someFeature" => value if "nearest" is the nearestGeneFeatureName
+      for my $nFeature (@$nearestFeatureNames) {
+        $out{"$nearestGeneSubTrackName.$nFeature"} = $geneTrackRegionDataHref->{$chr}
+          ->{$nearestGeneNumber}->{$self->dbName}->{ $self->getFieldDbName($nFeature) };
+      }
+      
     }
   }
   #a single position may cover one or more sites
   #we expect either a single value (href in this case) or an array of them
-  my $siteDetailsRef = $geneData->{$self->getFieldDbName($self->siteFeatureName) };
-  my $geneRegionNumberRef = $geneData->{ $self->getFieldDbName($self->regionReferenceFeatureName) };
+  state $siteFeatureDbName = $self->getFieldDbName($self->siteFeatureName);
+  
+  my $siteDetailsRef = $geneData->{$siteFeatureDbName};
+
+  # if $href has
+  # {
+  #  $self->regionReferenceFeatureName => someNumber
+  #}
+  # that means it is covering a gene, which is stored at someNumber in the region database
+  state $regionRefFeatureDbName = $self->getFieldDbName($self->regionReferenceFeatureName);
+
+  #this position covers these genes
+  my $geneRegionNumberRef = $geneData->{ $regionRefFeatureDbName };
 
   if(!($siteDetailsRef && $geneRegionNumberRef ) ) {
     #if we don't have a gene at this site, it's Integenic
