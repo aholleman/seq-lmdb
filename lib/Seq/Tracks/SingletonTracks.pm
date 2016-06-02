@@ -181,7 +181,7 @@ sub BUILD {
 #     feature1: featureVal1, feature2: featureVal2, ...
 #} } } }
 
-sub allRegionTracksBuilders {
+sub allRegionTrackBuilders {
   my $self = shift;
   return $self->trackBuildersByType->{$self->regionType};
 }

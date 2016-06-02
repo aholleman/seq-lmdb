@@ -40,6 +40,7 @@ use namespace::autoclean;
 use DDP;
 extends 'Seq::Base';
 
+use MCE::Loop;
 
 # #this isn't used yet.
 # has wanted_chr => (
@@ -63,10 +64,23 @@ has wantedName => (
   default => undef,
 );
 
+has buildClean => (
+  is => 'ro',
+  isa => 'Bool',
+  lazy => 1,
+  default => 0,
+);
+
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 
 #"buildTrack" method
 sub BUILD {
+
+  #$_[0] == $self
+  if($_[0]->buildClean) {
+    goto &BUILD_CLEAN;
+  }
+
   my $self = shift;
 
   my @builders;
@@ -121,6 +135,56 @@ sub BUILD {
 
   $self->log('info', "finished building all requested tracks: " 
     . join(", ", map{ $_->name } @builders) );
+}
+
+# for now this only works on regular databases, not meta databases
+# this works in a simple, mildly silly way for now
+# if a chromosome is specified, it will copy that database
+# then, it also tries to completely overwrite any gene and region type tracks
+# because references to those could have been included in the main database
+# being copied
+sub BUILD_CLEAN {
+  my $self = shift;
+
+  my @builders;
+
+  my $refTrackBuilder = $self->getRefTrackBuilder();
+
+  #use the refTrackBuilder, which is the only required track
+  #to figure out which chromosomes are wanted
+  my @chrs = $refTrackBuilder->allWantedChrs;
+  undef $refTrackBuilder;
+
+  my @regionTracks = $self->allRegionTrackBuilders();
+
+  my @geneTracks = $self->allGeneTrackBuilders();
+
+  MCE::Loop::init {
+    max_workers => 26, chunk_size => 1
+  };
+
+  #first build clean copies of all wanted chrs
+  mce_loop {
+    my ($mce, $chunk_ref, $chunk_id) = @_;
+    MCE->say("Writing clean database copy of $_");
+    $self->dbWriteCleanCopy($_);
+  } @chrs;
+
+  if(@regionTracks) {
+    mce_loop {
+      my ($mce, $chunk_ref, $chunk_id) = @_;
+      MCE->say("Writing clean database copy of " . $_->name);
+      $self->dbWriteCleanCopy($_->name);
+    } @regionTracks;
+  }
+
+  if(@geneTracks) {
+    mce_loop {
+      my ($mce, $chunk_ref, $chunk_id) = @_;
+      MCE->say("Writing clean database copy of " . $_->name);
+      $self->dbWriteCleanCopy($_->name);
+    } @geneTracks;
+  }
 }
 
 __PACKAGE__->meta->make_immutable;

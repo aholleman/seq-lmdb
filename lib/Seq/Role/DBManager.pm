@@ -94,7 +94,7 @@ has overwrite => (
 );
 
 sub _getDbi {
-  my ($self, $name) = @_;
+  my ($self, $name, $dontCreate) = @_;
   #using state to make implicit singleton for the state that we want
   #shared across all instances, without requiring exposing to public
   #at the moment we generate a new environment for each $name
@@ -107,8 +107,13 @@ sub _getDbi {
   return $dbis->{$name} if defined $dbis->{$name};
   
   my $dbPath = $self->database_dir->child($name);
-  if(!$self->database_dir->child($name)->is_dir) {
-    $self->database_dir->child($name)->mkpath;
+
+  #don't create the database folder, which will prevent the environment 
+  #from being created if it doesn't exist
+  if(!$dontCreate) {
+    if(!$self->database_dir->child($name)->is_dir) {
+      $self->database_dir->child($name)->mkpath;
+    }
   }
 
   $dbPath = $dbPath->stringify;
@@ -120,10 +125,17 @@ sub _getDbi {
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
-      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC
+      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC # MDB_INTEGERKEY, may not have benefits, not as flexible
       maxreaders => 1000,
       maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
+
+  #if we passed $dontCreate, we may not successfully make a new env
+  if(!$envs->{$name} ) {
+    $self->log('warn', "Failed to open database because $LMDB_File::last_err");
+    $LMDB_File::last_err = 0;
+    return;
+  }
 
   my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
   
@@ -139,6 +151,7 @@ sub _getDbi {
   $dbis->{$name} = {
     env => $envs->{$name},
     dbi => $DB->dbi,
+    path => $dbPath,
   };
 
   return $dbis->{$name};
@@ -448,7 +461,7 @@ sub dbPutBulk {
   my $txn = $db->{env}->BeginTxn();
 
   if(!$sortedPosAref) {
-    $sortedPosAref = xsort([keys %{$posHref} ] );
+    $sortedPosAref = xsort( [keys %{$posHref} ] );
   }
 
   my $cnt = 0;
@@ -487,13 +500,92 @@ sub dbPutBulk {
 sub dbWriteCleanCopy {
   #for every... $self->dbPutBulk
   #dbRead N records, divide dbGetLength by some reasonable size, like 1M
+  my ( $self, $chr ) = @_;
+
+  if($self->dbGetNumberOfEntries($chr) == 0) {
+    $self->log('warn', "Database $chr is empty, canceling clean copy command");
+    return;
+  }
+
+  my $db = $self->_getDbi($chr);
+  my $dbi = $db->{dbi};
+  my $txn = $db->{env}->BeginTxn();
+
+  my $db2 = $self->_getDbi("$chr\_clean_copy");
+  my $dbi2 = $db2->{dbi};
+  
+
+  my $DB = $txn->OpenDB();
+  #https://metacpan.org/pod/LMDB_File
+  #avoids memory copy on get operation
+  $DB->ReadMode(1);
+
+  my $cursor = $DB->Cursor;
+
+  my ($key, $value, %out);
+  while(1) {
+    $cursor->get($key, $value, MDB_NEXT);
+
+    #because this error is generated right after the get
+    #we want to capture it before the next iteration 
+    #hence this is not inside while( )
+    if($LMDB_File::last_err == MDB_NOTFOUND) {
+      last;
+    }
+
+    if($LMDB_FILE::last_err) {
+      $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+        $LMDB_FILE::last_err );
+      next;
+    }
+
+    my $txn2 = $db2->{env}->BeginTxn();
+      $txn2->put($dbi2, $key, $value);
+      
+      if($LMDB_FILE::last_err) {
+        $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
+        next;
+      }
+    $txn2->commit();
+
+    if($LMDB_FILE::last_err) {
+      $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
+    }
+  }
+
+  $txn->commit();
+
+  if($LMDB_File::last_error == MDB_NOTFOUND) {
+    my $return = system("mv $db->{path} $db->{path}.bak");
+    if(!$return) {
+      $return = system("mv $db2->{path} $db->{path}");
+
+      if(!$return) {
+        $return = system("rm -rf $db->{path}.bak");
+        if($return) {
+          $self->log('warn', "Error deleting $db->{path}.bak");
+        }
+      } else {
+        $self->log('fatal', "Error moving $db2->{path} to $db->{path}");
+      }
+    } else {
+      $self->log('fatal', "Error moving $db->{path} to $db->{path}.bak");
+    }
+  } else {
+    $self->log('fatal', "Error copying the $chr database: $LMDB_File::last_error");
+  }
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
 }
 
 #TODO: check if this works
 sub dbGetNumberOfEntries {
   my ( $self, $chr ) = @_;
 
-  return $self->_getDbi($chr)->{env}->stat->{entries};
+  #get database, but don't create it if it doesn't exist
+  my $db = $self->_getDbi($chr,1);
+
+  return $db ? $db->{env}->stat->{entries} : 0;
 }
 
 #if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]

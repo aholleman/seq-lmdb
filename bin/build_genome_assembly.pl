@@ -20,7 +20,7 @@ use Seq::Build;
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose,
   $help,        $wantedChr,        
-  $debug,       $overwrite
+  $debug,       $overwrite,  $buildClean
 );
 
 $debug = 0;
@@ -34,6 +34,7 @@ GetOptions(
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
   'chr|wanted_chr=s' => \$wantedChr,
+  'cln|clean' => \$buildClean,
 );
 
 if ($help) {
@@ -68,6 +69,7 @@ my $builder_options_href = {
   overwrite    => $overwrite || 0,
   debug        => $debug,
   logPath      => $logPath,
+  buildClean   => $buildClean,
 };
   
 
