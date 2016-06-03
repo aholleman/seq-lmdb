@@ -34,7 +34,7 @@ use DDP;
 use namespace::autoclean;
 extends 'Seq::Tracks::Build';
 
-my $pm = Parallel::ForkManager->new(25);
+my $pm = Parallel::ForkManager->new(26);
 use DDP;
 
 sub buildTrack{
@@ -107,9 +107,17 @@ sub buildTrack{
 
               #and figure out if we want the current chromosome
               $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+              if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
+                undef $wantedChr;
+              }
             }
           } else {
             $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+            if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
+              undef $wantedChr;
+            }
           }
 
           #this allows us to use a single fasta file as well
@@ -123,7 +131,7 @@ sub buildTrack{
               last FH_LOOP;
             }
             next FH_LOOP;
-          }
+          } 
 
           $visitedChrs{$wantedChr} = 1;
           #restart chrPosition count at 0, since we're storing 0 indexed pos
@@ -193,6 +201,7 @@ sub buildTrack{
 #TODO: need to catch errors if any
 #not 100% sure how to do this with the present LMDB API without losing perf
 state $metaKey = 'completed';
+#hash of completion status
 state $completed;
 sub recordCompletion {
   my ($self, $chr) = @_;
@@ -203,43 +212,70 @@ sub recordCompletion {
   }, 1 );
 
   if(!$err) {
-    $completed = 1;
+    $completed->{$chr} = 1;
+    $self->log('debug', "recorded the completion of $chr (set to 1)"
+      . " for the " . $self->name . " track");
   } else {
-    $completed = 0;
     $self->log('error', $err);
   }
+};
 
-  say "recorded completion for $chr as $completed";
+sub eraseCompletion {
+  my ($self, $chr) = @_;
+  
+  # overwrite any existing entry for $chr
+  my $err = $self->dbPatchMeta($self->name, $metaKey, {
+    $chr => 0,
+  }, 1 );
+
+  if(!$err) {
+    $completed->{$chr} = 0;
+    $self->log('debug', "erased the completion of $chr (set to 0)"
+      . " for the " . $self->name . "track");
+  } else {
+    $self->log('error', $err);
+  }
 };
 
 sub isCompleted {
   my ($self, $chr) = @_;
 
-  if(defined $completed) {
-    return $completed;
+  if(defined $completed->{$chr} ) {
+    return $completed->{$chr};
   }
 
   my $allCompleted = $self->dbReadMeta($self->name, $metaKey);
   
   if( defined $allCompleted && defined $allCompleted->{$chr} 
   && $allCompleted->{$chr} == 1 ) {
-    $completed = 1;
+    $completed->{$chr} = 1;
   } else {
-    $completed = 0;
-  }
-
-  if($self->debug) {
-    say "found meta data for ". $self->name . " $chr" ;
-    p $allCompleted;
-    say "checked if was completed, found: " . ( $completed ? 'YES' : 'NO');
-
-    $self->log('debug', 'found data in meta for ' . $self->name, $allCompleted);
-    $self->log('debug', "checked if was completed, found: " . ($completed ? 'YES' : 'NO') );
+    $completed->{$chr} = 0;
   }
   
-  return $completed;
+  return $completed->{$chr};
 };
 
+
+sub itIsOkToProceedBuilding {
+  my ($self, $chr) = @_;
+  
+  if($self->isCompleted($chr) ) {
+    if(!$self->overwrite) {
+      return;
+    }
+    $self->eraseCompletion($chr);
+  }
+  return 1;
+}
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+
+
+#many tracks require reference tracks
+#so we take an extra check that it hasn't been built yet
+# if($wantedChr && (!$self->overwrite && $self->isCompleted($wantedChr) ) ) {
+#   undef $wantedChr;
+# }

@@ -101,18 +101,11 @@ sub BUILD {
 
   my $refTrackBuilder = $self->getRefTrackBuilder();
 
-  #this could be cleaner, we're assuming buildTrack also knows about the wanted chr
-  #would be nice to be able to pass the wanted chr to the buildTrack method
-  for my $chr (@chrs) {
-    if( !$refTrackBuilder->isCompleted($chr) ) {
-      $self->log('info', "Detected that reference track isn\'t built for $chr. Building");
-      
-      $refTrackBuilder->buildTrack();
-      
-      $self->log('info', "Finished building the requisite reference track, 
-        called " . $refTrackBuilder->name);
-    }
-  }
+  $self->log('info', "Verifying that needed reference tracks are built");
+
+  $refTrackBuilder->buildTrack();
+    
+  $self->log('info', "Finished building the requisite reference tracks");
     
   #TODO: check whether ref built, and if not, build it, since many packages
   #may need it
