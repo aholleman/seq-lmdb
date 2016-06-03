@@ -277,9 +277,13 @@ sub itIsOkToProceedBuilding {
   
   if($self->isCompleted($chr) ) {
     if(!$self->overwrite) {
+      $self->log('debug', "$chr is recorded as completed for " . $self->name . ". Since
+        overwrite isn't set, won't build the $chr " . $self->name . " db");
       return;
     }
     $self->eraseCompletion($chr);
+    $self->log('debug', "$chr is recorded as completed for " . $self->name . ". Since
+        overwrite is set, will now build the $chr " . $self->name . " db");
   }
   return 1;
 }
