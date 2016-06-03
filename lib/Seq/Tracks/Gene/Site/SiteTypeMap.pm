@@ -4,7 +4,7 @@ use warnings;
 
 package Seq::Tracks::Gene::Site::SiteTypeMap;
 
-use Moose::Role 2;
+use Moose 2;
 use Moose::Util::TypeConstraints;
 use DDP;
 # define allowable types
@@ -39,9 +39,6 @@ has siteTypes => (
   init_arg => undef,
   default => sub{$siteTypes},
 );
-
-# #public
-enum GeneSiteType => $siteTypes;
 
 has nonCodingBase => (
   is => 'ro',
@@ -154,5 +151,5 @@ has exonicSites => (
   },
 );
 
-no Moose::Role;
+__PACKAGE__->meta->make_immutable;
 1;

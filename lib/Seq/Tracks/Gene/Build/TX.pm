@@ -25,30 +25,19 @@ use Moose 2;
 
 #we have pre-configured reference track in this
 use Seq::Tracks::SingletonTracks;
+
 use Seq::Tracks::Gene::Site;
 
-with 'Seq::Role::Message',
-#exports the strand type
-'Seq::Site::Definition',
-#exports the siteTypes
-'Seq::Tracks::Gene::Site::SiteTypeMap',
-'Seq::Role::DBManager';
+with 'Seq::Role::Message', 'Seq::Role::DBManager';
 
 use namespace::autoclean;
-use List::Util qw/reduce/;
 
 use DDP;
-
-use Seq::Tracks::Gene::Site;
 
 #how many bases away from exon bound we will call spliceAc or spliceDon site
 state $spliceSiteLength = 6;
 #placeholder for annotation in string
 state $annBase = '0';
-# has features of a gene and will run through the sequence
-# build features will be implmented in Seq::Build::Gene that can build GeneSite
-# objects
-# would be useful to extend to have capcity to build peptides
 
 # stores all of our individual sites
 # these can be used by the consumer to write per-reference-position
@@ -124,11 +113,12 @@ has cdsEnd => (
 
 has strand => (
   is => 'ro',
-  isa => 'StrandType',
+  isa => 'Str',
   required => 1,
 );
 ##End required arguments
 #purely for debug
+#not the same as the Track name
 has name => (
   is => 'ro',
   isa => 'Str',
@@ -143,6 +133,9 @@ has debug => (
   default => 0,
   lazy => 1,
 );
+
+#@private
+state $codonPacker = Seq::Tracks::Gene::Site->new();
 
 #coerce our exon starts and ends into an array
 around BUILDARGS => sub {
@@ -312,7 +305,7 @@ sub _buildTranscriptAnnotation {
   for (my $i = 0; $i < @exonStarts; $i++) {
     UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
       if($nonCoding) {
-        $txAnnotationHref->{$exonPos} = $self->ncRNAsiteType;
+        $txAnnotationHref->{$exonPos} = $codonPacker->siteTypeMap->ncRNAsiteType;
 
         next UTR_LOOP;
       }
@@ -328,14 +321,14 @@ sub _buildTranscriptAnnotation {
           next UTR_LOOP;
         }  
         #if we're before cds start, but in an exon we must be in the 5' UTR
-        $txAnnotationHref->{$exonPos} = $posStrand ? $self->fivePrimeSiteType 
-          : $self->threePrimeSiteType;
+        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->fivePrimeSiteType 
+          : $codonPacker->siteTypeMap->threePrimeSiteType;
 
         next UTR_LOOP;
        } 
       #if we're after cds end, but in an exon we must be in the 3' UTR
-      $txAnnotationHref->{$exonPos} = $posStrand ? $self->threePrimeSiteType 
-        : $self->fivePrimeSiteType;      
+      $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
+        : $codonPacker->siteTypeMap->fivePrimeSiteType;      
     }
 
     # Annotate splice donor/acceptor bp
@@ -374,8 +367,8 @@ sub _buildTranscriptAnnotation {
       # >= because EEnd (exonEnds) are open range, aka their actual number is not 
       #to be included, it's 1 past the last base of that exon
       && $exonPos >= $exonEnds[$i-1] ) {
-        $txAnnotationHref->{$exonPos} = $posStrand ? $self->spliceAcSiteType : 
-          $self->spliceDonSiteType;
+        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->spliceAcSiteType : 
+          $codonPacker->siteTypeMap->spliceDonSiteType;
         next SPLICE_LOOP;
       }
 
@@ -388,7 +381,7 @@ sub _buildTranscriptAnnotation {
           next SPLICE_LOOP;
         }
         $txAnnotationHref->{$exonPos} = $posStrand ? 
-          $self->spliceDonSiteType : $self->spliceAcSiteType;
+          $codonPacker->siteTypeMap->spliceDonSiteType : $codonPacker->siteTypeMap->spliceAcSiteType;
       }
     }
   }
@@ -407,7 +400,6 @@ sub _buildTranscriptSites {
   my @exonStarts       = $self->allExonStarts;
   my @exonEnds         = $self->allExonEnds;
 
-  state $codonPacker = Seq::Tracks::Gene::Site->new();
   # we build up our site annotations in 2 steps
   # 1st record everything as if it were a coding sequence
   # then we overwrite those entries if there were other annotations associated
@@ -461,7 +453,7 @@ sub _buildTranscriptSites {
       #}
       $codonSeq = substr( $txSequence, $codonStart, 3 );
 
-      $siteType = $self->codingSiteType;
+      $siteType = $codonPacker->siteTypeMap->codingSiteType;
 
       $tempTXsites{ $chrPos } = [$siteType, $self->strand,
        $codonNumber, $codonPosition, $codonSeq];
@@ -547,8 +539,8 @@ sub _buildTranscriptErrors {
       
       my $numSpliceStuff = 0;
       for my $pos (keys %$transcriptAnnotationHref) {
-        if($transcriptAnnotationHref->{$pos} eq $self->spliceAcSiteType || 
-          $transcriptAnnotationHref->{$pos} eq $self->spliceDonSiteType) {
+        if($transcriptAnnotationHref->{$pos} eq $codonPacker->siteTypeMap->spliceAcSiteType || 
+          $transcriptAnnotationHref->{$pos} eq $codonPacker->siteTypeMap->spliceDonSiteType) {
           $numSpliceStuff++;
         }
       }

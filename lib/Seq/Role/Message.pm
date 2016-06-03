@@ -20,7 +20,7 @@ use Log::Fast;
 $Seq::Role::Message::LOG = Log::Fast->global();
 $Seq::Role::Message::LOG = Log::Fast->new({
   level           => 'WARN',
-  prefix          => '',#%D %T [%L] ',
+  prefix          =>  '%D %T ',
   type            => 'fh',
   fh              => \*STDOUT,
 });
@@ -71,11 +71,10 @@ sub setLogPath {
 
 sub setLogLevel {
   my ($self, $level) = @_;
-    
-  $Seq::Role::Message::LOG->config({
-    level => $level,
-  });
-  #$AnyEvent::Log::FILTER->level($level);
+  
+  our $mapLevels;
+
+  $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
 }
 
 # $ctx = new AnyEvent::Log::Ctx
@@ -218,13 +217,13 @@ sub log {
   #AnyEvent::Log::log $_[1], $_[2];
 
   if( $_[1] eq 'info' ) {
-    $Seq::Role::Message::LOG->INFO( "INFO: $_[2]" );
+    $Seq::Role::Message::LOG->INFO( "[INFO] $_[2]" );
   } elsif(  $_[1] eq 'debug' ) {
-    $Seq::Role::Message::LOG->DEBUG( "DEBUG: $_[2]" );
+    $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
   } elsif( $_[1] eq 'warn' ) {
-    $Seq::Role::Message::LOG->WARN( "WARN: $_[2]" );
+    $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
   } elsif( $_[1] eq 'fatal' ) {
-    $Seq::Role::Message::LOG->ERR( "ERROR: $_[2]" );
+    $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
     #$_[0]->publishMessage($_[1], $_[2]);
     die $_[2];
   }

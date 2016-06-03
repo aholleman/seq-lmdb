@@ -6,35 +6,15 @@ package Seq::Tracks::Gene;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: Class for creating particular sites for a given gene / transcript
-# This track is a lot like a region track
-# The differences:
-# We will bulk load all of its region database into a hash
-# {
-#   geneID or 0-N position : {
-#       features
-#}  
-#}
-# (We could also use a number as a key, using geneID would save space
-# as we avoid needing 1 key : value pair
-# and gain some meaningful information in the key
-# VERSION
-
 =head1 DESCRIPTION
 
   @class B<Seq::Gene>
-  #TODO: Check description
-
-  @example
-
-Used in:
-=for :list
-* Seq::Build::GeneTrack
-    Which is used in Seq::Build
-* Seq::Build::TxTrack
-    Which is used in Seq::Build
-
-Extended by: None
+  
+  Takes a hash ref (which presumably comes from the database)
+  And returns a hash ref with {
+    feature1 => value1,
+    etc
+  }
 
 =cut
 
@@ -89,7 +69,7 @@ override 'BUILD' => sub {
   $self->addFeaturesToTrackHeaders([$siteUnpacker->allSiteKeys, 
     $regionTypeKey, $siteTypeKey], $self->name);
 
-  my @nearestFeatureNames = $self->allFeatureNames;
+  my @nearestFeatureNames = $self->nearest;
   if(@nearestFeatureNames) {
     $self->addFeaturesToTrackHeaders( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
       $self->name);
@@ -104,6 +84,9 @@ override 'BUILD' => sub {
 #@param <String|ArrayRef> $allAlleles : the alleles (including ref potentially)
 # that are found in the user's experiment, for this position that we're annotating
 #@param <Number> $dbPosition : The 0-index position of the current data
+#TODO: be careful with state variable use. That means we can only have
+#one gene track, but rest of Seq really supports N types
+#Can solve this by using a single, name-spaced (on $self->name) data store
 sub get {
   my ($self, $href, $chr, $allAlleles, $dbPosition) = @_;
 
@@ -199,7 +182,7 @@ sub get {
   #If we ever see a coding site, that is exonic
   if( !ref $out{$siteUnpacker->siteTypeKey} ) {
     #if it's a single site, just need to know if it's coding or not
-    if( $siteUnpacker->isExonicSite( $out{$siteUnpacker->siteTypeKey} ) ) {
+    if( $siteUnpacker->siteTypeMap->isExonicSite( $out{$siteUnpacker->siteTypeKey} ) ) {
       $out{$regionTypeKey} = $regionTypes->[2];
     } else {
       $out{$regionTypeKey} = $regionTypes->[1];
@@ -207,7 +190,7 @@ sub get {
   } else {
     #if it's an array, then let's check all of our site types
     REGION_FL: for my $siteType (@{ $out{$siteUnpacker->siteTypeKey}  } ) {
-      if( $siteUnpacker->isExonicSite($siteType) ) {
+      if( $siteUnpacker->siteTypeMap->isExonicSite($siteType) ) {
         $out{$regionTypeKey} = $regionTypes->[2];
         last REGION_FL;
       }

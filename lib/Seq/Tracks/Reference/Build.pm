@@ -56,7 +56,7 @@ sub buildTrack{
     #expects that if n+1 files, each file has a single chr (one writer per chr)
     #important, because we'll probably get slower writes due to locks otherwise
     #unless we pass the slurped file to the fork, it doesn't seem to actually
-    $pm->start and next; 
+    $pm->start($file) and next; 
       if ( ! -f $file ) {
         $self->log('fatal', "ERROR: cannot find $file");
       }
@@ -190,17 +190,32 @@ sub buildTrack{
       foreach ( keys %visitedChrs ) {
         $self->recordCompletion($_);
       }
-      
     $pm->finish;
   }
 
+  my @failed;
+  
+  $pm->run_on_finish( sub {
+    my ($pid, $exit_code, $ident) = @_;
+
+    if(!$exit_code) {
+      push @failed, $ident;
+    }
+  });
+
   $pm->wait_all_children;
-  $self->log('info', 'finished building track: ' . $self->name);
+  
+  if(@failed) {
+    return "Failed to build " . $self->name . " for files " . join(", ", @failed);
+  }
+  
+  return;
 };
 
 #TODO: need to catch errors if any
 #not 100% sure how to do this with the present LMDB API without losing perf
 state $metaKey = 'completed';
+
 #hash of completion status
 state $completed;
 sub recordCompletion {

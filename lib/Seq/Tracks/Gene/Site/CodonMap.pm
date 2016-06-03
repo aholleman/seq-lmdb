@@ -6,7 +6,7 @@ use warnings;
 #Stores all 64 possible codons mapped to single-leter amino-acids
 package Seq::Tracks::Gene::Site::CodonMap;
 use DDP;
-use Moose::Role 2;
+use Moose 2;
 use namespace::autoclean;
 #{ codonSeq => Number}
 state $codonMap = {
@@ -61,6 +61,6 @@ sub codon2aa {
   return $codonAAmap->{ $_[1] };
 }
 
-no Moose::Role;
+__PACKAGE__->meta->make_immutable;
 #__PACKAGE__->meta->make_immutable;
 1;

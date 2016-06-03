@@ -9,26 +9,46 @@ use warnings;
 #based on Seq::Gene in (kyoto-based) seq branch
 #except _get_gene_data moved to Seq::Tracks::GeneTrack::Build
 package Seq::Tracks::Gene::Site;
+
 use Moose 2;
-use List::Util qw/first/;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
 
-with 'Seq::Tracks::Gene::Site::SiteTypeMap',
-'Seq::Tracks::Gene::Site::CodonMap',
-#exports strandTypes
-'Seq::Site::Definition',
-'Seq::Role::Message';
+use Seq::Tracks::Gene::Site::SiteTypeMap;
+use Seq::Tracks::Gene::Site::CodonMap;
 
+#exports log method to $self
+with 'Seq::Role::Message';
+
+#since the two Site:: packages are tightly coupled to packedCodon and 
+#unpackCodon, I am making them public
+#internally using the variables directly, because when called tens of millions
+#of times, $self->codonMap may cost noticeable performance
+#TODO: test that theory
+state $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
+has siteTypeMap => (
+  is => 'ro',
+  init_arg => undef,
+  lazy => 1,
+  default => sub{ return $siteTypeMap },
+);
+
+state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
+has codonMap => (
+  is => 'ro',
+  init_arg => undef,
+  lazy => 1,
+  default => sub{ return $codonMap },
+);
 
 state $siteTypeKey = 'siteType';
+has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
+
 state $strandKey = 'strand';
 state $codonNumberKey = 'codonNumber';
 state $codonPositionKey = 'codonPosition';
 state $codonSequenceKey = 'codon';
 state $peptideKey = 'aminoAcid';
-
-has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
 # Not exposing at the moment because not used anywhere
 # has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
 # has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
@@ -44,48 +64,26 @@ sub allSiteKeys {
   return ($siteTypeKey, $strandKey, $codonNumberKey,
     $codonPositionKey, $codonSequenceKey, $peptideKey);
 }
-state $numSiteKeys = 6;
 
-#To save performance, we support arrays, making this a bit like a full TX
-#writer, but on a site by site basis
-state $missingNumber = -9; #some default value that is less than 0, which is a valid idx
+#some default value that is less than 0, which is a valid idx
+state $missingNumber = -9;
 
-#expects a single href, which contains everything associated with the 
-#transcript at a particular site
-# sub getTXsite {
-#   # my $self = shift; $_[0] == $self
-#   my ($self, $href) = @_;
-
-#   my $outHref;
-#   for my $key (keys %$href) {
-#     if ($featureMap->{$key} eq 'codonDetails') {
-#       $outHref->{ $featureMap->{$key} } = 
-#         $self->unpackCodon( $href->{$key} );
-#       next;
-#     }
-
-#     $outHref->{ $featureMap->{$key} } = $href->{$key};
-#   }
-
-#   return $outHref;
-# }
-
-# Check all arguments carefully, so that at Get time, we won't have issues
-# (unless database is corrupted, then we want things to fail early)
+#TODO: take a closer look at not packing at all, but storing an array of 
+#array references. May be faster since MessagePack already packs the array of data
 sub packCodon {
   my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   #used to require strand too, but that may go away
   if( !$siteType ) {
     $self->log('fatal', 'packCodon requires site type');
-  } elsif(! first { $_ eq $strand } $self->allStrandTypes ) {
-    $self->log('fatal', 'strand must be of StrandType');
+  } elsif( $strand ne '-' && $strand ne '+') {
+    $self->log('fatal', "strand should be a + or -, got $strand");
   } 
 
-  my $siteTypeNum = $self->getSiteTypeNum( $siteType );
+  my $siteTypeNum = $siteTypeMap->getSiteTypeNum( $siteType );
 
   if(!defined $siteTypeNum) {
-    $self->log('fatal', "site type $siteType not recognized. Is it a GeneSite?");
+    $self->log('fatal', "site type $siteType not recognized");
   }
 
   if(defined $codonNumber && !defined $codonPosition) {
@@ -104,7 +102,7 @@ sub packCodon {
   my $codonSeqNumber;
 
   if(defined $codonSeq) {
-    $codonSeqNumber = $self->codon2Num($codonSeq);
+    $codonSeqNumber = $codonMap->codon2Num($codonSeq);
 
     #warning for now, this mimics the original codebase
     #TODO: do we want to store this as an error in the TX?
@@ -113,13 +111,6 @@ sub packCodon {
     }
   }
 
-  #  say "codonSeqNumber is $codonSeqNumber";
-  # say "codon number is $codonNumber";
-  # say "codon position is $codonPosition";
-
-  #return [$siteTypeNum, $strand, $codonNumber, $codonPosition, $codonSeqNumber];
-  #no longer doing this, benefit is minimal; messagepack will already
-  #do something similar, so it's almost processing the same info twice
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
   #https://ideone.com/TFGjte
@@ -128,51 +119,31 @@ sub packCodon {
     defined $codonPosition ? $codonPosition : $missingNumber,
     defined $codonSeqNumber ? $codonSeqNumber : $missingNumber);
 }
-
-#Purpose of the following functions is to internally store the unpacked
-#codon code, and then allow the consumer to get the individual pieces of 
-#the convoluted codon detail string
-#I like the idea of hiding the implementation of the api
-#so I'm not returning the raw unpacked array
-#The goal of this class is to fill $unpackedCodon, but consumer 
-#can also use $unpackedCodon directly
-
-#if all fields are filled then we will return
-# {
-#   $siteTypeKey => val,
-#   $strandKey => val,
-#   $codonNumberKey => val,
-#   $codonPositionKey => val,
-#   $codonSequenceKey => val,
-#   $peptideKey => val,
-# }
-#I've decided to always return the same keys, to make consumption more consistent
-#and allow consuming classes decide what to keep or discard
-#anything thta isn't present is given a key => undef pair
-#storing outside the sub to allow other (future) methods to grab data from it
-#and since it won't be public, won't use moose to expose it
+#@param <Seq::Tracks::Gene::Site> $self
+#@param <String> $packedCodon
 sub unpackCodon {
-  #my ($self, $codoAref) = @_;
-  #$codonStr == $_[1] 
-  #may be called a lot, so not using arg assignment
-  #Old version relied on pack/unpack, here are some informal tests:
-   #https://ideone.com/TFGjte
-    #https://ideone.com/dVy6WL
-    #my @unpackedCodon = $_[1] ? unpack('cAlcAAA', $_[1]) : (); 
-    #etc
-  # if(@{ $_[1] } > $numSiteKeys) {
-  #   goto &_unpackCodonBulk;
-  # }
+  #here $_[1] is the packedCodon string
   my @codon = unpack('cAlcc', $_[1]);
 
   return {
-    $siteTypeKey => defined $codon[0] ? $_[0]->getSiteTypeFromNum($codon[0]) : undef,
+    $siteTypeKey => defined $codon[0] ? $siteTypeMap->getSiteTypeFromNum($codon[0]) : undef,
     $strandKey => $codon[1],
     $codonNumberKey => $codon[2] > $missingNumber ? $codon[2] : undef,
     $codonPositionKey => $codon[3] > $missingNumber ? $codon[3] : undef,
-    $peptideKey => $codon[4] > $missingNumber ? $_[0]->codon2aa( $_[0]->num2Codon( $codon[4] ) ) : undef
+    $peptideKey => $codon[4] > $missingNumber ? $codonMap->codon2aa( $codonMap->num2Codon( $codon[4] ) ) : undef
   };
 }
+
+#save some computation by not shifting $self (and storing deconv as simple array ref)
+#in all the below $_[0] is $self
+#not assigning to $self because may be called millions - a billion times
+sub getSiteTypeFromCodon {
+  #my ($self, $unpackedCodon) = @_;
+  #     $_[0],  $_[1]
+  return $_[1]->{$siteTypeKey};
+}
+
+#Future API
 
 # sub _unpackCodonBulk {
 #   #my ($self, $codoAref) = @_;
@@ -195,14 +166,6 @@ sub unpackCodon {
 #   }
 # }
 
-#save some computation by not shifting $self (and storing deconv as simple array ref)
-#in all the below $_[0] is $self
-#not assigning to $self because may be called millions - a billion times
-sub getSiteTypeFromCodon {
-  #my ($self, $unpackedCodon) = @_;
-  #     $_[0],  $_[1]
-  return $_[1]->{$siteTypeKey};
-}
 
 # sub getCodonStrand {
 #   return $unpackedCodonHref->{$_[0]->strandKey};

@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Sites::Indels;
+package Seq::Tracks::Gene::Indels;
 
 our $VERSION = '0.001';
 

@@ -103,12 +103,15 @@ sub BUILD {
 
   $self->log('info', "Verifying that needed reference tracks are built");
 
-  $refTrackBuilder->buildTrack();
-    
-  $self->log('info', "Finished building the requisite reference tracks");
-    
-  #TODO: check whether ref built, and if not, build it, since many packages
-  #may need it
+  my $err = $refTrackBuilder->buildTrack();
+
+  if($err) {
+    $self->log('fatal', "Building reference tracks failed due to: $err");
+  }
+
+  $self->log('info', "Finished checking the requisite reference tracks");
+      
+  #TODO: return error codes from the rest of the buildTrack methods
   for my $builder (@builders) {
     #we already built the refTrackBuilder
     #could also just check for reference equality,
@@ -121,66 +124,75 @@ sub BUILD {
       next;
     }
 
-    $self->log('info', "started building " . $builder->name );
-   
-    $builder->buildTrack();
+    $self->log('info', "Started building " . $builder->name );
     
-    $self->log('info', "finished building " . $builder->name );
+    #TODO: implement errors for all tracks
+    my $err = $builder->buildTrack();
+    
+    if($err) {
+      $self->log('warn', "Failed to build " . $builder->name . " because of $err");
+    }
+
+    $self->log('info', "Finished building " . $builder->name );
   }
 
   $self->log('info', "finished building all requested tracks: " 
     . join(", ", map{ $_->name } @builders) );
 }
 
+# Trying to build clean version... seems to have either a bug that results in locking
+# or major performance issues
+# for now, avoiding, and set $self->commitEvery in DBManager to 2000 to try to balance
+# write performance and page allocation
 # for now this only works on regular databases, not meta databases
 # this works in a simple, mildly silly way for now
 # if a chromosome is specified, it will copy that database
 # then, it also tries to completely overwrite any gene and region type tracks
 # because references to those could have been included in the main database
-# being copied
-sub BUILD_CLEAN {
-  my $self = shift;
+# # being copied
+# sub BUILD_CLEAN {
+#   my $self = shift;
 
-  my @builders;
+#   my @builders;
 
-  my $refTrackBuilder = $self->getRefTrackBuilder();
+#   my $refTrackBuilder = $self->getRefTrackBuilder();
 
-  #use the refTrackBuilder, which is the only required track
-  #to figure out which chromosomes are wanted
-  my @chrs = $refTrackBuilder->allWantedChrs;
-  undef $refTrackBuilder;
+#   #use the refTrackBuilder, which is the only required track
+#   #to figure out which chromosomes are wanted
+#   my @chrs = $refTrackBuilder->allWantedChrs;
+#   undef $refTrackBuilder;
 
-  my @regionTracks = $self->allRegionTrackBuilders();
+#   my @regionTracks = $self->allRegionTrackBuilders();
 
-  my @geneTracks = $self->allGeneTrackBuilders();
+#   my @geneTracks = $self->allGeneTrackBuilders();
 
-  MCE::Loop::init {
-    max_workers => 26, chunk_size => 1
-  };
+#   MCE::Loop::init {
+#     max_workers => 26, chunk_size => 1
+#   };
 
-  #first build clean copies of all wanted chrs
-  mce_loop {
-    my ($mce, $chunk_ref, $chunk_id) = @_;
-    MCE->say("Writing clean database copy of $_");
-    $self->dbWriteCleanCopy($_);
-  } @chrs;
+#   #first build clean copies of all wanted chrs
+#   mce_loop {
+#     my ($mce, $chunk_ref, $chunk_id) = @_;
+#     MCE->say("Writing clean database copy of $_");
+#     $self->dbWriteCleanCopy($_);
+#   } @chrs;
 
-  if(@regionTracks) {
-    mce_loop {
-      my ($mce, $chunk_ref, $chunk_id) = @_;
-      MCE->say("Writing clean database copy of " . $_->name);
-      $self->dbWriteCleanCopy($_->name);
-    } @regionTracks;
-  }
+#   if(@regionTracks) {
+#     mce_loop {
+#       my ($mce, $chunk_ref, $chunk_id) = @_;
+#       MCE->say("Writing clean database copy of " . $_->name);
+#       $self->dbWriteCleanCopy($_->name);
+#     } @regionTracks;
+#   }
 
-  if(@geneTracks) {
-    mce_loop {
-      my ($mce, $chunk_ref, $chunk_id) = @_;
-      MCE->say("Writing clean database copy of " . $_->name);
-      $self->dbWriteCleanCopy($_->name);
-    } @geneTracks;
-  }
-}
+#   if(@geneTracks) {
+#     mce_loop {
+#       my ($mce, $chunk_ref, $chunk_id) = @_;
+#       MCE->say("Writing clean database copy of " . $_->name);
+#       $self->dbWriteCleanCopy($_->name);
+#     } @geneTracks;
+#   }
+# }
 
 __PACKAGE__->meta->make_immutable;
 

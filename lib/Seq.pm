@@ -65,9 +65,9 @@ has out_file => (
 #we also add a few of our own annotation attributes
 #trying global prpoerties because they work a bit better with some
 #multi-process perl packages
-$Seq::heterozygousIdsKey = 'heterozygotes';
-$Seq::compoundIdsKey = 'compoundHeterozygotes';
-$Seq::homozygousIdsKey = 'homozygotes';
+our $heterozygousIdsKey = 'heterozygotes';
+our $compoundIdsKey = 'compoundHeterozygotes';
+our $homozygousIdsKey = 'homozygotes';
 
 #come after all attributes to meet "requires '<attribute>'"
 with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
