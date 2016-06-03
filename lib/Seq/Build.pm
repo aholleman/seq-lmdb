@@ -115,7 +115,9 @@ sub BUILD {
     #but this is more robust if we end up not using singletons at some point
     #all track names must be unique as a global requirement, so this is safe
     #and of course if the user requests we overwrite, lets respect that
-    if($builder->name eq $refTrackBuilder->name && ! $self->overwrite) {
+    #but I've for now decided to encapsulate the overwrite check within the 
+    #reference track build method
+    if($builder->name eq $refTrackBuilder->name) {
       next;
     }
 

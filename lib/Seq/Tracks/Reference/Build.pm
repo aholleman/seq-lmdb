@@ -231,7 +231,7 @@ sub eraseCompletion {
   if(!$err) {
     $completed->{$chr} = 0;
     $self->log('debug', "erased the completion of $chr (set to 0)"
-      . " for the " . $self->name . "track");
+      . " for the " . $self->name . " track");
   } else {
     $self->log('error', $err);
   }
