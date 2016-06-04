@@ -4,6 +4,8 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Region::Build;
+use Moose 2;
+
 
 our $VERSION = '0.001';
 

@@ -18,8 +18,9 @@ use warnings;
 use Try::Tiny;
 
 use lib './lib';
-use threads;
-use threads::shared;
+
+use forks;
+use forks::shared;
 
 use Log::Any::Adapter;
 use File::Basename;
