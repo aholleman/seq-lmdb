@@ -22,7 +22,7 @@ use lib './lib';
 use forks;
 use forks::shared;
 
-use Log::Any::Adapter;
+use Log::Fast;
 use File::Basename;
 use DDP;
 use Interface;
@@ -35,7 +35,7 @@ use IO::Socket;
 
 use Redis;
 
-my $DEBUG = 0;
+our $DEBUG = 0;
 my $redisHost : shared = $ARGV[0] || 'genome.local';
 my $redisPort : shared = $ARGV[1] || '6379';
 
@@ -73,7 +73,7 @@ $jobKeys->{inputFilePath}    = 'inputFilePath',
   $jobKeys->{log} = 'log';
   $jobKeys->{logException} = 'exceptions';
 
-  my $configPathBaseDir : shared = "config/web/";
+my $configPathBaseDir : shared = "config/web/";
 my $configFilePathHref : shared = shared_clone( {} );
 my $semSTDOUT : shared;
 
@@ -185,9 +185,17 @@ sub handleJob {
 
   my $log_name = join '.', 'annotation', 'jobID', $jobID, 'log';
   my $log_file = File::Spec->rel2abs( ".", $log_name );
-  say "writing log file here: $log_file" if $verbose;
-  Log::Any::Adapter->set( 'File', $log_file );
-  my $log = Log::Any->get_logger();
+
+  open(my $logFh, '>>', $log_file);
+
+  our $DEBUG;
+
+  my $log = Log::Fast->new({
+    level           => $DEBUG ? 'DEBUG' : 'WARN',
+    prefix          => '%D %T [%L] ',
+    type            => 'fh',
+    fh              => $logFh,
+  });
 
   my $submittedJob;
 
@@ -198,13 +206,14 @@ sub handleJob {
     $submittedJob = decode_json( $redis->get($documentKey) );
   }
   catch {
-    $log->error($_);
     $failed = 1;
     $Qdone->enqueue($jobID);
+    $log->ERR($_); #should dies
+    die $_; #just in case it doesn't
   };
 
   try {
-    $inputHref = coerceInputs($submittedJob);
+    $inputHref = coerceInputs($submittedJob, $log_file);
 
     handleJobStart( $jobID, $documentKey, $submittedJob, $redis );
 
@@ -216,8 +225,11 @@ sub handleJob {
     my $annotate_instance = Interface->new($inputHref);
     my $result            = $annotate_instance->annotate_snpfile;
 
-    die 'Error: Nothing returned from annotate_snpfile' unless defined $result;
-
+    if(!defined $result) {
+      $log->ERR('Error: Nothing returned from annotate_snpfile');
+      die 'Error: Nothing returned from annotate_snpfile';
+    }
+    
     $submittedJob->{ $jobKeys->{result} } = $result;
 
     $annotate_instance->compress_output;
@@ -225,34 +237,26 @@ sub handleJob {
   catch {
     say $_;
 
-    $log->error($_);
-    #because here we don't have automatic logging guaranteed
-
-    ##we now record this to exceptions instead of messages
-    # if ( defined $inputHref
-    #   && exists $inputHref->{messanger}
-    #   && keys %{ $inputHref->{messanger} } )
-    # {
-    #   say "publishing message $_";
-    #   $inputHref->{messanger}{message}{data} = "$_";
-    #   $redis->publish( $inputHref->{messanger}{event},
-    #     encode_json( $inputHref->{messanger} ) );
-    # }
-
     $failed = 1;
 
     handleJobFailure( $jobID, $documentKey, $_, $submittedJob, $redis );
+
+    $log->ERR($_);
+    die $_; #in case ERR doesn't die
   };
+
   handleJobSuccess( $jobID, $documentKey, $submittedJob, $redis ) unless $failed;
 }
 
 #Here we may wish to read a json or yaml file containing argument mappings
 sub coerceInputs {
   my $jobDetailsHref = shift;
+  my $logPath = shift;
 
   my $inputFilePath  = $jobDetailsHref->{ $jobKeys->{inputFilePath} };
   my $outputFilePath = $jobDetailsHref->{ $jobKeys->{outputFilePath} };
-  my $debug          = $DEBUG;                                        #not, not!
+  
+  our $DEBUG;
 
   my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
 
@@ -269,9 +273,10 @@ sub coerceInputs {
     config_file        => $configFilePath,
     ignore_unknown_chr => 1,
     overwrite          => 1,
-    debug              => $debug,
+    debug              => $DEBUG,
     messanger          => $messangerHref,
     publisherAddress   => [ $redisHost, $redisPort ],
+    logPath            => $logPath
   };
 }
 

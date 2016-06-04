@@ -9,21 +9,6 @@ our $VERSION = '0.002';
 package Seq::Tracks;
 
 # ABSTRACT: A base class for track classes
-# VERSION
-
-use Moose 2;
-use namespace::autoclean;
-
-use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
-
-#holds a permanent record of all of the tracks
-extends 'Seq::Tracks::SingletonTracks';
-
-with 'Seq::Role::ConfigFromFile',
-#we configure the db manager here
-'Seq::Role::DBManager';
-
-# has debug => ( is => 'ro', isa => 'Int', lazy => 1, default => 0);
 
 # used to simplify process of detecting tracks
 # I think that Tracks.pm should know which features it has access to
@@ -46,14 +31,30 @@ with 'Seq::Role::ConfigFromFile',
 #} 
 #}
 
+# VERSION
+
+use Moose 2;
+use namespace::autoclean;
+
+use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
+
+#holds a permanent record of all of the tracks
+extends 'Seq::Tracks::SingletonTracks';
+
+with 'Seq::Role::ConfigFromFile',
+#we configure the db manager here as well, so we include it
+'Seq::Role::DBManager';
+
 sub BUILD {
   my $self = shift;
 
   if(!$self->database_dir->exists) {
-    say "database dir doesnt exist";
+    $self->log('debug', 'database_dir '. $self->database_dir . 'doesn\'t exit. Creating');
     $self->database_dir->mkpath;
-  } elsif (!$self->database_dir->is_dir) {
-    return $self->log('error', 'database_dir given is not a directory');
+  }
+
+  if (!$self->database_dir->is_dir) {
+    $self->log('fatal', 'database_dir given is not a directory');
   }
   
   #needs to be initialized before dbmanager can be used

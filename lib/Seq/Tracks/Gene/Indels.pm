@@ -11,25 +11,65 @@ our $VERSION = '0.001';
 
 use Moose;
 use DDP;
-
-use Seq::Site::Indel;
-use Seq::Site::Indel::Type;
-with 'Seq::Site::Definition'; #for remaking the AA, later
-
-has alleles => (
-  is       => 'ro',
-  isa      => 'Indels',
-  coerce   => 1,
-  traits   => ['Array'],
-  handles  => { allAlleles => 'elements', },
-  required => 1,
+# will hard crash if bad input, as soon as it's called
+enum IndTypes => [qw(- +)];
+has indType   => (
+  is      => 'ro',
+  isa     => 'IndTypes',
+  lazy    => 1,
+  builder => '_build_indel_type',
 );
 
-#basePosData is the current base; for a SNP this is fine, and for single
-#base deletions this is fine, for -(1+N) deletions or +N insertions, not fine
-#Currently assumes that deletions are always numbers and insertions always
-#the actual allele; this is very easy to solve, see below, kept this way for perf.
-##could check if(int($allele->minor_allele) )
+sub _build_indel_type {
+  my $self = shift;
+  #cast as str to substr in case of -N
+  return substr( "" . $self->minor_allele, 0, 1 );
+}
+
+has indLength => (
+  is      => 'ro',
+  isa     => 'Num',
+  lazy    => 1,
+  builder => '_build_indel_length',
+);
+
+# we only allow numeric for deletions;
+# we could also do the check around
+sub _build_indel_length {
+  my $self = shift;
+  if ( $self->indType eq '-' ) {
+    return abs( int( $self->minor_allele ) );
+  }
+  return length( substr( $self->minor_allele, 1 ) );
+}
+
+has typeName => (
+  is      => 'ro',
+  isa     => 'Str',
+  lazy    => 1,
+  builder => '_buildTypeName',
+);
+
+sub _buildTypeName {
+  my $self = shift;
+  return $self->indType eq '-' ? 'Del' : 'Ins';
+}
+
+#this is very basic; does not check if coding region
+#so look for frame type only when coding (only then does it make sense)
+has frameType => (
+  is      => 'ro',
+  isa     => 'Str',
+  lazy    => 1,
+  builder => '_buildFrameType',
+);
+
+sub _buildFrameType {
+  my ( $self, $siteType ) = @_;
+  my $frame = $self->indLength % 3 ? 'FrameShift' : 'InFrame';
+}
+
+
 sub findGeneData {
   my ( $self, $abs_pos, $db ) = @_;
 

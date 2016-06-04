@@ -225,7 +225,7 @@ sub log {
   } elsif( $_[1] eq 'fatal' ) {
     $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
     #$_[0]->publishMessage($_[1], $_[2]);
-    die $_[2];
+    die "[ERROR] $_[2]";
   }
 
   # if($_[0]->messanger) {

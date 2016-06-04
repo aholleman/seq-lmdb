@@ -143,65 +143,48 @@ To install the dependencies:
 		'{ if ($_ =~ m/\:use ([\w\d.:]+)/) { $modules{$1}++; }}
 		END{ print join "\n", sort keys %modules; }' | grep -v Seq
 
+Install required linux packages (shown for CentOS/Fedora)
 ```
-TODO: Add to Makefile.PL
-5.10.0
-Carp
-Cpanel::JSON::XS
-Cwd
-DBI
-DDP
-Data::Dump
-Data::Dumper
-File::Basename
-File::Path
-File::Rsync
-File::Spec
-Getopt::Long
-IO::Compress::Gzip
-IO::File
-IO::Socket
-IO::Socket::INET
-IO::Uncompress::Gunzip
-KyotoCabinet
-Lingua::EN::Inflect
-List::Util
-Log::Any::Adapter
-Moose
-Moose::Role
-Moose::Util::TypeConstraints
-MooseX::Types::Path::Tiny
-Path::Tiny
-Pod::Usage
-Redis
-Scalar::Util
-Sys::Info
-Sys::Info::Constants
-Test::More
-Thread::Queue
-Time::localtime
-Try::Tiny
-Type::Params
-Types::Standard
-YAML
-YAML::XS
-namespace::autoclean
-threads
-threads::shared
+sudo yum install zlib-devel
 ```
 
-The redis server requires a perl with p-threads built in.
+Install dependencies with `cpan` like so:
 
-Install dependencies with `cpanm` like so:
+```
+cpan install Moose
+cpan install MooseX::Types::Path::Tiny
+cpan install DDP
+cpan install YAML::XS
+cpan install Getopt::Long::Descriptive
+cpan install Parallel::ForkManager (deprecated, will be removed)
+cpan install MCE::Loop
+cpan install List::MoreUtils::XS
+cpan install Data::MessagePack
+cpan install Alien::LMDB
+cpan install LMDB_File
+cpan install Sort::XS
+cpan install Hash::Merge::Simple
+cpan install Log::Fast
+cpan install Cpanel::JSON::XS
+cpan install PerlIO::utf8_strict
+cpan install PerlIO::gzip
+cpan install Type::Params
+cpan install MooseX::Getopt
+cpan install MooseX::Getopt::Usage
+cpan install forks
+```
 
-		cpanm 5.10.0 Carp Cpanel::JSON::XS Cwd DBI DDP Data::Dump Data::Dumper \
-      File::Basename File::Path File::Rsync File::Spec Getopt::Long \
-      IO::Compress::Gzip IO::File IO::Socket IO::Socket::INET \
-      IO::Uncompress::Gunzip KyotoCabinet Lingua::EN::Inflect List::Util \
-      Log::Any::Adapter Moose Moose::Role Moose::Util::TypeConstraints \
-      MooseX::Types::Path::Tiny Path::Tiny Pod::Usage Redis Scalar::Util \
-      Sys::Info Sys::Info::Constants Test::More Thread::Queue Time::localtime \
-      Try::Tiny Type::Params Types::Standard YAML YAML::XS namespace::autoclean \
+# Advanced
+If you want to deploy the redis queue server:
+```
+sudo yum install git 
+git clone git@github.com:redis/hiredis.git
+cd hiredis
+make
+sudo make install
+
+cpan install Redis::hiredis
+```
 
 3. SeqAnt comes with a number of pre-specified genome assemblies in the `./config` 
 directory.
