@@ -13,25 +13,11 @@ use DDP;
 =head1 DESCRIPTION
 
   @class Seq::Build
-  #TODO: Check description
-  Build the annotation databases, as prescribed by the genome assembly.
+  Iterates all of the builders present in the config file
+  And executes their buildTrack method
+  Also guarantees that the reference track will be built first
 
   @example
-
-Uses:
-=for :list
-* @class Seq::Build::SnpTrack
-* @class Seq::Build::GeneTrack
-* @class Seq::Build::TxTrack
-* @class Seq::Build::GenomeSizedTrackStr
-* @class Seq::KCManager
-* @role Seq::Role::IO
-
-Used in:
-=for :list
-* /bin/build_genome_assembly.pl
-
-Extended in: None
 
 =cut
 
@@ -40,13 +26,7 @@ use namespace::autoclean;
 use DDP;
 extends 'Seq::Base';
 
-use MCE::Loop;
-
-# #this isn't used yet.
-# has wanted_chr => (
-#   is      => 'ro',
-#   isa     => 'Maybe[Str]',
-# );
+#use MCE::Loop;
 
 # comes from Seq::Tracks, which is extended by Seq::Assembly
 has wantedType => (
@@ -64,12 +44,13 @@ has wantedName => (
   default => undef,
 );
 
-has buildClean => (
-  is => 'ro',
-  isa => 'Bool',
-  lazy => 1,
-  default => 0,
-);
+#not in use atm
+# has buildClean => (
+#   is => 'ro',
+#   isa => 'Bool',
+#   lazy => 1,
+#   default => 0,
+# );
 
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 
@@ -77,9 +58,9 @@ has buildClean => (
 sub BUILD {
 
   #$_[0] == $self
-  if($_[0]->buildClean) {
-    goto &BUILD_CLEAN;
-  }
+  # if($_[0]->buildClean) {
+  #   goto &BUILD_CLEAN;
+  # }
 
   my $self = shift;
 
@@ -99,6 +80,7 @@ sub BUILD {
     p @builders;
   }
 
+  #TODO: decide whether we really want this
   my $refTrackBuilder = $self->getRefTrackBuilder();
 
   $self->log('info', "Verifying that needed reference tracks are built");
@@ -140,6 +122,8 @@ sub BUILD {
     . join(", ", map{ $_->name } @builders) );
 }
 
+
+###Future API
 # Trying to build clean version... seems to have either a bug that results in locking
 # or major performance issues
 # for now, avoiding, and set $self->commitEvery in DBManager to 2000 to try to balance

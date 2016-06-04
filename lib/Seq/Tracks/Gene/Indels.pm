@@ -11,73 +11,55 @@ our $VERSION = '0.001';
 
 use Moose;
 use DDP;
-# will hard crash if bad input, as soon as it's called
-enum IndTypes => [qw(- +)];
-has indType   => (
-  is      => 'ro',
-  isa     => 'IndTypes',
-  lazy    => 1,
-  builder => '_build_indel_type',
-);
 
-sub _build_indel_type {
-  my $self = shift;
-  #cast as str to substr in case of -N
-  return substr( "" . $self->minor_allele, 0, 1 );
+with 'Seq::Role::DBManager';
+
+sub _getIndelType {
+  # my ($self, $allele) = @_;
+  #$_[1] == $allele
+  return substr( "" . $_[1], 0, 1 );
 }
-
-has indLength => (
-  is      => 'ro',
-  isa     => 'Num',
-  lazy    => 1,
-  builder => '_build_indel_length',
-);
 
 # we only allow numeric for deletions;
 # we could also do the check around
-sub _build_indel_length {
-  my $self = shift;
-  if ( $self->indType eq '-' ) {
-    return abs( int( $self->minor_allele ) );
+sub _getIndelLength {
+  my ($self, $type, $allele) = @_;
+  if ( $type eq '-' ) {
+    return abs( int( $allele ) );
   }
   return length( substr( $self->minor_allele, 1 ) );
 }
 
-has typeName => (
-  is      => 'ro',
-  isa     => 'Str',
-  lazy    => 1,
-  builder => '_buildTypeName',
-);
+my $typNamesMap = {
+  '-' => 'Del',
+  '+' => 'Ins',
+};
 
-sub _buildTypeName {
-  my $self = shift;
-  return $self->indType eq '-' ? 'Del' : 'Ins';
+sub _getFrameType {
+  my ( $self, $length ) = @_;
+  return $length % 3 ? 'FrameShift' : 'InFrame';
 }
-
-#this is very basic; does not check if coding region
-#so look for frame type only when coding (only then does it make sense)
-has frameType => (
-  is      => 'ro',
-  isa     => 'Str',
-  lazy    => 1,
-  builder => '_buildFrameType',
-);
-
-sub _buildFrameType {
-  my ( $self, $siteType ) = @_;
-  my $frame = $self->indLength % 3 ? 'FrameShift' : 'InFrame';
-}
-
 
 sub findGeneData {
-  my ( $self, $abs_pos, $db ) = @_;
+  my ( $self, $thisPositionDataHref, $allele, $dbPosition ) = @_;
 
   my @data;
   my @range; #can't pass list to db_get
   my $annotationType;
-  my $reconstitutedAllele = '';
-  for my $allele ( $self->allAlleles ) {
+  my $reconstitutedAllele = ''; 
+
+  my ($alleleType, $alleleLength) = _describeAllele($allele);
+
+  my $dbDataAref;
+  if($alleleType eq 'Del') {
+    #get all of the data from deleted allele
+    $dbDataAref = $self->dbRead([ $dbPosition - ($alleleLength - 1) .. $dbPosition - 1]);
+
+
+    return $self->_annotateSuge($dbDataAref, $allele);
+  } else {
+    $dbDataAref = $self->dbRead([ $dbPosition .. $dbPosition - 1]);
+  }
     if ( $allele->indType eq '-' ) {
       #inclusive of current base
       @range = ( $abs_pos - $allele->indLength + 1 .. $abs_pos );

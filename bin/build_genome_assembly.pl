@@ -52,14 +52,15 @@ my $config_href = LoadFile($yaml_config);
 # get absolute path for YAML file and db_location
 $yaml_config = path($yaml_config)->absolute->stringify;
 
+my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+
+$year += 1900;
 #   # set log file
 my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType ||
-$wantedName || 'allTracks', $wantedChr || 'allChr', 'log';
+$wantedName || 'allTracks', $wantedChr || 'allChr',
+"$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
 
 my $logPath = path(".")->child($log_name)->absolute->stringify;
-
-open(my $fh, '>>', $logPath);
-close $fh;
 
 my $builder_options_href = {
   configfile   => $yaml_config,

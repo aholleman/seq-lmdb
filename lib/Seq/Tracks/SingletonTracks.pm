@@ -59,67 +59,78 @@ use Seq::Tracks::Gene::Build;
 use Seq::Tracks::Cadd::Build;
 
 #Public, accessble
-state $trackBuilders; 
-$trackBuilders = $trackBuilders || {};
-has trackBuildersByName => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getTrackBuilderByName => 'get',
-    getAllTrackBuilders => 'values',
-  },
-  lazy => 1,
-  init_arg => undef,
-  default => sub { $trackBuilders },
-  writer => '_writeTrackBuildersByName',
-);
 
-state $trackBuildersByType;
-$trackBuildersByType = $trackBuildersByType || {};
-has trackBuildersByType => (
-  is => 'ro',
-  isa => 'HashRef[ArrayRef]',
-  traits => ['Hash'],
-  handles => {
-    getTrackBuildersByType => 'get',
-  },
-  lazy => 1,
-  init_arg => undef,
-  default => sub{ $trackBuildersByType },
-  writer => '_writeTrackBuildersByType',
-);
+#preserve the order that is given to us in the config file,
+#more declarative
+state $orderedTrackBuildersAref = [];
+sub getAllTrackBuilders {
+  return @$orderedTrackBuildersAref;
+}
 
-state $trackGetters;
-$trackGetters = $trackGetters || {};
-has trackGettersByName =>(
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    getTrackGetterByName => 'get',
-    getAllTrackGetters => 'values'
-  },
-  init_arg => undef,
-  lazy => 1,
-  default => sub { $trackGetters },
-  writer => '_writeTrackGettersByName'
-);
+state $trackBuilders = {};
+sub getTrackBuilderByName {
+  #my ($self, $name) = @_;
+  #$_[1] == $name
+  return $trackBuilders->{$_[1]};
+}
 
-state $trackGettersByType;
-$trackGettersByType = $trackGettersByType || {};
-has trackGettersByType =>(
-  is => 'ro',
-  isa => 'HashRef[ArrayRef]',
-  traits => ['Hash'],
-  handles => {
-    getTrackGettersByType => 'get',
-  },
-  init_arg => undef,
-  lazy => 1,
-  default => sub { $trackGettersByType },
-  writer => '_writeTrackGettersByType'
-);
+state $trackBuildersByType = {};
+sub getTrackBuildersByType {
+  #my ($self, $type) = @_;
+  #$_[1] == $type
+  return $trackBuildersByType->{$_[1]};
+}
+
+state $orderedTrackGettersAref = [];
+sub getAllTrackGetters {
+  return @$orderedTrackGettersAref;
+}
+
+state $trackGetters = {};
+sub getTrackGetterByName {
+  #my ($self, $name) = @_;
+  #$_[1] == $name
+  return $trackGetters->{$_[1]};
+}
+
+state $trackGettersByType = {};
+sub getTrackGettersByType {
+  # my ($self, $type) = @_;
+  # $_[1] == $type
+  return $trackGettersByType->{$_[1]};
+}
+
+#returns hashRef; only one of the following tracks is allowed
+sub getRefTrackGetter {
+  my $self = shift;
+  return $trackGettersByType->{$self->refType}[0];
+}
+
+sub allRegionTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->regionType};
+}
+
+sub allScoreTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->scoreType};
+}
+
+sub allSparseTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->sparseType};
+}
+
+sub allGeneTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->geneType};
+}
+
+#returns hashRef; only one of the following tracks is allowed
+sub getRefTrackBuilder {
+  my $self = shift;
+  return $trackBuildersByType->{$self->refType}[0];
+}
 
 # Only property expected at construction to be passed to this class
 
@@ -146,27 +157,6 @@ has tracks => (
   default => sub { [] },
 );
 
-#Initialize once, then use forever
-sub initializeTrackBuildersAndGetters {
-  if(%$trackBuilders && %$trackGetters) {
-    return;
-  }
-
-  my $self = shift;
-
-  if(! $self->tracks ) {
-    $self->log('fatal', 'First time SingletonTracks is run self->tracks must be present');
-  }
-
-  if(!%$trackBuilders) {
-    $self->_buildTrackBuilders;
-  }
-
-  if(!%$trackGetters) {
-    $self->_buildTrackGetters;
-  }
-}
-
 sub BUILD {
   goto &initializeTrackBuildersAndGetters;
 }
@@ -181,47 +171,34 @@ sub BUILD {
 #     feature1: featureVal1, feature2: featureVal2, ...
 #} } } }
 
-sub allRegionTrackBuilders {
-  my $self = shift;
-  return $self->trackBuildersByType->{$self->regionType};
-}
+#Initialize once, then use forever
+sub initializeTrackBuildersAndGetters {
+  if(%$trackBuilders && %$trackGetters) {
+    return;
+  }
 
-sub allScoreTrackBuilders {
   my $self = shift;
-  return $self->trackBuildersByType->{$self->scoreType};
-}
 
-sub allSparseTrackBuilders {
-  my $self = shift;
-  return $self->trackBuildersByType->{$self->sparseType};
-}
+  if(! $self->tracks ) {
+    $self->log('fatal', 'First time SingletonTracks is run tracks must be passed');
+  }
 
-sub allGeneTrackBuilders {
-  my $self = shift;
-  return $self->trackBuildersByType->{$self->geneType};
-}
+  if(!%$trackBuilders) {
+    $self->_buildTrackBuilders;
+  }
 
-#returns hashRef; only one of the following tracks is allowed
-sub getRefTrackBuilder {
-  my $self = shift;
-  return $self->trackBuildersByType->{$self->refType}[0];
-}
-
-#Now same for 
-#returns hashRef; only one of the following tracks is allowed
-sub getRefTrackGetter {
-  my $self = shift;
-  return $self->trackGettersByType->{$self->refType}[0];
+  if(!%$trackGetters) {
+    $self->_buildTrackGetters;
+  }
 }
 
 #private builder methods
 sub _buildTrackGetters {
-  my $self = shift;
-
   if(%$trackGetters) {
-    $self->_writeTrackGettersByName($trackGetters);
-    $self->_writeTrackGettersByType($trackGettersByType);
+    return;
   }
+
+  my $self = shift;
 
   my @trackOrder;
   for my $trackHref (@{$self->tracks}) {
@@ -245,12 +222,14 @@ sub _buildTrackGetters {
     #by name : 
       #   something : someOtherName
     $trackGetters->{$track->{name} } = $track;
-    push @{$trackGettersByType->{$trackHref->{type} } }, $trackGetters->{$track->{name} };
+    
+    #allows us to preserve order when iterating over all track getters
+    push @$orderedTrackGettersAref, $track;
+
+    push @{$trackGettersByType->{$trackHref->{type} } }, $track;
   }
 
-  $self->_writeTrackGettersByName($trackGetters);
-  $self->_writeTrackGettersByType($trackGettersByType);
-
+  # TODO: remove this, move toward more declarative solution based in Seq::Tracks::Headers
   # ensure that the order of the headers in any output, is the same as it is
   # in the output file we give to the user
   $self->orderTrackHeaders(\@trackOrder);
@@ -259,12 +238,11 @@ sub _buildTrackGetters {
 #different from Seq::Tracks in that we store class instances hashed on track type
 #this is to allow us to more easily build tracks of one type in a certain order
 sub _buildTrackBuilders {
-  my $self = shift;
-
   if(%$trackBuilders) {
-    $self->_writeTrackGettersByName($trackBuilders);
-    $self->_writeTrackGettersByType($trackBuildersByType);
+    return;
   }
+
+  my $self = shift;
 
   for my $trackHref (@{$self->tracks}) {
     my $trackFileName = $self->_toTrackBuilderClass($trackHref->{type} );
@@ -289,11 +267,11 @@ sub _buildTrackBuilders {
       #   something : someOtherName
     #TODO: make this go away by automating track name conversion/storing in db
     $trackBuilders->{$track->{name} } = $track;
+
+    push @$orderedTrackBuildersAref, $track;
+
     push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
   }
-  
-  $self->_writeTrackBuildersByName($trackBuilders);
-  $self->_writeTrackBuildersByType($trackBuildersByType);
 }
 
 ### Helper methods for _buildTrackBulders & _buildTrackGetters methods
