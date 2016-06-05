@@ -11,8 +11,17 @@ use Moose 2;
 
 extends 'Seq::Tracks::Base';
 
-#exports $self->addFeaturesToTrackHeaders
-with 'Seq::Tracks::Headers';
+use Seq::Headers;
+
+has headers => (
+  is => 'ro',
+  init_arg => undef,
+  lazy => 1,
+  default => sub { Seq::Headers->new() },
+  handles => {
+    addFeaturesToHeader => 'addFeaturesToHeader',
+  }
+);
 
 sub BUILD {
   my $self = shift;
@@ -21,10 +30,10 @@ sub BUILD {
   #@params $parent, $child
   #if this class has no features, then the track's name is also its only feature
   if($self->noFeatures) {
-    return $self->addFeaturesToTrackHeaders($self->name);
+    return $self->addFeaturesToHeader($self->name);
   }
 
-  $self->addFeaturesToTrackHeaders([$self->allFeatureNames], $self->name);
+  $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
 }
 
 # Take a hash (that is passed to this function), and get back all features
@@ -89,45 +98,4 @@ __PACKAGE__->meta->make_immutable;
 
 1;
 
-#TODO: figure out how to neatly add feature exclusion, if it's userful
-# sub BUILD {
-#   my $self = shift;
-#   #once feature exclusion is ready 
-#   # my @includedFeatures;
-
-#   # for my $feature ($self->allFeatureNames) {
-#   #   if(!first{ $_ eq $feature } @{$self->annotation_exclude_features} ) {
-#   #     push @includedFeatures, $feature;
-#   #   }
-#   # } 
-#   # $self->addFeaturesToTrackHeaders(\@includedFeatures $self->name);
-# }
-# has annotation_exclude_features => (
-#   is => 'ro',
-#   isa => 'ArrayRef',
-#   lazy => 1,
-#   default => sub { [] },
-# );
-
-# my @featureLabels;
-#   my @exludedFeatures = defined $data{annotation_exclude_features} 
-#     ? @{$data{annotation_exclude_features} } : ();
-
-#   for my $feature (@{$data{features} } ) {
-#     if (ref $feature eq 'HASH') {
-#       my ($name, $type) = %$feature; #Thomas Wingo method
-
-#       if(@exludedFeatures && first { $_ eq $name } @exludedFeatures ) {
-#         next;
-#       }
-#       push @featureLabels, $name;
-#       $data{_featureDataTypes}{$name} = $type;
-
-#       next;
-#     }
-
-#     if(@exludedFeatures && first { $_ eq $feature } @exludedFeatures ) {
-#       next;
-#     }
-#     push @featureLabels, $feature;
-#   }
+#TODO: figure out how to neatly add feature exclusion, if it's useful

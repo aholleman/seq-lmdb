@@ -158,7 +158,12 @@ sub BUILD {
   $self->buildDbName();
 }
 
-#TODO: we should allow casting of required_fields.
+__PACKAGE__->meta->make_immutable;
+
+1;
+
+
+#TODO: we could allow casting of required_fields.
 #we'll expect that modules will constrain the hash ref values
 #to what they require
 #ex: 
@@ -203,7 +208,3 @@ sub BUILD {
 #     noReqFieldTypes  => 'is_empty',
 #   },
 # );
-
-__PACKAGE__->meta->make_immutable;
-
-1;

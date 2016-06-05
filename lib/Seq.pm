@@ -6,14 +6,13 @@ package Seq;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A class for kickstarting building or annotating snpfiles
+# ABSTRACT: Annotate a snp file
 # VERSION
 
 =head1 DESCRIPTION
 
   @class B<Seq>
-  #TODO: Check description
-  From where all annotation originates
+  Annotate.
 
   @example
 
@@ -29,13 +28,18 @@ use MooseX::Types::Path::Tiny qw/AbsFile AbsPath AbsDir/;
 use Path::Tiny;
 use File::Temp qw/ tempdir /;
 use namespace::autoclean;
-use Parallel::ForkManager;
 
 use DDP;
 
 use MCE::Loop;
 
+use Seq::InputFile;
+use Seq::Output;
+use Seq::Headers;
+
 extends 'Seq::Base';
+
+with 'Seq::Role::Genotypes';
 
 # use Seq::Progress;
 
@@ -63,33 +67,44 @@ has out_file => (
 # );
 
 #we also add a few of our own annotation attributes
-#trying global prpoerties because they work a bit better with some
-#multi-process perl packages
-our $heterozygousIdsKey = 'heterozygotes';
-our $compoundIdsKey = 'compoundHeterozygotes';
-our $homozygousIdsKey = 'homozygotes';
+#these will be re-used in the body of the annotation processor below
+my $heterozygousIdsKey = 'heterozygotes';
+my $compoundIdsKey = 'compoundHeterozygotes';
+my $homozygousIdsKey = 'homozygotes';
 
-#come after all attributes to meet "requires '<attribute>'"
-with 'Seq::Role::ProcessFile', 'Seq::Role::Genotypes', 'Seq::Role::Message';
+#knows about the snp file headers
+my $inputFileProcessor = Seq::InputFile->new();
 
-=head2 annotation_snpfile
+#handles creation of our output strings
+my $outputter = Seq::Output->new();
 
-B<annotate_snpfile> - annotates the snpfile that was supplied to the Seq object
+my $chrFieldIdx = $inputFileProcessor->fragmentFieldIdx;
+my $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
+my $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
+my $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
 
-=cut
-
-#MCE version
 sub annotate_snpfile {
   my $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
 
-  #this is much slower
-  #my $fh = $self->get_read_fh( $self->snpfile_path );
+  my $headers = Seq::Headers->new();
 
+  #should match the header order
+  $outputter->setInputFieldsWantedInOutput(
+    $chrFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx
+  );
+
+  #1 means prepend
+  $headers->addFeaturesToHeader( [
+    $inputFileProcessor->fragmentFieldName, $inputFileProcessor->positionFieldName,
+    $inputFileProcessor->alleleFieldName, $inputFileProcessor->typeFieldName,
+    $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
+
+  #outputter needs to know which fields we're going to want to writer
+  $outputter->setOutputDataFieldsWanted( $headers->get() );
+  
   my $fh = $self->get_read_fh($self->snpfile_path);
-
-  # my $count = 0;
   
   my $sampleIDsToIndexesMap;
   my $taint_check_regex = $self->taint_check_regex; 
@@ -106,15 +121,9 @@ sub annotate_snpfile {
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
     $firstLine = [ split $delimiter, $1 ];
 
-    our $heterozygousIdsKey;
-    our $homozygousIdsKey;
-    our $compoundIdsKey;
+    $inputFileProcessor->checkInputFileHeader($firstLine);
 
-    $self->checkHeader($firstLine);
-
-    $self->makeOutputHeader([$heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey]);
-
-    $sampleIDsToIndexesMap = { $self->getSampleNamesIdx( $firstLine ) };
+    $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
 
     # save list of ids within the snpfile
     $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
@@ -124,7 +133,7 @@ sub annotate_snpfile {
   }
 
   my $outFh = $self->get_write_fh( $self->output_path );
-  say $outFh $self->makeHeaderString();
+  say $outFh $headers->getString();
 
   #initialize our parallel engine; re-uses forks
   MCE::Loop::init {
@@ -136,7 +145,7 @@ sub annotate_snpfile {
     #and apparently slow on shared storage
    # parallel_io => 1,
   };
-
+  exit;
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
@@ -154,11 +163,13 @@ sub annotate_snpfile {
 
      while (<$MEM_FH>) {
       if (/$taint_check_regex/) {
-        if(/MESS|LOW/) {
+        chomp;
+        my $line = [ split $delimiter, $_ ];
+        if($line->[$typeFieldIdx] =~ /MESS|LOW/) {
           next;
         }
-        chomp;
-        push @lines, [ split $delimiter, $_ ];
+
+        push @lines, $line;
       }
      }
      close  $MEM_FH;
@@ -177,35 +188,6 @@ sub annotateLines {
   #$pm->start and return;
   my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref) = @_;
 
-  #die;
-  state $pubProg;
-  state $writeProg;
-
-  #if (!$pubProg && $self->hasPublisher) {
-    # $pubProg = Seq::Progress->new({
-    #   progressBatch => 200,
-    #   fileLines => scalar @$fileLines,
-    #   progressAction => sub {
-    #     $pubProg->recordProgress($pubProg->progressCounter);
-    #     $self->publishMessage({progress => $pubProg->progressFraction } )
-    #   },
-    # });
-  #}
-  
-  #if(!$writeProg) {
-    # $writeProg = Seq::Progress->new({
-    #   progressBatch => $self->write_batch,
-    #   progressAction => sub {
-    #     $self->publishMessage('Writing ' . 
-    #       $self->write_batch . ' lines to disk') if $self->hasPublisher;
-    #     $self->print_annotations( \@snp_annotations );
-    #     @snp_annotations = ();
-    #   },
-    # });
- # }
-  
-  #my $linesAref = $self->getCleanFields($lines);
-
   my @output;
 
   my $wantedChr;
@@ -214,15 +196,15 @@ sub annotateLines {
   my @sampleData;
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   my @fields;
+
+  my $firstSnpFieldIndex = @{$self->snpFieldIndices};
+  my $lastSnpFieldIndex = $#@{$self->snpFieldIndices};
+
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
-   # @fields = split(/\t/, $self->clean_line( $line ) );
-
-   # say "field is ;";
-   # p $fieldsAref;
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-    my @snpFields = map { $fieldsAref->[$_] } $self->allSnpFieldIdx;
+    my @snpFields = @$fieldsAref[ $firstSnpFieldIndex .. $lastSnpFieldIndex ];
     
     if( $snpFields[2] eq $snpFields[4] ) {
       $self->log('warn', "Reference equals minor allele on $chr:$pos");
@@ -294,12 +276,9 @@ sub annotateLines {
   }
 
   #write everything for this part
-  return $self->makeAnnotationString(\@output, \@inputData);
+  return $outputter->makeOutputString(\@output, \@inputData);
 
-  #TODO: need also to take care of statistics stuff,
-  #but that will need to wait a bit, since that will require 
-  #inter-process data sharing
-  #$pm->finish;
+  #TODO: need also to take care of statistics stuff
 }
 
 #This iterates over some database data, and gets all of the associated track info
@@ -307,10 +286,6 @@ sub annotateLines {
 sub finishAnnotatingLines {
   my ($self, $chr, $dataFromDbRef, $dataFromInputAref, $sampleGenotypesAref, 
     $positionsAref, $outAref) = @_;
-
-  our $heterozygousIdsKey;
-  our $homozygousIdsKey;
-  our $compoundIdsKey;
 
   my $dataFromDbAref = ref $dataFromDbRef eq 'ARRAY' ? $dataFromDbRef : [$dataFromDbRef];
 
@@ -322,7 +297,12 @@ sub finishAnnotatingLines {
         You may have chosen the wrong assembly");
     }
 
-    my @alleles = split(',', $dataFromInputAref->[$i][3] );
+    my @alleles;
+    for my $allele ( split(',', $dataFromInputAref->[$i][3] ) {
+      if($allele ne $fields[2]) {
+        push @alleles, $allele
+      }
+    }
 
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
@@ -355,3 +335,27 @@ sub finishAnnotatingLines {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+#TODO: Figure out what to do with messaging progress
+  #if (!$pubProg && $self->hasPublisher) {
+    # $pubProg = Seq::Progress->new({
+    #   progressBatch => 200,
+    #   fileLines => scalar @$fileLines,
+    #   progressAction => sub {
+    #     $pubProg->recordProgress($pubProg->progressCounter);
+    #     $self->publishMessage({progress => $pubProg->progressFraction } )
+    #   },
+    # });
+  #}
+  
+  #if(!$writeProg) {
+    # $writeProg = Seq::Progress->new({
+    #   progressBatch => $self->write_batch,
+    #   progressAction => sub {
+    #     $self->publishMessage('Writing ' . 
+    #       $self->write_batch . ' lines to disk') if $self->hasPublisher;
+    #     $self->print_annotations( \@snp_annotations );
+    #     @snp_annotations = ();
+    #   },
+    # });
+ # }

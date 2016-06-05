@@ -66,12 +66,13 @@ override 'BUILD' => sub {
 
   super();
 
-  $self->addFeaturesToTrackHeaders([$siteUnpacker->allSiteKeys, 
+  $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, 
     $regionTypeKey, $siteTypeKey], $self->name);
 
   my @nearestFeatureNames = $self->nearest;
+  
   if(@nearestFeatureNames) {
-    $self->addFeaturesToTrackHeaders( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
+    $self->addFeaturesToHeader( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
       $self->name);
   }
 };

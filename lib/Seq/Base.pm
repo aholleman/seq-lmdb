@@ -16,13 +16,6 @@ use namespace::autoclean;
 #by Seq::Tracks, making config of that package easier
 extends 'Seq::Tracks'; 
 
-#Right now this is used to name the log file
-#Not sure if this will continue to be used.
-#removed genome_description, because assemblies already identify the species
-#and becuase it isn't used anywhere in the Seq library
-#genome_description (currently the species) has no prupose
-has genome_name        => ( is => 'ro', isa => 'Str', required => 1, );
-
 =property @public {Str} database_dir
 
   The path (relative or absolute) to the index folder, which contains all databases

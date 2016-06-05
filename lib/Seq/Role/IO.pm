@@ -67,6 +67,15 @@ has endOfLineChar => (
   lazy => 1,
   default => "\n",
 ); 
+
+#if we compress the output, the extension we store it with
+has _compressExtension => (
+  is      => 'ro',
+  lazy    => 1,
+  default => '.tar.gz',
+  init_arg => undef,
+);
+
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -167,6 +176,45 @@ sub getCleanFields {
   }
   return;
 }
+
+sub compressPath {
+  my $self = shift;
+  #expect a Path::Tiny object
+  my $fileObject = shift;
+
+  my $filePath = $fileObject->stringify;
+
+  $self->log( 'info', 'Compressing all output files' );
+
+  if ( !-e $filePath ) {
+    return $self->log( 'warn', 'No output files to compress' );
+  }
+
+  my $tar = which('tar') or $self->log( 'fatal', 'No tar program found' );
+  my $pigz = which('pigz');
+  if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
+
+  my $baseFolderName = $fileObject->parent->basename;
+  my $baseFileName = $fileObject->basename;
+  my $compressName = $baseFileName . $self->_compressExtension;
+
+  my $outcome =
+    system(sprintf("$tar -cf %s -C %s %s --transform=s/%s/%s/ --exclude '.*' --exclude %s; mv %s %s",
+      $compressName,
+      $fileObject->parent(2)->stringify, #change to parent of folder containing output files
+      $baseFolderName, #the name of the directory we want to compress
+      #transform and exclude
+      $baseFolderName, #inside the tarball, transform  that directory name
+      $baseFileName, #to one named as our file basename
+      $compressName, #and don't include our new compressed file in our tarball
+      #move our file into the original output directory
+      $compressName,
+      $fileObject->parent->stringify,
+    ) );
+ 
+  $self->log( 'warn', "Zipping failed with $?" ) unless !$outcome;
+}
+
 no Moose::Role;
 
 1;
