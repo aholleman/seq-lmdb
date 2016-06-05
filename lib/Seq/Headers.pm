@@ -7,6 +7,7 @@ use strict;
 use warnings;
 use namespace::autoclean;
 
+with 'Seq::Role::Message';
 #stored as array ref to preserve order
 # [ { $parent => [ $child1, $child2 ] }, $feature2, $feature3, etc ]
 state $orderedHeaderFeaturesAref = [];
@@ -15,18 +16,45 @@ sub get {
   return $orderedHeaderFeaturesAref;
 }
 
+sub getString {
+  my $self = shift;
+
+  my @out;  
+  for my $feature (@$orderedHeaderFeaturesAref) {
+    #this is a parentName => [$feature1, $feature2, $feature3] entry
+    if(ref $feature) {
+      my ($parentName) = %$feature;
+      foreach (@{ $feature->{$parentName} } ) {
+        push @out, "$parentName.$_";
+      }
+      next;
+    }
+    push @out, $feature;
+  }
+
+  return join("\t", @out);
+}
+
 #not all children will have parents
 sub addFeaturesToHeader {
   my ($self, $child, $parent, $prepend) = @_;
 
   if(ref $child eq 'ARRAY') {
-    goto &_addFeaturesToHeader;
+    goto &_addFeaturesToHeaderBulk;
   }
 
   if($parent) {
     my $parentFound = 0;
 
     for my $headerEntry (@$orderedHeaderFeaturesAref) {
+      if(!ref $headerEntry) {
+        if($parent eq $headerEntry) {
+          $self->log('warning', "$parent equals $headerEntry, which has no 
+            child features, which was not what we expected");
+        }
+        next;
+      }
+
       my ($key, $valuesAref) = %$headerEntry;
 
       if($key eq $parent) {
@@ -77,34 +105,15 @@ sub addFeaturesToHeader {
   }
 }
 
-sub getString {
-  my $self = shift;
-
-  my @out;  
-  for my $feature (@$orderedHeaderFeaturesAref) {
-    #this is a parentName => [$feature1, $feature2, $feature3] entry
-    if(ref $feature) {
-      my ($parentName) = %$feature;
-      foreach (@{ $feature->{$parentName} } ) {
-        push @out, "$parentName.$_";
-      }
-      next;
-    }
-    push @out, $feature;
-  }
-
-  return join("\t", @out);
-}
-
 sub _addFeaturesToHeaderBulk {
   my ($self, $childrenAref, $parent, $prepend) = @_;
 
   if(!ref $childrenAref) {
-    goto &addFeaturesToTrackHeadersBulk;
+    goto &addFeaturesToHeader;
   }
 
   for my $child (@$childrenAref) {
-    $self->addFeaturesToTrackHeaders($child, $parent, $prepend);
+    $self->addFeaturesToHeader($child, $parent, $prepend);
   }
 
   return;

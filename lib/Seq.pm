@@ -78,10 +78,13 @@ my $inputFileProcessor = Seq::InputFile->new();
 #handles creation of our output strings
 my $outputter = Seq::Output->new();
 
-my $chrFieldIdx = $inputFileProcessor->fragmentFieldIdx;
-my $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
-my $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
-my $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
+#reused in annotation body, need to be set after reading first line
+#of input file
+my $chrFieldIdx;
+my $referenceFieldIdx;
+my $positionFieldIdx;
+my $alleleFieldIdx;
+my $typeFieldIdx;
 
 sub annotate_snpfile {
   my $self = shift;
@@ -89,20 +92,6 @@ sub annotate_snpfile {
   $self->log( 'info', 'Beginning annotation' );
 
   my $headers = Seq::Headers->new();
-
-  #should match the header order
-  $outputter->setInputFieldsWantedInOutput(
-    $chrFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx
-  );
-
-  #1 means prepend
-  $headers->addFeaturesToHeader( [
-    $inputFileProcessor->fragmentFieldName, $inputFileProcessor->positionFieldName,
-    $inputFileProcessor->alleleFieldName, $inputFileProcessor->typeFieldName,
-    $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
-
-  #outputter needs to know which fields we're going to want to writer
-  $outputter->setOutputDataFieldsWanted( $headers->get() );
   
   my $fh = $self->get_read_fh($self->snpfile_path);
   
@@ -122,6 +111,26 @@ sub annotate_snpfile {
     $firstLine = [ split $delimiter, $1 ];
 
     $inputFileProcessor->checkInputFileHeader($firstLine);
+
+    $chrFieldIdx = $inputFileProcessor->fragmentFieldIdx;
+    $referenceFieldIdx = $inputFileProcessor->fragmentFieldIdx;
+    $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
+    $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
+    $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
+
+    #should match the header order
+    $outputter->setInputFieldsWantedInOutput(
+      [ $chrFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx ]
+    );
+
+    #1 means prepend
+    $headers->addFeaturesToHeader( [
+      $inputFileProcessor->fragmentFieldName, $inputFileProcessor->positionFieldName,
+      $inputFileProcessor->alleleFieldName, $inputFileProcessor->typeFieldName,
+      $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
+
+    #outputter needs to know which fields we're going to want to writer
+    $outputter->setOutputDataFieldsWanted( $headers->get() );
 
     $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
 
@@ -145,7 +154,7 @@ sub annotate_snpfile {
     #and apparently slow on shared storage
    # parallel_io => 1,
   };
-  exit;
+
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
@@ -197,17 +206,27 @@ sub annotateLines {
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   my @fields;
 
-  my $firstSnpFieldIndex = @{$self->snpFieldIndices};
-  my $lastSnpFieldIndex = $#@{$self->snpFieldIndices};
+  say "snp field indices are";
+  p $inputFileProcessor->snpFieldIndices;
+  exit;
+  my $firstSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[0];
+  my $lastSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[-1];
 
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
+    say "last snp field index is";
+    p $lastSnpFieldIndex;
     my @snpFields = @$fieldsAref[ $firstSnpFieldIndex .. $lastSnpFieldIndex ];
     
-    if( $snpFields[2] eq $snpFields[4] ) {
-      $self->log('warn', "Reference equals minor allele on $chr:$pos");
+    say "snpFields are";
+    p @snpFields;
+    p $fieldsAref;
+    say "referenceFieldIdx is $referenceFieldIdx";
+    say "alleleFieldIdx is $alleleFieldIdx";
+
+    if( $snpFields[$referenceFieldIdx] eq $snpFields[$alleleFieldIdx] ) {
       next;
     }
 
@@ -234,7 +253,7 @@ sub annotateLines {
     for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
       my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
 
-      if( $geno eq 'N' || $geno eq $snpFields[2] ) {
+      if( $geno eq 'N' || $geno eq $snpFields[$referenceFieldIdx] ) {
         next;
       }
 
@@ -263,7 +282,7 @@ sub annotateLines {
 
     #$snpFields[1] expected to be the relative position
     #we store everything 0-indexed, so substract 1
-    push @positions, $snpFields[1] - 1;
+    push @positions, $snpFields[$positionFieldIdx] - 1;
 
   }
 
@@ -298,8 +317,8 @@ sub finishAnnotatingLines {
     }
 
     my @alleles;
-    for my $allele ( split(',', $dataFromInputAref->[$i][3] ) {
-      if($allele ne $fields[2]) {
+    for my $allele ( split(',', $dataFromInputAref->[$i][$alleleFieldIdx] ) ) {
+      if($allele ne $dataFromInputAref->[$i][$referenceFieldIdx]) {
         push @alleles, $allele
       }
     }

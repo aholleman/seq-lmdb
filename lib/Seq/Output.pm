@@ -9,7 +9,7 @@ has inputFieldsWantedInOutput => (
   is => 'ro',
   isa => 'ArrayRef',
   lazy => 1,
-  default => [],
+  default => sub{ [] },
   writer => 'setInputFieldsWantedInOutput'
 );
 
@@ -17,6 +17,7 @@ has outputDataFields => (
   is => 'ro',
   isa => 'ArrayRef',
   lazy => 1,
+  default => sub { [] },
   writer => 'setOutputDataFieldsWanted',
 );
 

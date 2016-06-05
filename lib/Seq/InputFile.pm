@@ -21,13 +21,39 @@ use DDP;
 
 with 'Seq::Role::Message';
 
+# the minimum required snp headers that we actually have
+# we use singleton pattern because we expect to annotate only one file
+# per run
 state $requiredInputHeaderFields = {
   snp_1 => [qw/ Fragment Position Reference Minor_allele Type /],
   snp_2 => [qw/ Fragment Position Reference Alleles Allele_Counts Type/]
 };
 
-state $allowedFileTypes = keys %$requiredInputHeaderFields;
+state $allowedFileTypes = [ keys %$requiredInputHeaderFields ];
 enum fileTypes => $allowedFileTypes;
+
+state $snpFieldIndices = [];
+has snpFieldIndices => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  init_arg => undef,
+  lazy => 1,
+  default => sub{ $snpFieldIndices },
+  writer => '_setSnpFieldIndices',
+);
+
+#again, singleton because 1 file per annotator run
+#not meant to be set by user
+state $fileType = '';
+has file_type => (
+  is       => 'ro',
+  isa      => 'fileTypes',
+  init_arg => undef,
+  lazy => 1,
+  default  => $fileType,
+  writer => '_setFileType',
+);
 
 # @ public only the common fields exposed
 has fragmentFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
@@ -42,7 +68,7 @@ has referenceFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
 has typeFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
   default => 'Type');
 
-has allelesFieldName => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {
+has alleleFieldName => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {
   my $self = shift;
 
   if($self->file_type eq 'snp_2') {
@@ -85,49 +111,33 @@ sub getSampleNamesIdx {
   return %data;
 }
 
-# the minimum required snp headers that we actually have
-has snpFieldIndices => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
-  handles => {
-    setSnpField => 'push',
-    allSnpFieldIdx => 'elements',
-  },
-  init_arg => undef,
-  lazy => 1,
-);
-
 # file_type defines the kind of file that is being annotated
 #   - snp_1 => snpfile format: [ "Fragment", "Position", "Reference", "Minor_Allele"]
 #   - snp_2 => snpfile format: ["Fragment", "Position", "Reference", "Alleles", "Allele_Counts", "Type"]
 #   - vcf => placeholder
 
 
-has file_type => (
-  is       => 'ro',
-  isa      => 'fileTypes',
-  required => 0,
-  writer   => '_setFileType',
-);
 
 ##########Private Variables##########
 
 sub checkInputFileHeader {
   my ( $self, $field_aref, $die_on_unknown ) = @_;
 
+  if(@$snpFieldIndices && $fileType) {
+    $self->_setFileType($fileType);
+    $self->_setSnpFieldIndices($snpFieldIndices);
+    return;
+  }
+
   $die_on_unknown = defined $die_on_unknown ? $die_on_unknown : 1;
   my $err;
 
-  if($self->file_type) {
-    $err = $self->_checkInvalid($field_aref, $self->file_type);
-  } else {
-    for my $type (@$allowedFileTypes) {
-      $err = $self->_checkInvalid($field_aref, $type);
-      if(!$err) {
-        $self->_setFileType($type);
-        last;
-      }
+  for my $type (@$allowedFileTypes) {
+    $err = $self->_checkInvalid($field_aref, $type);
+    if(!$err) {
+      $fileType = $type;
+      $snpFieldIndices = $requiredInputHeaderFields->{$type};
+      last;
     }
   }
 
