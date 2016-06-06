@@ -27,10 +27,6 @@
 
 #TODO: Add a "instance" method that creates a new instance of a track?
 
-#TODO: Rename this class to something that sounds less like a true singleton
-#TODO: make this class more efficient by not building all tracks at once
-#all may not be needed.
-
 use 5.10.0;
 use strict;
 use warnings;
@@ -38,9 +34,7 @@ use warnings;
 package Seq::Tracks::SingletonTracks;
 
 use Moose 2;
-use DDP;
 
-use MooseX::Types::Path::Tiny qw/AbsDir/;
 #defines refType, scoreType, etc
 with 'Seq::Tracks::Base::Types', 'Seq::Role::Message';
 
@@ -181,6 +175,9 @@ sub initializeTrackBuildersAndGetters {
 
   my $self = shift;
 
+  #we dont' check this as required=>1 at construction, because SingletonTracks
+  #requires only a single initialization, meaning subsequent ones don't need
+  #to pass the tracks property
   if(! $self->tracks ) {
     $self->log('fatal', 'First time SingletonTracks is run tracks must be passed');
   }
