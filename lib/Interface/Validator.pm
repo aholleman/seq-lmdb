@@ -123,7 +123,8 @@ sub _validateInputFile {
 
   my $inputHandler = Seq::InputFile->new();
 
-  if(!@$headerFieldsAref || !$inputHandler->checkInputFileHeader($headerFieldsAref) ) {
+  #last argument to not die, we want to be able to convert
+  if(!@$headerFieldsAref || !$inputHandler->checkInputFileHeader($headerFieldsAref, 1) ) {
     #we assume it's not a snp file
     if(!$self->convertToPed) {
       return $self->log('fatal', "Vcf->ped conversion failed");

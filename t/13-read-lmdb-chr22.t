@@ -22,6 +22,7 @@ plan tests => 27;
 my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
 );
+
 my $refTrack = $tracks->getRefTrackGetter();
 my $snpTrack = $tracks->getTrackGetterByName('snp142');
 my $phyloPTrack = $tracks->getTrackGetterByName('phyloP');

@@ -38,7 +38,7 @@ sub makeOutputString {
   for my $href (@$outputDataAref) {
     #first map everything we want from the input file
     my @singleLineOutput = map { $inputDataAref->[$totalCount]->[$_] }
-      $self->inputFieldsWantedInOutput;
+      @{ $self->inputFieldsWantedInOutput };
   
     $totalCount++;
 

@@ -112,8 +112,8 @@ sub annotate_snpfile {
 
     $inputFileProcessor->checkInputFileHeader($firstLine);
 
-    $chrFieldIdx = $inputFileProcessor->fragmentFieldIdx;
-    $referenceFieldIdx = $inputFileProcessor->fragmentFieldIdx;
+    $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
+    $referenceFieldIdx = $inputFileProcessor->chrFieldIdx;
     $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
     $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
     $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
@@ -125,7 +125,7 @@ sub annotate_snpfile {
 
     #1 means prepend
     $headers->addFeaturesToHeader( [
-      $inputFileProcessor->fragmentFieldName, $inputFileProcessor->positionFieldName,
+      $inputFileProcessor->chrFieldName, $inputFileProcessor->positionFieldName,
       $inputFileProcessor->alleleFieldName, $inputFileProcessor->typeFieldName,
       $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
 
@@ -142,6 +142,8 @@ sub annotate_snpfile {
   }
 
   my $outFh = $self->get_write_fh( $self->output_path );
+  
+  #write header to file
   say $outFh $headers->getString();
 
   #initialize our parallel engine; re-uses forks
@@ -206,26 +208,19 @@ sub annotateLines {
   my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
   my @fields;
 
-  say "snp field indices are";
-  p $inputFileProcessor->snpFieldIndices;
-  exit;
-  my $firstSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[0];
-  my $lastSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[-1];
+  # say "snp field indices are";
+  # p $inputFileProcessor->snpFieldIndices;
+  # exit;
+  state $firstSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[0];
+  state $lastSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[-1];
 
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-    say "last snp field index is";
-    p $lastSnpFieldIndex;
+    
     my @snpFields = @$fieldsAref[ $firstSnpFieldIndex .. $lastSnpFieldIndex ];
     
-    say "snpFields are";
-    p @snpFields;
-    p $fieldsAref;
-    say "referenceFieldIdx is $referenceFieldIdx";
-    say "alleleFieldIdx is $alleleFieldIdx";
-
     if( $snpFields[$referenceFieldIdx] eq $snpFields[$alleleFieldIdx] ) {
       next;
     }
@@ -244,7 +239,7 @@ sub annotateLines {
       @sampleData = ();
     }
 
-    $wantedChr = $snpFields[0];
+    $wantedChr = $snpFields[$chrFieldIdx];
     
     # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
 

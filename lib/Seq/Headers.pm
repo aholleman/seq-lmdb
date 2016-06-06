@@ -112,7 +112,9 @@ sub _addFeaturesToHeaderBulk {
     goto &addFeaturesToHeader;
   }
 
-  for my $child (@$childrenAref) {
+  my @array = $prepend ? reverse @$childrenAref : @$childrenAref;
+
+  for my $child (@array) {
     $self->addFeaturesToHeader($child, $parent, $prepend);
   }
 
