@@ -81,11 +81,26 @@ my $outputter = Seq::Output->new();
 
 #reused in annotation body, need to be set after reading first line
 #of input file
+#These are filled after the first line of the input is read; before that we
+#don't know which file type we have
 my $chrFieldIdx;
 my $referenceFieldIdx;
 my $positionFieldIdx;
 my $alleleFieldIdx;
 my $typeFieldIdx;
+
+my $chrFieldName;
+my $positionFieldName;
+my $alleleFieldName;
+my $typeFieldName;
+
+# I thought that by initializing the tracks here, rather than in each thread
+# I would gain performance
+# however, in practice, 0 difference. Doing here anyway to make intentions clear
+sub BUILD {
+  my $self = shift;
+  $self->singletonTracks->initialize();
+}
 
 sub annotate_snpfile {
   my $self = shift;
@@ -113,16 +128,18 @@ sub annotate_snpfile {
 
     $inputFileProcessor->checkInputFileHeader($firstLine);
 
+    #fill after checking input headers, because before then we don't know
+    #what kind of file we're reading
     $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
     $referenceFieldIdx = $inputFileProcessor->chrFieldIdx;
     $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
     $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
     $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
 
-    #should match the header order
-    $outputter->setInputFieldsWantedInOutput(
-      [ $chrFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx ]
-    );
+    $chrFieldName = $inputFileProcessor->chrFieldName;
+    $positionFieldName = $inputFileProcessor->positionFieldName;
+    $alleleFieldName = $inputFileProcessor->alleleFieldName;
+    $typeFieldName = $inputFileProcessor->typeFieldName;
 
     #1 means prepend
     $headers->addFeaturesToHeader( [
@@ -234,7 +251,7 @@ sub annotateLines {
           \@sampleData, \@positions, \@output);
         
         # and prepare those reults for output, save the accumulated string value
-        $outputString .= $outputter->makeOutputString(\@output, \@inputData);
+        $outputString .= $outputter->makeOutputString(\@output);
 
         #erase accumulated values; relies on finishAnnotatingLines being synchronous
         #this will let us repeat the finishAnnotatingLines process
@@ -316,7 +333,7 @@ sub annotateLines {
   }
 
   #write everything for this part
-  return $outputString . $outputter->makeOutputString(\@output, \@inputData);
+  return $outputString . $outputter->makeOutputString(\@output);
 
   #TODO: need also to take care of statistics stuff
 }
@@ -344,6 +361,9 @@ sub finishAnnotatingLines {
       }
     }
 
+    #Note: the output order does not matter for any single $i
+    #Ordering is handled by Output.pm
+
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
     push @$outAref, { map { 
@@ -351,7 +371,11 @@ sub finishAnnotatingLines {
         $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
     } @$trackGetters };
 
-    #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
+    $outAref->[$i]{$chrFieldName} = $dataFromInputAref->[$i][$chrFieldIdx];
+    $outAref->[$i]{$positionFieldName} = $dataFromInputAref->[$i][$positionFieldIdx];
+    $outAref->[$i]{$alleleFieldName} = $dataFromInputAref->[$i][$alleleFieldIdx];
+    $outAref->[$i]{$typeFieldName} = $dataFromInputAref->[$i][$typeFieldIdx];
+
     $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];
     $outAref->[$i]{$homozygousIdsKey} = $sampleGenotypesAref->[$i][1];
     $outAref->[$i]{$compoundIdsKey} = $sampleGenotypesAref->[$i][2];

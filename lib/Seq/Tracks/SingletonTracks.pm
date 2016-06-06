@@ -154,7 +154,7 @@ has tracks => (
 );
 
 sub BUILD {
-  goto &initializeTrackBuildersAndGetters;
+  goto &initialize;
 }
 
 #like the original as_href this prepares a site for serialization
@@ -168,7 +168,7 @@ sub BUILD {
 #} } } }
 
 #Initialize once, then use forever
-sub initializeTrackBuildersAndGetters {
+sub initialize {
   if(%$trackBuilders && %$trackGetters) {
     return;
   }

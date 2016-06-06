@@ -75,6 +75,12 @@ override 'BUILD' => sub {
     $self->addFeaturesToHeader( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
       $self->name);
   }
+
+  #preloading all tracks seems to have no performance benefit, probably read from memory
+  #so ignoring this for now
+  # for my $chr ($self->allWantedChrs) {
+  #   $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
+  # }
 };
 
 #we simply replace the get method from Seq::Tracks:Get
@@ -92,10 +98,6 @@ sub get {
   my ($self, $href, $chr, $allAlleles, $dbPosition) = @_;
 
   state $nearestFeatureNames = $self->nearest;
-  #In order to get from gene track, we  need to get the values from
-  #the region track portion as well as from the main database
-  #we'll cache the region track portion to avoid wasting time
-  state $geneTrackRegionDataHref = {};
 
   #Now get all of the region stuff and store it in our static variable if not already fetched
   #we expect the region database to llok like
@@ -105,6 +107,10 @@ sub get {
   #     someFeatureDbName1 => val1,
   #     etc  
   #} } }
+  #In order to get from gene track, we  need to get the values from
+  #the region track portion as well as from the main database
+  #we'll cache the region track portion to avoid wasting time
+  state $geneTrackRegionDataHref = {};
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
   }

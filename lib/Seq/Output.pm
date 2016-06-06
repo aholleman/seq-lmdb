@@ -7,15 +7,6 @@ use Moose 2;
 
 use DDP;
 
-#fields the user wants to
-has inputFieldsWantedInOutput => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  lazy => 1,
-  default => sub{ [] },
-  writer => 'setInputFieldsWantedInOutput'
-);
-
 has outputDataFields => (
   is => 'ro',
   isa => 'ArrayRef',
@@ -23,6 +14,7 @@ has outputDataFields => (
   default => sub { [] },
   writer => 'setOutputDataFieldsWanted',
 );
+
 
 # ABSTRACT: Knows how to make an output string
 # VERSION
@@ -32,18 +24,14 @@ has outputDataFields => (
 #and an array of <ArrayRef> input data, which contains our original input fields
 #which we are going to re-use in our output (namely chr, position, type alleles)
 sub makeOutputString {
-  my ( $self, $outputDataAref, $inputDataAref) = @_;
+  my ( $self, $outputDataAref) = @_;
 
   #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
-  my $totalCount = 0;
   my $outStr = '';
   for my $href (@$outputDataAref) {
-    #first map everything we want from the input file
-    my @singleLineOutput = map { $inputDataAref->[$totalCount]->[$_] }
-      @{ $self->inputFieldsWantedInOutput };
-  
-    $totalCount++;
+    
+    my @singleLineOutput;
 
     PARENT: for my $feature ( @{$self->outputDataFields} ) {      
       if(ref $feature) {
