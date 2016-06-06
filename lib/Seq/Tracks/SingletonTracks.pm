@@ -63,9 +63,9 @@ use Seq::Tracks::Cadd::Build;
 #preserve the order that is given to us in the config file,
 #more declarative
 state $orderedTrackBuildersAref = [];
-sub getAllTrackBuilders {
-  return @$orderedTrackBuildersAref;
-}
+has trackBuilders => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
+  traits => ['Array'], handles => { allTrackBulders => 'elements' }, 
+  default => sub { $orderedTrackBuildersAref } );
 
 state $trackBuilders = {};
 sub getTrackBuilderByName {
@@ -82,9 +82,9 @@ sub getTrackBuildersByType {
 }
 
 state $orderedTrackGettersAref = [];
-sub getAllTrackGetters {
-  return @$orderedTrackGettersAref;
-}
+has trackGetters => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
+  traits => ['Array'], handles => { allTrackGetters => 'elements' } , 
+  default => sub { $orderedTrackGettersAref } );
 
 state $trackGetters = {};
 sub getTrackGetterByName {
@@ -100,7 +100,9 @@ sub getTrackGettersByType {
   return $trackGettersByType->{$_[1]};
 }
 
-#returns hashRef; only one of the following tracks is allowed
+##### Get individual tracks ######
+
+#only 1 refere
 sub getRefTrackGetter {
   my $self = shift;
   return $trackGettersByType->{$self->refType}[0];
@@ -132,7 +134,7 @@ sub getRefTrackBuilder {
   return $trackBuildersByType->{$self->refType}[0];
 }
 
-# Only property expected at construction to be passed to this class
+# tracks property expected at construction to be passed to this class
 
 # This attr is not required, but must be set the first time this class is used
 # it is used

@@ -36,14 +36,59 @@ package Seq::Tracks;
 use Moose 2;
 use namespace::autoclean;
 
-use MooseX::Types::Path::Tiny qw/AbsPath AbsDir/;
-
 #holds a permanent record of all of the tracks
-extends 'Seq::Tracks::SingletonTracks';
+use Seq::Tracks::SingletonTracks;
 
 with 'Seq::Role::ConfigFromFile',
 #we configure the db manager here as well, so we include it
 'Seq::Role::DBManager';
+
+#the only property we mean to export
+has singletonTracks => (
+  is => 'ro',
+  isa => 'Seq::Tracks::SingletonTracks',
+  init_arg => undef,
+  writer => '_setSingletonTracks',
+  lazy => 1,
+  default => sub {
+    my $self = shift;
+    return Seq::Tracks::SingletonTracks->new( {tracks => $self->tracks} );
+  }
+);
+
+# attributes that are given to this class as configuration options
+
+#our only required value; needed for SingletonTracks
+has tracks => (
+  is => 'ro',
+  required => 1,
+);
+
+has messanger => (
+  is => 'ro',
+  isa => 'Maybe[HashRef]',
+  lazy => 1,
+  default => undef,
+);
+
+has publisherAddress => (
+  is => 'ro',
+  isa => 'Maybe[ArrayRef]',
+  lazy => 1,
+  default => undef,
+);
+
+has logPath => (
+  is => 'ro',
+  lazy => 1,
+  default => '',
+);
+
+has debug => (
+  is => 'ro',
+  lazy => 1,
+  default => 0,
+);
 
 sub BUILD {
   my $self = shift;
@@ -60,8 +105,20 @@ sub BUILD {
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
 
-  #This is not strictly necessary, but shows intent and wastes little time
-  $self->initializeTrackBuildersAndGetters();
+  if($self->messanger && $self->publisherAddress) {
+    $self->setPublisher($self->messanger, $self->publisherAddress);
+  }
+
+  if ($self->logPath) {
+    $self->setLogPath($self->logPath);
+  }
+
+  #todo: finisih ;for now we have only one level
+  if ( $self->debug) {
+    $self->setLogLevel('DEBUG');
+  } else {
+    $self->setLogLevel('INFO');
+  }
 }
 
 __PACKAGE__->meta->make_immutable;

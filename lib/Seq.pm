@@ -37,7 +37,7 @@ use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
 
-extends 'Seq::Base';
+extends 'Seq::Tracks';
 
 with 'Seq::Role::Genotypes';
 
@@ -59,6 +59,7 @@ has out_file => (
   handles   => { output_path => 'stringify' }
 );
 
+# TODO: add this back
 # has ignore_unknown_chr => (
 #   is      => 'ro',
 #   isa     => 'Bool',
@@ -200,46 +201,61 @@ sub annotateLines {
   my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref) = @_;
 
   my @output;
-
-  my $wantedChr;
   my @inputData;
+
+  # if chromosomes are out of order, or one batch has more than 1 chr,
+  # we will need to make fetches to the db before the last input record is read
+  # in this case, let's accumulate the incomplete results
+  my $outputString = '';
+
+  my $wantedChr; 
   my @positions;
   my @sampleData;
-  my ( $chr, $pos, $refAllele, $varType, $allAllelesStr );
-  my @fields;
 
-  # say "snp field indices are";
-  # p $inputFileProcessor->snpFieldIndices;
-  # exit;
   state $firstSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[0];
   state $lastSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[-1];
 
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
-    if($wantedChr && $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
-      #don't sort to preserve order 
-      my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
+    # if chromosomes are out of order, or one batch has more than 1 chr,
+    # we will need to make fetches to the db before the last input record is read
+    if($wantedChr) {
+      if($fieldsAref->[$chrFieldIdx] ne $wantedChr) {
+        # get db data for all @positions accumulated up to this point
+        my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions); 
 
-      $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-        \@sampleData, \@positions, \@output);
+        #it's possible that we were only asking for 1 record
+        if(!ref $dataFromDatabaseAref) {
+          $dataFromDatabaseAref = [$dataFromDatabaseAref];
+        }
+
+        # accumulate results in @output
+        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
+          \@sampleData, \@positions, \@output);
+        
+        # and prepare those reults for output, save the accumulated string value
+        $outputString .= $outputter->makeOutputString(\@output, \@inputData);
+
+        #erase accumulated values; relies on finishAnnotatingLines being synchronous
+        #this will let us repeat the finishAnnotatingLines process
+        undef @positions;
+        undef @sampleData;
+        undef @output;
+        undef @inputData;
+
+        #grab the new allele
+        $wantedChr = $wantedChr = $fieldsAref->[$chrFieldIdx];
+      }
       
-      #only these can be erased, because output and inputData are used in 
-      #makeOutputString at the end;
-      @positions = ();
-      @sampleData = ();
-
-      undef $wantedChr;
+    } else {
+      $wantedChr = $fieldsAref->[$chrFieldIdx];
     }
 
     if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
       next;
     }
-
-    $wantedChr = $fieldsAref->[$chrFieldIdx];
     
-    # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
-
-    #$ref_allele == $snpFields[2]
+    #### Figure out if samples are homozygous, hets, or compound hets ###
     my @sampleIDtypes; 
     SAMPLE_LOOP: for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
       my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
@@ -259,30 +275,48 @@ sub annotateLines {
       } else {
         $self->log( 'fatal', "$geno wasn't homozygous or heterozygous" );
       }
+
+      #statistics calculator wants the actual genotype
       $sampleIDtypes[3]->{$id} = $geno;
     }
+
     if   ($sampleIDtypes[0]) { chop $sampleIDtypes[0]; }
     if   ($sampleIDtypes[1]) { chop $sampleIDtypes[1]; }
     if   ($sampleIDtypes[2]) { chop $sampleIDtypes[2]; }
 
     push @sampleData, \@sampleIDtypes;
   
-    #$snpFields[1] expected to be the relative position
-    #we store everything 0-indexed, so substract 1
+    #push the 1-based poisition in the input file into our accumulator
+    #store the position of 0-based, because our database is 0-based
+    #will be given to the dbRead function to bulk-get database records
     push @positions, $fieldsAref->[$positionFieldIdx] - 1;
-    push @inputData, [ @{$fieldsAref}[$firstSnpFieldIndex .. $lastSnpFieldIndex] ];
+    
+    #store a reference to the current input line
+    #this is used in making the output string (makeOutputString)
+    #since our we want to show a few of the first input fields 
+    #in our output file.
+    #checking relative efficiency of just storing the entire reference
+    #we could also take a slice, but there doesn't seem to be much of a point
+    #in doing so (seems it would costs even more memory)
+    #[ @{$fieldsAref}[$firstSnpFieldIndex .. $lastSnpFieldIndex] ];
+    push @inputData, $fieldsAref; 
   }
 
   #finish anything left over
   if(@positions) {
     my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
 
+    #it's possible that we were only asking for 1 record
+    if(!ref $dataFromDatabaseAref) {
+      $dataFromDatabaseAref = [$dataFromDatabaseAref];
+    }
+
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
       \@sampleData, \@positions, \@output);
   }
 
   #write everything for this part
-  return $outputter->makeOutputString(\@output, \@inputData);
+  return $outputString . $outputter->makeOutputString(\@output, \@inputData);
 
   #TODO: need also to take care of statistics stuff
 }
@@ -290,19 +324,17 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbRef, $dataFromInputAref, $sampleGenotypesAref, 
+  my ($self, $chr, $dataFromDbAref, $dataFromInputAref, $sampleGenotypesAref, 
     $positionsAref, $outAref) = @_;
 
-  my $dataFromDbAref = ref $dataFromDbRef eq 'ARRAY' ? $dataFromDbRef : [$dataFromDbRef];
-
-  my @trackGetters = $self->getAllTrackGetters();
-  #@$dataFromDBaRef == @$dataFromInputAref
+  state $trackGetters = $self->singletonTracks->trackGetters;
+  
+  #note, that if dataFromDbRef, and dataFromInputAref contain different numbers
+  #of records, that is evidence of a programmatic bug
   for (my $i = 0; $i < @$dataFromInputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $dataFromInputAref->[$i][1] . " not found.
-        You may have chosen the wrong assembly. We had this many items in the 
-        dataFromDbAref: " . @$dataFromDbAref . " and we wanted item $i. And the last db item was " . 
-        p $dataFromDbAref->[-1]);
+        You may have chosen the wrong assembly.");
     }
 
     my @alleles;
@@ -317,7 +349,7 @@ sub finishAnnotatingLines {
     push @$outAref, { map { 
       $_->name => $_->get( 
         $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
-    } @trackGetters };
+    } @$trackGetters };
 
     #$sampleGenotypesAref expected to be ( $het_ids_str, $hom_ids_str, $compounds_ids_str, \%id_genos_href );
     $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];

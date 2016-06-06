@@ -24,7 +24,7 @@ use DDP;
 use Moose 2;
 use namespace::autoclean;
 use DDP;
-extends 'Seq::Base';
+extends 'Seq::Tracks';
 
 #use MCE::Loop;
 
@@ -66,11 +66,11 @@ sub BUILD {
 
   my @builders;
   if($self->wantedType) {
-    @builders = @{ $self->getTrackBuildersByType($self->wantedType) };
+    @builders = @{ $self->singletonTracks->getTrackBuildersByType($self->wantedType) };
   } elsif($self->wantedName) {
-    @builders = ( $self->getTrackBuilderByName($self->wantedName) );
+    @builders = ( $self->singletonTracks->getTrackBuilderByName($self->wantedName) );
   } else {
-    @builders = $self->getAllTrackBuilders();
+    @builders = $self->singletonTracks->allTrackBulders;
   }
 
   my @chrs = $builders[0]->allWantedChrs;
@@ -81,7 +81,7 @@ sub BUILD {
   }
 
   #TODO: decide whether we really want this
-  my $refTrackBuilder = $self->getRefTrackBuilder();
+  my $refTrackBuilder = $self->singletonTracks->getRefTrackBuilder();
 
   $self->log('info', "Verifying that needed reference tracks are built");
 
