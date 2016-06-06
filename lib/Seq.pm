@@ -218,20 +218,16 @@ sub annotateLines {
   for my $fieldsAref (@$linesAref) {
     #maps to
     #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-    
-    my @snpFields = @$fieldsAref[ $firstSnpFieldIndex .. $lastSnpFieldIndex ];
-    
-    if( $snpFields[$referenceFieldIdx] eq $snpFields[$alleleFieldIdx] ) {
+        
+    if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
       next;
     }
 
-    push @inputData, \@snpFields;
-
     #$snpFields[0] expected to be chr
-    if($wantedChr && $snpFields[0] ne $wantedChr) {
+    if($wantedChr && $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
       #don't sort to preserve order 
       my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
-
+      say "running from within wantedChr";
       $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
         \@sampleData, \@positions, \@output);
       @positions = ();
@@ -239,23 +235,23 @@ sub annotateLines {
       @sampleData = ();
     }
 
-    $wantedChr = $snpFields[$chrFieldIdx];
+    $wantedChr = $fieldsAref->[$chrFieldIdx];
     
     # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
 
     #$ref_allele == $snpFields[2]
     my $sampleIDtypesAref; 
-    for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
+    SAMPLE_LOOP: for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
       my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
 
-      if( $geno eq 'N' || $geno eq $snpFields[$referenceFieldIdx] ) {
-        next;
+      if( $geno eq 'N' || $geno eq $fieldsAref->[$referenceFieldIdx] ) {
+        next SAMPLE_LOOP;
       }
 
       if ( $self->isHet($geno) ) {
         $sampleIDtypesAref->[0] .= "$id;";
 
-        if( $self->isCompoundHeterozygote($geno, $snpFields[2] ) ) {
+        if( $self->isCompoundHeterozygote($geno, $fieldsAref->[$referenceFieldIdx] ) ) {
           $sampleIDtypesAref->[2] .= "$id;";
         }
       } elsif( $self->isHomo($geno) ){
@@ -270,15 +266,11 @@ sub annotateLines {
     if   ($sampleIDtypesAref->[2]) { chop $sampleIDtypesAref->[2]; }
 
     push @sampleData, $sampleIDtypesAref;
-    # if perf identical, could use: 
-    # @sampleIDargs == same as my ( $hetIds, $homIds, $compoundsHetIds, $sampleIDtoGenotypeMap ) =
-    # push @sampleData, [ $self->_minor_allele_carriers( \@fields, $idsIdxMapHref, 
-    #     $sampleIdsAref, $snpFields[2] ) ];
-
+  
     #$snpFields[1] expected to be the relative position
     #we store everything 0-indexed, so substract 1
-    push @positions, $snpFields[$positionFieldIdx] - 1;
-
+    push @positions, $fieldsAref->[$positionFieldIdx] - 1;
+    push @inputData, [ @{$fieldsAref}[$firstSnpFieldIndex .. $lastSnpFieldIndex] ];
   }
 
   #finish anything left over
@@ -308,7 +300,9 @@ sub finishAnnotatingLines {
   for (my $i = 0; $i < @$dataFromInputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $dataFromInputAref->[$i][1] . " not found.
-        You may have chosen the wrong assembly");
+        You may have chosen the wrong assembly. We had this many items in the 
+        dataFromDbAref: " . @$dataFromDbAref . " and we wanted item $i. And the last db item was " . 
+        p $dataFromDbAref->[-1]);
     }
 
     my @alleles;

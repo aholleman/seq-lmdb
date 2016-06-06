@@ -1,8 +1,11 @@
 package Seq::Output;
+use 5.10.0;
 use strict;
 use warnings;
 
 use Moose 2;
+
+use DDP;
 
 #fields the user wants to
 has inputFieldsWantedInOutput => (
@@ -34,7 +37,7 @@ sub makeOutputString {
   #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $totalCount = 0;
-  my $outStr;
+  my $outStr = '';
   for my $href (@$outputDataAref) {
     #first map everything we want from the input file
     my @singleLineOutput = map { $inputDataAref->[$totalCount]->[$_] }
@@ -120,7 +123,19 @@ sub makeOutputString {
       push @singleLineOutput, $accum;
     }
 
-    $outStr .= join("\t", @singleLineOutput) . "\n";
+    for (my $i = 0; $i < @singleLineOutput; $i++) {
+      if (!defined $singleLineOutput[$i]) {
+        say "$i doesn't have a value";
+        p @singleLineOutput;
+        p @$inputDataAref;
+      }
+      $outStr .= "$singleLineOutput[$i]\t";
+    }
+    chop $outStr;
+    chop $outStr;
+    $outStr .= "\n";
+
+    #$outStr .= join("\t", @singleLineOutput) . "\n";
   }
   chop $outStr;
   return $outStr;

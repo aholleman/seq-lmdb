@@ -153,8 +153,8 @@ sub genosContained {
   #this could be abused however
   #check if genotype 1 and genotype 2 are indels
   #~ flips a -1 to a 0 ; so ~something means something > -1
-  if ( ~index( $_[1], '-' ) && ~index( $_[2], '-' ) ) { return 1; }
-  if ( ~index( $_[1], '+' ) && ~index( $_[2], '+' ) ) { return 1; }
+  if ( index( $_[1], '-' ) > -1 && index( $_[2], '-' ) > -1 ) { return 1; }
+  if ( index( $_[1], '+' ) > -1 && index( $_[2], '+' ) > -1 ) { return 1; }
 }
 
 #checks whether a genotype is a compound het
@@ -162,8 +162,7 @@ sub isCompoundHeterozygote {
   #my ( $self, $iupacGenotype, $referenceBase ) = @_;
   #$_[1] == $iupacGenotype;
   #$_[2] == $referenceBase;
-  #~ flips a -1 to a 0 ; so ~something means something > -1
-  return !~index($_[0]->iupac->{ $_[1] }, $_[2]);
+  return index($_[0]->iupac->{ $_[1] }, $_[2]) == -1;
 }
 no Moose::Role;
 1;
