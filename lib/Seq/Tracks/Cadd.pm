@@ -44,20 +44,21 @@ sub get {
 
   state $refTrack = $tracks->getRefTrackGetter();
 
-  #my ($self, $href, $chr, $altAlleles) ==   $_[0], $_[1], $_[2], $_[3]
+  #my ($self, $href, $chr, $position, $refBase, $altAlleles) = @_
+  # $_[0] == $self
+  # $_[1] == $href
+  # $_[4] == $refBase
+  # $_[5] == $altAlleles
   
-  #no alleles ($_[3] == $altAlleles)
-  if( !$_[3] ) {
+  #no alleles ($_[5] == $altAlleles)
+  if( !$_[5] ) {
     return undef;
   }
 
-  # $altAlleles are the alleles present in the samples
-  #ex A,G; ex2: A
-  #my $refBase = $refTrack->get($href);
-  my $refBase = $refTrack->get($_[1]);
-
-  if (!defined $order->{$refBase} ) {
-    $_[0]->log('warn', "reference base $refBase doesn't look valid, in Cadd.pm");
+  # if (!defined $order->{ $refBase} )
+  if (!defined $order->{ $_[4] } ) {
+    #$self->log
+    $_[0]->log('warn', "reference base $_[4] doesn't look valid, in Cadd.pm");
     
     #explicitly return undef as a value, this is what our program treats as missing data
     #simply returning nothing is not the same, in list context
@@ -69,10 +70,11 @@ sub get {
   #this is useful because we may want to know which CADD score belongs to 
   #which allele
   #if( !ref $altAlleles) { .. }
-  if( !ref $_[3] ) {
-    if (defined $order->{ $refBase }->{ $_[3] } ) {
+  if( !ref $_[5] ) {
+    # if (defined $order->{ $refBase }->{ $altAlleles } ) {
+    if (defined $order->{ $_[4] }->{ $_[5] } ) {
       #return $href->{ $self->dbName }->[ $order->{ $refBase }->{ $altAlleles } ]
-      return $_[1]->{ $_[0]->dbName }->[ $order->{ $refBase }->{ $_[3] } ];
+      return $_[1]->{ $_[0]->dbName }->[ $order->{ $_[4] }->{ $_[5] } ];
     }
 
     return undef;
@@ -80,12 +82,16 @@ sub get {
 
   my @out;
 
-  for my $allele ( @{ $_[3] } ) {
-    if($allele ne $refBase) {
+  #for my $allele ( @{ $altAlleles } ) {
+  for my $allele ( @{ $_[5] } ) {
+    #if($allele ne $refBase) {
+    if($allele ne $_[4]) {
       
       #https://ideone.com/ZBQzNC
-      if(defined $order->{ $refBase }->{ $allele } ) {
-         push @out, $_[1]->{ $_[0]->dbName }->[ $order->{ $refBase }->{ $allele } ];
+      #if(defined $order->{ $refBase }->{ $allele } ) {
+      if(defined $order->{ $_[4] }->{ $allele } ) {
+        #push @out, $href->{ $self->dbName }->[ $order->{ $refBase }->{ $allele } ];
+        push @out, $_[1]->{ $_[0]->dbName }->[ $order->{ $_[4] }->{ $allele } ];
       }
      
     }

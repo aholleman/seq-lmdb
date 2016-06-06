@@ -32,40 +32,28 @@ use Seq::Tracks::SingletonTracks;
 
 #regionReferenceFeatureName and regionTrackPath
 with 'Seq::Tracks::Region::Definition',
-#siteFeatureName
+#siteFeatureName, defaultUCSCgeneFeatures, nearestGeneFeatureName
 'Seq::Tracks::Gene::Definition',
-#site feature keys
 #dbReadAll
 'Seq::Role::DBManager';
 
-#This get class adds a small but crucial bit of info
-#Whether a position is Intergenic, Intronic, Exonic
-#This used to be held in Seq::Annotate
-#But site_type, var_type would case confusion
-#I think it's easier to understand if that is here
-#And more atomic
-#Because the designation for regionType (var_type previously)
-#Completely depends on the gene track, and essentially nothing else
-#other than assembly, which every track depends on
-#so I would rather see, "refSeq.regionType" than 'var_type', because I am 
-#more likely to guess what that means
+
 state $regionTypes = ['Intergenic', 'Intronic', 'Exonic'];
+
 state $regionTypeKey = 'regionType';
-
 state $nearestGeneSubTrackName = 'nearest';
-
 state $siteTypeKey = 'siteType';
+state $transcriptEffectsKey = 'transcriptEffect';
 
 state $siteUnpacker = Seq::Tracks::Gene::Site->new();
 state $transcriptEffects = Seq::Tracks::Gene::Site::Effects->new();
 
-state $transcriptEffectsKey = 'transcriptEffect';
-
-#these are really the "region database" features
+# Set the features that we get from the Gene track region database
 has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
 );
 
+#### Add our other "features", everything we find for this site ####
 override 'BUILD' => sub {
   my $self = shift;
 
@@ -74,7 +62,7 @@ override 'BUILD' => sub {
   $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, 
     $regionTypeKey, $siteTypeKey, $transcriptEffectsKeys], $self->name);
 
-  my @nearestFeatureNames = $self->nearest;
+  my @nearestFeatureNames = $self->allNearestFeatureNames;
   
   if(@nearestFeatureNames) {
     $self->addFeaturesToHeader( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
@@ -91,7 +79,7 @@ override 'BUILD' => sub {
 #one gene track, but rest of Seq really supports N types
 #Can solve this by using a single, name-spaced (on $self->name) data store
 sub get {
-  my ($self, $href, $chr, $allelesAref, $dbPosition) = @_;
+  my ($self, $href, $chr, $dbPosition, $refBase, $allelesAref) = @_;
 
   state $nearestFeatureNames = $self->nearest;
 
@@ -173,7 +161,11 @@ sub get {
   }
 
   ################# Populate all $siteUnpacker->allSiteKeys #####################
-  for my $siteDetail (ref $siteDetailsRef ? @$siteDetailsRef : ($siteDetailsRef) ) {
+  if(!ref siteDetailsRef) {
+    siteDetailsRef = [siteDetailsRef];
+  }
+
+  for my $siteDetail (@$siteDetailsRef) {
     my $siteDetailsHref = $siteUnpacker->unpackCodon($siteDetail);
 
     for my $key (keys %$siteDetailsHref) {
@@ -214,7 +206,7 @@ sub get {
 
 
   ################# Populate $siteEffectsKey #####################
-  $out{$transcriptEffectsKey} = $transcriptEffects->get($allelesAref, $dbPosition);
+  $out{$transcriptEffectsKey} = $transcriptEffects->get($chr, $dbPosition, $refBase, $allelesAref, $self);
 
   ################# Populate geneTrack's user-defined features #####################
   my $regionDataAref;

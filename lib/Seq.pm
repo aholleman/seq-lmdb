@@ -101,12 +101,22 @@ my $sampleIDaref;
 # The reference track is used to check on discordant bases
 my $refTrackGetter;
 my $trackGettersExceptReference;
-# I thought that by initializing the tracks here, rather than in each thread
-# I would gain performance
-# however, in practice, 0 difference. Doing here anyway to make intentions clear
+
 sub BUILD {
   my $self = shift;
-  $self->singletonTracks->initialize();
+
+  #the reference base can be used for many purposes
+  #and so to benefit encapsulation, I separate it from other tracks during getting
+  #this way, tracks can just accept the first four fields of the input file
+  # chr, pos, ref, alleles, using the empirically found ref
+  $refTrackGetter = $self->singletonTracks->getRefTrackGetter();
+
+  #all other tracks
+  for my $trackGetter ($self->allTrackGetters) {
+    if($trackGetter->name ne $refTrackGetter->name) {
+      push @$trackGettersExceptReference, $trackGetter;
+    }
+  }
 }
 
 sub annotate_snpfile {
@@ -301,61 +311,75 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbAref, $dataFromInputAref, $positionsAref, $outAref) = @_;
+  my ($self, $chr, $databaseDataAref, $inputDataAref, $outAref) = @_;
 
-  state $trackGetters = $self->singletonTracks->trackGetters;
-  
-  #note, that if dataFromDbRef, and dataFromInputAref contain different numbers
+  state $refTrackName = $refTrackGetter->name;
+
+  ########### Iterate over all records, and build up the $outAref ##############
+  #note, that if dataFromDbRef, and inputDataAref contain different numbers
   #of records, that is evidence of a programmatic bug
-  for (my $i = 0; $i < @$dataFromInputAref; $i++) {
-    if(!defined $dataFromDbAref->[$i] ) {
-      $self->log('fatal', "$chr: " . $dataFromInputAref->[$i][1] . " not found.
+  for (my $i = 0; $i < @$inputDataAref; $i++) {
+    if(!defined $databaseDataAref->[$i] ) {
+      $self->log('fatal', "$chr: " . $inputDataAref->[$i][1] . " not found.
         You may have chosen the wrong assembly.");
     }
 
-    my @alleles;
-    for my $allele ( split(',', $dataFromInputAref->[$i][$alleleFieldIdx] ) ) {
-      if($allele ne $dataFromInputAref->[$i][$referenceFieldIdx]) {
-        push @alleles, $allele
+    ###### Get the true reference, and check whether it matches the input file reference ######
+    $outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseDataAref->[$i]);
+
+    if( $outAref->[$i]{$refTrackName} ne $inputDataAref->[$i][$referenceFieldIdx] ) {
+      $self->log('warn', "Input file reference doesn't match our reference, ".
+        "at $inputDataAref->[$i][$chrFieldIdx]\:$inputDataAref->[$i][$positionFieldIdx]");
+    }
+
+    ################ Gather all alleles ################################
+    #uses the reference found in the snp file, rather than true reference
+    #because it's not clear what to do in the discordant case
+    #and so we want to pass the most conservative list of variants to trackGetters that need them
+    my $allelesAref;
+    for my $allele ( split(',', $inputDataAref->[$i][$alleleFieldIdx] ) ) {
+      if($allele ne $inputDataAref->[$i][$referenceFieldIdx]) {
+        push @$allelesAref, $allele;
       }
     }
 
-    #Note: the output order does not matter for any single $i
+    if(@alleles == 1) {
+      $allelesAref = $alleles->[0];
+    }
+
+    ####################### Collect all Track data #####################
+    #Note: the key order does not matter within any $outAref->[$i]
     #Ordering is handled by Output.pm
 
-    #some tracks may also want the alternative alleles, so give those as last arg
-    #example: cadd track needs this
+    #We pass chr, position, ref (true reference from our assembly), and alleles
+    #in the order found in any snp file. These are the only input fields expected
+    #by our track getters
+    #the database data is always the first
     push @$outAref, { map {
-      $_->name => $_->get(
-        $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
-    } @$trackGetters };
+      $_->name => $_->get( $databaseDataAref->[$i], $inputDataAref->[$i][$chrFieldIdx],
+        $inputDataAref->[$i][$positionFieldIdx], $outAref->[$i]{$refTrackName}, $allelesAref )
+    } @$trackGettersExceptReference };
 
-    #this is much slower than the map above
-    # for my $track (@$trackGetters) {
-    #   my $out = $track->get( $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] );
-    #   if($out) {
-    #     push @$outAref, { $track->name => $out };
-    #   }
-    # }
+    ################ Store chr, position, alleles, type ##################
+    $outAref->[$i]{$chrFieldName} = $inputDataAref->[$i][$chrFieldIdx];
+    $outAref->[$i]{$positionFieldName} = $inputDataAref->[$i][$positionFieldIdx];
+    $outAref->[$i]{$alleleFieldName} = $inputDataAref->[$i][$alleleFieldIdx];
+    $outAref->[$i]{$typeFieldName} = $inputDataAref->[$i][$typeFieldIdx];
 
-    ### Store chr, position, alleles, type
-    $outAref->[$i]{$chrFieldName} = $dataFromInputAref->[$i][$chrFieldIdx];
-    $outAref->[$i]{$positionFieldName} = $dataFromInputAref->[$i][$positionFieldIdx];
-    $outAref->[$i]{$alleleFieldName} = $dataFromInputAref->[$i][$alleleFieldIdx];
-    $outAref->[$i]{$typeFieldName} = $dataFromInputAref->[$i][$typeFieldIdx];
-
-    #### Store homozygotes, heterozygotes, compoundHeterozygotes
+    ########### Store homozygotes, heterozygotes, compoundHeterozygotes #########
     SAMPLE_LOOP: for my $id ( @$sampleIDaref ) { # same as for my $id (@$id_names_aref);
-      my $geno = $dataFromInputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
+      my $geno = $inputDataAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
 
-      if( $geno eq 'N' || $geno eq $dataFromInputAref->[$i][$referenceFieldIdx] ) {
+      # Check whether the genotype is undefined or reference
+      # Uses the input-file provided reference, because not clear what to do in discordant case
+      if( $geno eq 'N' || $geno eq $inputDataAref->[$i][$referenceFieldIdx] ) {
         next SAMPLE_LOOP;
       }
 
       if ( $self->isHet($geno) ) {
         $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
 
-        if( $self->isCompoundHeterozygote($geno, $dataFromInputAref->[$i][$referenceFieldIdx] ) ) {
+        if( $self->isCompoundHeterozygote($geno, $inputDataAref->[$i][$referenceFieldIdx] ) ) {
           $outAref->[$i]{$compoundIdsKey} .= "$id;";
         }
       } elsif( $self->isHomo($geno) ){
@@ -363,27 +387,11 @@ sub finishAnnotatingLines {
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
       }
-
-      #statistics calculator wants the actual genotype
-      #but we're not using this for now
-      #$sampleIDtypes[3]->{$id} = $geno;
     }
 
     if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
     if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
     if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
-
-    #Could check for discordant bases here
-    
-    #Annotate the Indel, which is a bit like annotating a bunch of other
-    #sites
-    #and is held in a separate package, Sites::Indels
-    #it takes the chr, and the current site's annotation data
-    #then it will fetch the required sites, and get the gene track
-    #TODO: finish implementing
-    #$self->annotateIndel( $chr, \%singleLineOutput, $dataFromInputAref->[$i] );
-
-    #Indels
   }
 
   return $outAref;
