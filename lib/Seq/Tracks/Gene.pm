@@ -28,6 +28,8 @@ use List::Util qw/reduce/;
 extends 'Seq::Tracks::Get';
 
 use Seq::Tracks::Gene::Site;
+use Seq::Tracks::SingletonTracks;
+
 #regionReferenceFeatureName and regionTrackPath
 with 'Seq::Tracks::Region::Definition',
 #siteFeatureName
@@ -55,6 +57,9 @@ state $nearestGeneSubTrackName = 'nearest';
 state $siteTypeKey = 'siteType';
 
 state $siteUnpacker = Seq::Tracks::Gene::Site->new();
+state $transcriptEffects = Seq::Tracks::Gene::Site::Effects->new();
+
+state $transcriptEffectsKey = 'transcriptEffect';
 
 #these are really the "region database" features
 has '+features' => (
@@ -67,7 +72,7 @@ override 'BUILD' => sub {
   super();
 
   $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, 
-    $regionTypeKey, $siteTypeKey], $self->name);
+    $regionTypeKey, $siteTypeKey, $transcriptEffectsKeys], $self->name);
 
   my @nearestFeatureNames = $self->nearest;
   
@@ -75,55 +80,45 @@ override 'BUILD' => sub {
     $self->addFeaturesToHeader( [ map { "$nearestGeneSubTrackName.$_" } @nearestFeatureNames ], 
       $self->name);
   }
-
-  #preloading all tracks seems to have no performance benefit, probably read from memory
-  #so ignoring this for now
-  # for my $chr ($self->allWantedChrs) {
-  #   $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
-  # }
 };
 
-#we simply replace the get method from Seq::Tracks:Get
-#because we also need to get ther region portion
-#TODO: when we implement region tracks just override their method
-#and call super() for the $self->allFeatureNames portion
-
-#@param <String|ArrayRef> $allAlleles : the alleles (including ref potentially)
+#gets the gene, nearest gene data for the position
+#also checks for indels, i
+#@param <String|ArrayRef> $allelesAref : the alleles (including ref potentially)
 # that are found in the user's experiment, for this position that we're annotating
 #@param <Number> $dbPosition : The 0-index position of the current data
 #TODO: be careful with state variable use. That means we can only have
 #one gene track, but rest of Seq really supports N types
 #Can solve this by using a single, name-spaced (on $self->name) data store
 sub get {
-  my ($self, $href, $chr, $allAlleles, $dbPosition) = @_;
+  my ($self, $href, $chr, $allelesAref, $dbPosition) = @_;
 
   state $nearestFeatureNames = $self->nearest;
 
-  #Now get all of the region stuff and store it in our static variable if not already fetched
-  #we expect the region database to llok like
+  #### Get all of the region data if not already fetched
+  #we expect the region database to look like
   # {
   #  someNumber => {
   #    $self->name => {
   #     someFeatureDbName1 => val1,
   #     etc  
   #} } }
-  #In order to get from gene track, we  need to get the values from
-  #the region track portion as well as from the main database
-  #we'll cache the region track portion to avoid wasting time
   state $geneTrackRegionDataHref = {};
   if(!defined $geneTrackRegionDataHref->{$chr} ) {
     $geneTrackRegionDataHref->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
   }
 
-  #all of our gene track data stored in the main database, for this position
+  # Gene track data stored in the main database, for this position
   my $geneData = $href->{$self->dbName};
 
   my %out;
 
-  #a single position may
+  ################# Populate nearestGeneSubTrackName ##############
   if(@$nearestFeatureNames) {
     #get the database name of the nearest gene track
     #but this never changes, so store as static
+    #TODO: this is potentially danerous, could have 2 gene tracks, each iwth their own nearest feature
+    #under a different name
     state $nearestGeneFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
 
     # this is a reference to something stored in the gene tracks' region database
@@ -140,7 +135,9 @@ sub get {
       }
       
     }
-  }
+  } 
+
+  ################# Check if this position is in a place covered by gene track #####################
   #a single position may cover one or more sites
   #we expect either a single value (href in this case) or an array of them
   state $siteFeatureDbName = $self->getFieldDbName($self->siteFeatureName);
@@ -157,19 +154,25 @@ sub get {
   #this position covers these genes
   my $geneRegionNumberRef = $geneData->{ $regionRefFeatureDbName };
 
+  ################# Populate $regionTypeKey if no gene is covered #####################
   if(!($siteDetailsRef && $geneRegionNumberRef ) ) {
     #if we don't have a gene at this site, it's Integenic
     #this is the lowest index item
     $out{$regionTypeKey} = $regionTypes->[0];
+    
     return \%out;
   } elsif( !$siteDetailsRef || !$geneRegionNumberRef ) {
     $self->log('warn', "Found one part of gene track but not other on $chr");
+   
     #if we don't have a gene at this site, it's Integenic
     #this is the lowest index item
     $out{$regionTypeKey} = $regionTypes->[0];
+    $out{$siteEffectsKey} = undef;
+
     return \%out;
   }
 
+  ################# Populate all $siteUnpacker->allSiteKeys #####################
   for my $siteDetail (ref $siteDetailsRef ? @$siteDetailsRef : ($siteDetailsRef) ) {
     my $siteDetailsHref = $siteUnpacker->unpackCodon($siteDetail);
 
@@ -185,18 +188,18 @@ sub get {
     }
   }
   
-  #Now check if it's Exonic, Intronic, or Intergenice
-  #If we ever see a coding site, that is exonic
-  if( !ref $out{$siteUnpacker->siteTypeKey} ) {
+  ################# Populate $regionTypeKey if a transcript is covered #####################
+  my $siteTypes = $out{$siteUnpacker->siteTypeKey};
+  if( !ref $siteTypes ) {
     #if it's a single site, just need to know if it's coding or not
-    if( $siteUnpacker->siteTypeMap->isExonicSite( $out{$siteUnpacker->siteTypeKey} ) ) {
+    if( $siteUnpacker->siteTypeMap->isExonicSite( $siteTypes ) ) {
       $out{$regionTypeKey} = $regionTypes->[2];
     } else {
       $out{$regionTypeKey} = $regionTypes->[1];
     }
   } else {
-    #if it's an array, then let's check all of our site types
-    REGION_FL: for my $siteType (@{ $out{$siteUnpacker->siteTypeKey}  } ) {
+    #if it's an array (many transcripts), then let's check all of our site types
+    REGION_FL: for my $siteType (@$siteTypes) {
       if( $siteUnpacker->siteTypeMap->isExonicSite($siteType) ) {
         $out{$regionTypeKey} = $regionTypes->[2];
         last REGION_FL;
@@ -208,7 +211,12 @@ sub get {
     }
   }
 
-  #will die if there was a different ref passed
+
+
+  ################# Populate $siteEffectsKey #####################
+  $out{$transcriptEffectsKey} = $transcriptEffects->get($allelesAref, $dbPosition);
+
+  ################# Populate geneTrack's user-defined features #####################
   my $regionDataAref;
   if(ref $geneRegionNumberRef) {
     $regionDataAref = [ map { $geneTrackRegionDataHref->{$chr}->{$_}->{$self->dbName} }

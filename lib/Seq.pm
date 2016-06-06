@@ -97,6 +97,10 @@ my $typeFieldName;
 my $sampleIDsToIndexesMap;
 my $sampleIDaref;
 
+# TODO: add
+# The reference track is used to check on discordant bases
+my $refTrackGetter;
+my $trackGettersExceptReference;
 # I thought that by initializing the tracks here, rather than in each thread
 # I would gain performance
 # however, in practice, 0 difference. Doing here anyway to make intentions clear

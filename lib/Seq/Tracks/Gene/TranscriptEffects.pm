@@ -2,17 +2,71 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Gene::Indels;
+package Seq::Tracks::Gene::TranscriptEffects;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A class for annotating indels
+# ABSTRACT: Given a site, figure out what the site effects
+  # (this depends on the allele, and where in the genome it strikes)
 # VERSION
 
 use Moose;
 use DDP;
+use Scalar::Util qw/looks_like_number/;
+
+use Seq::Tracks::SingletonTracks;
+use Seq::Tracks::Gene::Site;
 
 with 'Seq::Role::DBManager';
+
+state $indelTypeMap = {
+  '-' => 'Deletion',
+  '+' => 'Insertion',
+};
+
+state $siteUnpacker;
+
+sub BUILD {
+  $siteUnpacker = Seq::Tracks::Gene::Site->new();
+}
+#@param <String|ArrayRef? $allelesAref : this site's alleles
+sub get {
+  #$_[2] == $alllelesAref
+  if(defined $indelTypeMap->{$_[2]} ) {
+    goto &_annotateIndel;
+  }
+
+  if(! ref $_[2] ) {
+    goto &_annotateSnp;
+  }
+
+  my ($self, $currentSiteDataHref, $allelesAref, $currentZeroIndexPosition) = @_;
+
+  
+  #most alleles will be snps, so optimize for that by in-lining that small
+  #amount of code
+  state $codonHandler = Seq::Tracks::Gene::Site->new();
+  state $singleTracks = Seq::Tracks::SingletonTracks->new();
+  state $refTrack = $singleTracks->getRefTrackGetter();
+
+  if(!ref $allelelAref) {
+    goto &_annotateSnp;
+  }
+
+  for my $allele ()
+  # $_[2] == $alleleAref
+  # if(defined $indelTypeMap->{$_[2]} ) {
+  #   goto &_annotateIndel;
+  # }
+
+  # goto &_annotateSnp;
+
+}
+
+sub _getSnpEffect {
+
+}
+
 
 sub _getIndelType {
   # my ($self, $allele) = @_;
@@ -30,10 +84,7 @@ sub _getIndelLength {
   return length( substr( $self->minor_allele, 1 ) );
 }
 
-my $typNamesMap = {
-  '-' => 'Del',
-  '+' => 'Ins',
-};
+
 
 sub _getFrameType {
   my ( $self, $length ) = @_;
@@ -50,6 +101,7 @@ sub findGeneData {
 
   my ($alleleType, $alleleLength) = _describeAllele($allele);
 
+  if($alleleLength == 1)
   my $dbDataAref;
   if($alleleType eq 'Del') {
     #get all of the data from deleted allele
@@ -177,6 +229,23 @@ sub _annotateSugar {
     $allele->typeName . ( $frame && "-$frame" ) . '[' . $sugar. ']' );
 }
 
+sub _getAlleleTypeAndLength {
+  my ($self, $allele) = @_;
+
+  my $type = $alleleTypesMap->{ substr($allele, 0, 1) };
+
+  my $length = 1;
+
+  if($type) {
+    if(looks_like_number($allele) ) {
+      $length = abs($allele);
+    } else {
+      $length = length( substr($allele, 1) );
+    }
+  }
+
+  return ($type, $length);
+}
 __PACKAGE__->meta->make_immutable;
 
 1;

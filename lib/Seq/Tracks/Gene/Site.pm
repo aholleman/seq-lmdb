@@ -43,18 +43,16 @@ has codonMap => (
 
 state $siteTypeKey = 'siteType';
 has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
-
 state $strandKey = 'strand';
+has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
 state $codonNumberKey = 'codonNumber';
+has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
 state $codonPositionKey = 'codonPosition';
+has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
 state $codonSequenceKey = 'codon';
+has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
 state $peptideKey = 'aminoAcid';
-# Not exposing at the moment because not used anywhere
-# has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
-# has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
-# has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
-# has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
-# has peptideKey => (is => 'ro', init_arg => undef, lazy => 1, default => $peptideKey);
+has peptideKey => (is => 'ro', init_arg => undef, lazy => 1, default => $peptideKey);
 
 #the reason I'm not calling self here, is like in most other packages I'm writing
 #trying to stay away from use of moose methods for items declared within the package
@@ -132,15 +130,6 @@ sub unpackCodon {
     $codonPositionKey => $codon[3] > $missingNumber ? $codon[3] : undef,
     $peptideKey => $codon[4] > $missingNumber ? $codonMap->codon2aa( $codonMap->num2Codon( $codon[4] ) ) : undef
   };
-}
-
-#save some computation by not shifting $self (and storing deconv as simple array ref)
-#in all the below $_[0] is $self
-#not assigning to $self because may be called millions - a billion times
-sub getSiteTypeFromCodon {
-  #my ($self, $unpackedCodon) = @_;
-  #     $_[0],  $_[1]
-  return $_[1]->{$siteTypeKey};
 }
 
 #Future API
