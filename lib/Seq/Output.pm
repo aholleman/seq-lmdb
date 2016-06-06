@@ -123,21 +123,9 @@ sub makeOutputString {
       push @singleLineOutput, $accum;
     }
 
-    for (my $i = 0; $i < @singleLineOutput; $i++) {
-      if (!defined $singleLineOutput[$i]) {
-        say "$i doesn't have a value";
-        p @singleLineOutput;
-        p @$inputDataAref;
-      }
-      $outStr .= "$singleLineOutput[$i]\t";
-    }
-    chop $outStr;
-    chop $outStr;
-    $outStr .= "\n";
-
-    #$outStr .= join("\t", @singleLineOutput) . "\n";
+    $outStr .= join("\t", @singleLineOutput) . "\n";
   }
-  chop $outStr;
+  
   return $outStr;
 }
 

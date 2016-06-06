@@ -187,7 +187,7 @@ sub annotate_snpfile {
 
     # http://www.perlmonks.org/?node_id=1110235
     # MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
-    MCE->say($outFh, $self->annotateLines(\@lines, $sampleIDsToIndexesMap, $sampleIDaref) );
+    MCE->print($outFh, $self->annotateLines(\@lines, $sampleIDsToIndexesMap, $sampleIDaref) );
   } $fh;
 }
 
@@ -216,23 +216,23 @@ sub annotateLines {
 
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
-    #maps to
-    #my ( $chr, $pos, $referenceAllele, $variantType, $allAllelesStr ) =
-        
-    if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
-      next;
-    }
-
-    #$snpFields[0] expected to be chr
     if($wantedChr && $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
       #don't sort to preserve order 
       my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
-      say "running from within wantedChr";
+
       $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
         \@sampleData, \@positions, \@output);
+      
+      #only these can be erased, because output and inputData are used in 
+      #makeOutputString at the end;
       @positions = ();
-      @inputData = ();
       @sampleData = ();
+
+      undef $wantedChr;
+    }
+
+    if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
+      next;
     }
 
     $wantedChr = $fieldsAref->[$chrFieldIdx];
@@ -240,7 +240,7 @@ sub annotateLines {
     # get carrier ids for variant; returns hom_ids_href for use in statistics calculator
 
     #$ref_allele == $snpFields[2]
-    my $sampleIDtypesAref; 
+    my @sampleIDtypes; 
     SAMPLE_LOOP: for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
       my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
 
@@ -249,23 +249,23 @@ sub annotateLines {
       }
 
       if ( $self->isHet($geno) ) {
-        $sampleIDtypesAref->[0] .= "$id;";
+        $sampleIDtypes[0] .= "$id;";
 
         if( $self->isCompoundHeterozygote($geno, $fieldsAref->[$referenceFieldIdx] ) ) {
-          $sampleIDtypesAref->[2] .= "$id;";
+          $sampleIDtypes[2] .= "$id;";
         }
       } elsif( $self->isHomo($geno) ){
-        $sampleIDtypesAref->[1] .= "$id;";
+        $sampleIDtypes[1] .= "$id;";
       } else {
         $self->log( 'fatal', "$geno wasn't homozygous or heterozygous" );
       }
-       $sampleIDtypesAref->[3]{$id} = $geno;
+      $sampleIDtypes[3]->{$id} = $geno;
     }
-    if   ($sampleIDtypesAref->[0]) { chop $sampleIDtypesAref->[0]; }
-    if   ($sampleIDtypesAref->[1]) { chop $sampleIDtypesAref->[1]; }
-    if   ($sampleIDtypesAref->[2]) { chop $sampleIDtypesAref->[2]; }
+    if   ($sampleIDtypes[0]) { chop $sampleIDtypes[0]; }
+    if   ($sampleIDtypes[1]) { chop $sampleIDtypes[1]; }
+    if   ($sampleIDtypes[2]) { chop $sampleIDtypes[2]; }
 
-    push @sampleData, $sampleIDtypesAref;
+    push @sampleData, \@sampleIDtypes;
   
     #$snpFields[1] expected to be the relative position
     #we store everything 0-indexed, so substract 1
