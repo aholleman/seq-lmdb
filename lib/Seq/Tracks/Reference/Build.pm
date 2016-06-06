@@ -190,7 +190,7 @@ sub buildTrack{
       foreach ( keys %visitedChrs ) {
         $self->recordCompletion($_);
       }
-    $pm->finish;
+    $pm->finish(1);
   }
 
   my @failed;
