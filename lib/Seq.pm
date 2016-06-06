@@ -114,12 +114,9 @@ sub annotate_snpfile {
   
   my $fh = $self->get_read_fh($self->snpfile_path);
   
-  my $sampleIDsToIndexesMap;
   my $taint_check_regex = $self->taint_check_regex; 
   my $endOfLineChar = $self->endOfLineChar;
   my $delimiter = $self->delimiter;
-
-  my $sampleIDaref;
 
   #first line is header
   #strip it from the file, and write it to disk
@@ -134,7 +131,7 @@ sub annotate_snpfile {
     #fill after checking input headers, because before then we don't know
     #what kind of file we're reading
     $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
-    $referenceFieldIdx = $inputFileProcessor->chrFieldIdx;
+    $referenceFieldIdx = $inputFileProcessor->referenceFieldIdx;
     $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
     $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
     $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
@@ -206,8 +203,7 @@ sub annotate_snpfile {
      }
      close  $MEM_FH;
 
-    # http://www.perlmonks.org/?node_id=1110235
-    # MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
+    #write to file
     MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
 }
@@ -325,10 +321,18 @@ sub finishAnnotatingLines {
 
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
-    push @$outAref, { map { 
-      $_->name => $_->get( 
+    push @$outAref, { map {
+      $_->name => $_->get(
         $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
     } @$trackGetters };
+
+    #this is much slower than the map above
+    # for my $track (@$trackGetters) {
+    #   my $out = $track->get( $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] );
+    #   if($out) {
+    #     push @$outAref, { $track->name => $out };
+    #   }
+    # }
 
     ### Store chr, position, alleles, type
     $outAref->[$i]{$chrFieldName} = $dataFromInputAref->[$i][$chrFieldIdx];

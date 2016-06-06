@@ -46,6 +46,11 @@ sub get {
 
   #my ($self, $href, $chr, $altAlleles) ==   $_[0], $_[1], $_[2], $_[3]
   
+  #no alleles ($_[3] == $altAlleles)
+  if( !$_[3] ) {
+    return undef;
+  }
+
   # $altAlleles are the alleles present in the samples
   #ex A,G; ex2: A
   #my $refBase = $refTrack->get($href);

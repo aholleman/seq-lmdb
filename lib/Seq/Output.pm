@@ -33,7 +33,7 @@ sub makeOutputString {
     
     my @singleLineOutput;
 
-    PARENT: for my $feature ( @{$self->outputDataFields} ) {      
+    PARENT: for my $feature ( @{$self->outputDataFields} ) {
       if(ref $feature) {
         #it's a trackName => {feature1 => value1, ...}
         my ($parent) = %$feature;
@@ -62,7 +62,7 @@ sub makeOutputString {
             next CHILD;
           }
 
-          my $accum;
+          my $accum = '';
           ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
             if(!defined $_) {
               $accum .= 'NA;';
@@ -88,13 +88,13 @@ sub makeOutputString {
         next PARENT;
       }
 
-      if(ref $href->{$feature} ne 'ARRAY') {
-        # say "value for $feature is";
-        # p $href->{$feature};
-        # say 'ref is '. ref $href->{$feature};
-        
-          
+      if(ref $href->{$feature} ne 'ARRAY') {         
         $self->log('warn', "Can\'t process non-array parent values, skipping $feature");
+        push @singleLineOutput, 'NA';
+        next PARENT;
+      }
+
+      if(! @{ $href->{$feature} } ) {
         push @singleLineOutput, 'NA';
         next PARENT;
       }
