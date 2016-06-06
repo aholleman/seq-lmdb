@@ -94,6 +94,9 @@ my $positionFieldName;
 my $alleleFieldName;
 my $typeFieldName;
 
+my $sampleIDsToIndexesMap;
+my $sampleIDaref;
+
 # I thought that by initializing the tracks here, rather than in each thread
 # I would gain performance
 # however, in practice, 0 difference. Doing here anyway to make intentions clear
@@ -117,7 +120,7 @@ sub annotate_snpfile {
   my $delimiter = $self->delimiter;
 
   my $sampleIDaref;
-    
+
   #first line is header
   #strip it from the file, and write it to disk
   my $firstLine = <$fh>;
@@ -205,17 +208,16 @@ sub annotate_snpfile {
 
     # http://www.perlmonks.org/?node_id=1110235
     # MCE->gather($chunk_id, $self->annotateLines($_, $sampleIDsToIndexesMap, $sampleIDaref, $chunk_id));
-    MCE->print($outFh, $self->annotateLines(\@lines, $sampleIDsToIndexesMap, $sampleIDaref) );
+    MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
 }
 
 #TODO: Need to implement unknown chr check, LOW/MESS check
 #TODO: return # of discordant bases from children if wanted
 
-#after we've accumulated lines, process them
+#Accumulates data from the database, then returns an output string
 sub annotateLines {
-  #$pm->start and return;
-  my ($self, $linesAref, $idsIdxMapHref, $sampleIdsAref) = @_;
+  my ($self, $linesAref) = @_;
 
   my @output;
   my @inputData;
@@ -227,10 +229,6 @@ sub annotateLines {
 
   my $wantedChr; 
   my @positions;
-  my @sampleData;
-
-  state $firstSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[0];
-  state $lastSnpFieldIndex = $inputFileProcessor->snpFieldIndices->[-1];
 
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
@@ -248,7 +246,7 @@ sub annotateLines {
 
         # accumulate results in @output
         $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-          \@sampleData, \@positions, \@output);
+          \@positions, \@output);
         
         # and prepare those reults for output, save the accumulated string value
         $outputString .= $outputter->makeOutputString(\@output);
@@ -256,7 +254,6 @@ sub annotateLines {
         #erase accumulated values; relies on finishAnnotatingLines being synchronous
         #this will let us repeat the finishAnnotatingLines process
         undef @positions;
-        undef @sampleData;
         undef @output;
         undef @inputData;
 
@@ -271,37 +268,6 @@ sub annotateLines {
     if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
       next;
     }
-    
-    #### Figure out if samples are homozygous, hets, or compound hets ###
-    my @sampleIDtypes; 
-    SAMPLE_LOOP: for my $id ( @$sampleIdsAref ) { # same as for my $id (@$id_names_aref);
-      my $geno = $fieldsAref->[ $idsIdxMapHref->{$id} ];
-
-      if( $geno eq 'N' || $geno eq $fieldsAref->[$referenceFieldIdx] ) {
-        next SAMPLE_LOOP;
-      }
-
-      if ( $self->isHet($geno) ) {
-        $sampleIDtypes[0] .= "$id;";
-
-        if( $self->isCompoundHeterozygote($geno, $fieldsAref->[$referenceFieldIdx] ) ) {
-          $sampleIDtypes[2] .= "$id;";
-        }
-      } elsif( $self->isHomo($geno) ){
-        $sampleIDtypes[1] .= "$id;";
-      } else {
-        $self->log( 'fatal', "$geno wasn't homozygous or heterozygous" );
-      }
-
-      #statistics calculator wants the actual genotype
-      $sampleIDtypes[3]->{$id} = $geno;
-    }
-
-    if   ($sampleIDtypes[0]) { chop $sampleIDtypes[0]; }
-    if   ($sampleIDtypes[1]) { chop $sampleIDtypes[1]; }
-    if   ($sampleIDtypes[2]) { chop $sampleIDtypes[2]; }
-
-    push @sampleData, \@sampleIDtypes;
   
     #push the 1-based poisition in the input file into our accumulator
     #store the position of 0-based, because our database is 0-based
@@ -309,13 +275,7 @@ sub annotateLines {
     push @positions, $fieldsAref->[$positionFieldIdx] - 1;
     
     #store a reference to the current input line
-    #this is used in making the output string (makeOutputString)
-    #since our we want to show a few of the first input fields 
-    #in our output file.
-    #checking relative efficiency of just storing the entire reference
-    #we could also take a slice, but there doesn't seem to be much of a point
-    #in doing so (seems it would costs even more memory)
-    #[ @{$fieldsAref}[$firstSnpFieldIndex .. $lastSnpFieldIndex] ];
+    #so that we can use whatever fields we need
     push @inputData, $fieldsAref; 
   }
 
@@ -329,7 +289,7 @@ sub annotateLines {
     }
 
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-      \@sampleData, \@positions, \@output);
+      \@positions, \@output);
   }
 
   #write everything for this part
@@ -341,8 +301,7 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbAref, $dataFromInputAref, $sampleGenotypesAref, 
-    $positionsAref, $outAref) = @_;
+  my ($self, $chr, $dataFromDbAref, $dataFromInputAref, $positionsAref, $outAref) = @_;
 
   state $trackGetters = $self->singletonTracks->trackGetters;
   
@@ -371,14 +330,40 @@ sub finishAnnotatingLines {
         $dataFromDbAref->[$i], $chr, \@alleles, $positionsAref->[$i] ) 
     } @$trackGetters };
 
+    ### Store chr, position, alleles, type
     $outAref->[$i]{$chrFieldName} = $dataFromInputAref->[$i][$chrFieldIdx];
     $outAref->[$i]{$positionFieldName} = $dataFromInputAref->[$i][$positionFieldIdx];
     $outAref->[$i]{$alleleFieldName} = $dataFromInputAref->[$i][$alleleFieldIdx];
     $outAref->[$i]{$typeFieldName} = $dataFromInputAref->[$i][$typeFieldIdx];
 
-    $outAref->[$i]{$heterozygousIdsKey} = $sampleGenotypesAref->[$i][0];
-    $outAref->[$i]{$homozygousIdsKey} = $sampleGenotypesAref->[$i][1];
-    $outAref->[$i]{$compoundIdsKey} = $sampleGenotypesAref->[$i][2];
+    #### Store homozygotes, heterozygotes, compoundHeterozygotes
+    SAMPLE_LOOP: for my $id ( @$sampleIDaref ) { # same as for my $id (@$id_names_aref);
+      my $geno = $dataFromInputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
+
+      if( $geno eq 'N' || $geno eq $dataFromInputAref->[$i][$referenceFieldIdx] ) {
+        next SAMPLE_LOOP;
+      }
+
+      if ( $self->isHet($geno) ) {
+        $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
+
+        if( $self->isCompoundHeterozygote($geno, $dataFromInputAref->[$i][$referenceFieldIdx] ) ) {
+          $outAref->[$i]{$compoundIdsKey} .= "$id;";
+        }
+      } elsif( $self->isHomo($geno) ){
+        $outAref->[$i]{$homozygousIdsKey} .= "$id;";
+      } else {
+        $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
+      }
+
+      #statistics calculator wants the actual genotype
+      #but we're not using this for now
+      #$sampleIDtypes[3]->{$id} = $geno;
+    }
+
+    if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
+    if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
+    if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
 
     #Could check for discordant bases here
     
