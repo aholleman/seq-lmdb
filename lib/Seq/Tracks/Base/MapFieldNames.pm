@@ -11,7 +11,7 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Base::MapFieldNames;
-use Moose::Role;
+use Moose::Role 2;
 use List::Util qw/max/;
 use DDP;
 
@@ -33,18 +33,21 @@ state $metaKey = 'fields';
 #Expected to be used during database building
 #If the fieldName doesn't have a corresponding database name, make one, store,
 #and return it
+#may be called millions of times, so skipping assignment of args
 sub getFieldDbName {
-  my ($self, $fieldName) = @_;
-
-  if (! exists $fieldNamesMap->{$self->name} ) {
-    $self->fetchMetaFields();
+  #my ($self, $fieldName) = @_;
+  
+  #$self = $_[0]
+  #$fieldName = $_[1]
+  if (! exists $fieldNamesMap->{$_[0]->name} ) {
+    $_[0]->fetchMetaFields();
   }
 
-  if(! exists $fieldNamesMap->{$self->name}->{$fieldName} ) {
-    $self->addMetaField($fieldName);
+  if(! exists $fieldNamesMap->{$_[0]->name}->{ $_[1] } ) {
+    $_[0]->addMetaField( $_[1] );
   }
   
-  return $fieldNamesMap->{$self->name}->{$fieldName};
+  return $fieldNamesMap->{$_[0]->name}->{$_[1]};
 }
 
 #this function returns the human readable name
@@ -54,15 +57,17 @@ sub getFieldDbName {
 sub getFieldName {
   my ($self, $fieldNumber) = @_;
 
-  if (! exists $fieldNamesMap->{$self->name} ) {
-    $self->fetchMetaFields();
+  #$self = $_[0]
+  #$fieldNumber = $_[1]
+  if (! exists $fieldNamesMap->{ $_[0]->name } ) {
+    $_[0]->fetchMetaFields();
   }
 
-  if(! exists $fieldDbNamesMap->{$self->name}->{$fieldNumber} ) {
+  if(! exists $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] } ) {
     return;
   }
 
-  return $fieldDbNamesMap->{$self->name}->{$fieldNumber};
+  return $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] };
 }
 
 

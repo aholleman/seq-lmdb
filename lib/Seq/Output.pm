@@ -68,8 +68,25 @@ sub makeOutputString {
               $accum .= 'NA;';
               next ACCUM;
             }
+            # we could have an array of arrays, separate those by commas
+            if(ref $_) {
+              $accum .= ",";
+
+              if(ref $_ ne 'ARRAY') {
+                $self->log('warn', "Can only handle array of array ref collections");
+                $accum .= "NA;";
+
+                next ACCUM;
+              }
+
+              $accum .= join(";", $_) . ";";
+
+              next ACCUM;
+            }
+
             $accum .= "$_;";
           }
+
           chop $accum;
           push @singleLineOutput, $accum;
         }
@@ -99,14 +116,34 @@ sub makeOutputString {
         next PARENT;
       }
 
+      #TODO: could break this out into separate function;
+      #need to evaluate performance implications
+
       my $accum;
       ACCUM: foreach ( @{ $href->{$feature} } ) {
         if(!defined $_) {
           $accum .= 'NA;';
           next ACCUM;
         }
+        # we could have an array of arrays, separate those by commas
+        if(ref $_) {
+          $accum .= ",";
+
+          if(ref $_ ne 'ARRAY') {
+            $self->log('warn', "Can only handle array of array ref collections");
+            $accum .= "NA;";
+
+            next ACCUM;
+          }
+
+          $accum .= join(";", $_) . ";";
+
+          next ACCUM;
+        }
+
         $accum .= "$_;";
       }
+
       chop $accum;
       push @singleLineOutput, $accum;
     }

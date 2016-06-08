@@ -14,7 +14,6 @@ use Moose;
 use DDP;
 use Scalar::Util qw/looks_like_number/;
 
-use Seq::Tracks::SingletonTracks;
 use Seq::Tracks::Gene::Site;
 
 with 'Seq::Role::DBManager';
@@ -24,47 +23,47 @@ state $indelTypeMap = {
   '+' => 'Insertion',
 };
 
-state $negativeStrandTranslation = ( A => 'T', C => 'G', G => 'C', T => 'A' );
+state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 
 state $silent = 'Silent';
 state $replacement = 'Replacement';
 #TODO: could get this from Gene track, or some other source
 #this name is also used in Seq::Tracks::Gene
-state $nonCoding = 'Intergenic';
+state $intergenic = 'Intergenic';
 
-state $frameshif = 'Frameshift';
+state $frameshift = 'Frameshift';
 state $inFrame = 'InFrame';
 state $startLoss = 'StartLoss';
 state $stopLoss = 'StopLoss';
 
+state $truncated = 'Error_truncated';
+
 state $siteUnpacker;
-state $refTrack;
 
 sub BUILD {
   $siteUnpacker = Seq::Tracks::Gene::Site->new();
-  if(!$refTrack) {
-    my $tracks = Seq::Tracks::SingletonTracks->new();
-    
-    $refTrack = $singleTracks->getRefTrackGetter();
-  }
 }
 
 #@param <String|ArrayRef? $allelesAref : this site's alleles
 sub get {
   #my ($self, $siteData, $chr, $refBase, $dbPosition, $allelesAref) = @_;
-
+  
   #$_[4] == $alllelesAref
   if(defined $indelTypeMap->{$_[4]} ) {
-    goto &_annotateIndel;
+    if( $indelTypeMap->{$_[4]} eq 'Insertion' ) {
+      goto &_annotateInsertion;
+    }
+    goto &_annotateDeletion;
   }
 
   if(! ref $_[4] ) {
     goto &_annotateSnp;
   }
 
+  ############### Annotate multi-allelic sites ################
   my $multialleleOut = '';
 
-  for my $allele ( @{$_[4] } } ) {
+  for my $allele ( @{$_[4]} ) {
     if( defined $indelTypeMap->{$allele} ) {
       if( $indelTypeMap->{$allele} eq 'Insertion' ) {
         $multialleleOut .= $_[0]->_annotateInsertion($_[1], $_[2], $_[3], $allele) . ',';
@@ -86,33 +85,43 @@ sub get {
 
 #@param <HashRef> $siteData : an unpacked codon from <Seq::Gene::Tracks::Site> 
 sub _annotateSnp {
-  my ($self, $siteData, $chr, $refBase, $dbPosition, $allele) = @_;
+  my ($self, $siteDataAref, $chr, $refBase, $dbPosition, $allele) = @_;
   
-  my $siteCodon = $siteData->{ siteUnpacker->codonSequenceKey };
-  
-  if(!$siteCodon) {
-    return $nonCoding;
+  my $out = '';
+
+  for my $siteData (@$siteDataAref) {
+    my $siteCodon = $siteData->{ $siteUnpacker->codonSequenceKey };
+    
+    #if there is no codon sequence, just use
+    if(!$siteCodon) {
+      $out .= $siteData->{ $siteUnpacker->siteTypeKey } . ";";
+      next;
+    }
+
+    if(length($siteCodon) != 3) {
+      $self->log('warn', "A codon @ $chr: @{[$dbPosition + 1]} is not 3 bases long" .
+        " Got @{[length($siteCodon)]} instead");
+      $out .= "$truncated;";
+      next;
+    }
+
+    my $refCodon = $siteCodon;
+
+    if( $siteData->{ $siteUnpacker->strandKey } ) {
+      $refBase = $negativeStrandTranslation->{$refBase};
+    }
+
+    substr($refCodon, $siteData->{ $siteUnpacker->codonPositionKey }, 1 ) = $refBase;
+
+    if( $siteUnpacker->codonMap->codon2aa($siteCodon) eq $siteUnpacker->codonMap->codon2aa($refCodon) ) {
+      $out .= "$silent;";
+    }
+
+    $out .= "$replacement;";
   }
 
-  if(length($siteCodon) != 3) {
-    $self->log('warn', "Codon @ $chr: @{[$dbPosition + 1]} is not 3 bases long" .
-      " Got @{[length($siteCodon)]} instead");
-    return;
-  }
-
-  my $refCodon = $siteCodon;
-
-  if( $siteData->{ $siteUnpacker->strandKey } ) {
-    $refBase = $negativeStrandTranslation->{$refBase};
-  }
-
-  substr($refSequence, $siteData->{ $siteUnpacker->codonPositionKey }, 1 ) = $refBase
-
-  if( $siteUnpacker->codonMap->codon2aa($siteCodon) eq $siteUnpacker->codonMap->codon2aa($refCodon) ) {
-    return $silent;
-  }
-
-  return $replacement;
+  chop $out;
+  return;
 }
 
 # @param <Seq::Site::Tracks::Gene> $geneTrack : an instance of the gene track
@@ -121,97 +130,90 @@ sub _annotateSnp {
 sub _annotateInsertion {
   my ($self, $siteDataAref, $chr, $dbPosition,, $refBase, $allele, $geneTrack) = @_;
 
-  my $length = length( substr($allele, 1) );
-
-  my $frameLabel = length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame;
+  my $out = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) ."[";
 
   my $nextData = $self->dbRead( $dbPosition + 1);
 
-  if(!ref $nextData) {
-    $nextData = [$nextData];
-  }
-
-  #place the siteData entries before nextData entries
-  unshift $nextData, $siteDataAref;
-
-  my $out = "$frameLabel[";
-
-  for my $data (@$nextData) {
-
-  }
-
   if (! defined $nextData->{ $geneTrack->dbName } ) {
-    return "$frameLabel[$nonCoding]"
+    say "nextData doesn't have geneTrack, result is : '$out$intergenic];'";
+    return "$out$intergenic];";
   }
 
-  my $nextSiteData = $nextData->{ $geneTrack->dbName }->{ 
+  my $nextSiteDataRef = $nextData->{ $geneTrack->dbName }->{ 
     $geneTrack->getFieldDbName( $geneTrack->siteFeatureName ) };
 
-  if( $nextSiteData->{ $siteUnpacker->codonNumberKey } == 1 ) {
-    return "$frameLabel[$startLoss]";
+  if(!ref $nextSiteDataRef) {
+    $nextSiteDataRef = [$nextSiteDataRef];
   }
 
-  if( $nextSiteData->{ $siteUnpacker->peptideKey } eq '*' ) {
-    return "$frameLabel[$stopLoss]";
-  }
-
-  return "$frameLabel[" . $nextSiteData->{ $siteUnpacker->siteType } . "]";
-}
-
-sub _annotateDeletion {
-  my ($self, $siteData, $chr, $dbPosition, $refBase, $allele, $geneTrack) = @_;
-
-  my $length = abs($allele);
-
-  my $frameLabel = length % 3 ? $frameshift : $inFrame;
-
-  my $out = $frameLabel . "[";
-
-  my $nextDataAref = $self->dbRead( $dbPosition - ($length - 1) );
-
-  my @siteDataAref;
-
-  for my $data ($nextDataAref) {
-
-  }
-
-  for my $nextData (@$nextDataAref) {
-    if (! defined $nextData->{ $geneTrack->dbName } ) {
-      $out .= "$nonCoding;";
+  for my $nextSiteData (@$nextSiteDataRef) {
+    if ( $nextSiteData->{ $siteUnpacker->codonNumberKey } == 1 ) {
+      $out .= "$startLoss;";
+    } elsif ( $nextSiteData->{ $siteUnpacker->peptideKey } eq '*' ) {
+      $out .= "$stopLoss;";
+    } else {
+      $out .= $nextSiteData->{ $siteUnpacker->siteTypeKey } . ";";
     }
-
-    my $nextSiteData = $nextData->{ $geneTrack->dbName }->{ 
-      $geneTrack->getFieldDbName( $geneTrack->siteFeatureName ) };
-
-    
   }
-
   chop $out;
 
+  say "nextData does have geneTrack, result is : '$out;'";
   return "$out]";
 }
 
-sub _addIndelAnnotationsBulk {
-  #$siteData = $_[0]
+sub _annotateDeletion {
+  my ($self, $siteDataAref, $chr, $dbPosition, $refBase, $allele, $geneTrack) = @_;
 
-  my $out;
-  for my $data ( $_[0] ) {
-    if( ref $data eq 'ARRAY' ) {
-      $out .= _addAnnotationsBulk( $data ) . ';';
+  #https://ideone.com/ydQtgU
+  my $frameLabel = $allele % 3 ? $frameshift : $inFrame;
+
+  my $nextDataAref = $self->dbRead( $dbPosition + $allele);
+
+  my $out = ($allele % 3 ? $frameshift : $inFrame) . "[";
+
+  my $count = 0;
+  my $lastSiteDataRef;
+  for my $nextData (@$nextDataAref) {
+    $count++;
+
+    if (! defined $nextData->{ $geneTrack->dbName } ) {
+      $out .= "$intergenic;";
+
+      if ($count == @$nextDataAref) {
+        $lastSiteDataRef = $siteDataAref;
+      } else {
+        next;
+      }
+    }
+    
+    my $nextSiteDataRef = $nextData->{ $geneTrack->dbName }->{ 
+      $geneTrack->getFieldDbName( $geneTrack->siteFeatureName ) };
+
+    if(! ref $nextSiteDataRef ) {
+      $nextSiteDataRef = [$nextSiteDataRef];
     }
 
-    if( $_[0]->{ $siteUnpacker->codonNumberKey } == 1 ) {
-      $out .= "$startLoss;";
-    } elsif( $_[0]->{ $siteUnpacker->peptideKey } eq '*' ) {
-      $out .= "$stopLoss;";
-    } else {
-      $out .= $_[0]->{ $siteUnpacker->siteType } . ';';
+    if ($lastSiteDataRef) {
+      push @$nextSiteDataRef, $lastSiteDataRef;
+    }
+
+    say "nextSiteDataRef is";
+    p $nextSiteDataRef;
+
+    for my $nextSiteData (@$nextSiteDataRef) {
+      if ( $nextSiteData->{ $siteUnpacker->codonNumberKey } == 1 ) {
+        $out .= "$startLoss;";
+      } elsif ( $nextSiteData->{ $siteUnpacker->peptideKey } eq '*' ) {
+        $out .= "$stopLoss;";
+      } else {
+        $out .= $nextSiteData->{ $siteUnpacker->siteTypeKey } . ";";
+      }
     }
   }
-  
-  chop $out;
 
-  return $out;
+  chop $out;
+  say "deletion transcript effects are : '$out;'";
+  return "$out]";
 }
 
 __PACKAGE__->meta->make_immutable;

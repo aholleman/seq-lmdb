@@ -45,14 +45,12 @@ state $siteTypeKey = 'siteType';
 has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
 state $strandKey = 'strand';
 has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
-state $codonNumberKey = 'codonNumber';
+state $codonNumberKey = 'referenceCodonNumber';
 has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
-state $codonPositionKey = 'codonPosition';
+state $codonPositionKey = 'referenceCodonPosition';
 has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
-state $codonSequenceKey = 'codon';
+state $codonSequenceKey = 'referenceCodon';
 has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
-state $peptideKey = 'aminoAcid';
-has peptideKey => (is => 'ro', init_arg => undef, lazy => 1, default => $peptideKey);
 
 #the reason I'm not calling self here, is like in most other packages I'm writing
 #trying to stay away from use of moose methods for items declared within the package
@@ -60,7 +58,7 @@ has peptideKey => (is => 'ro', init_arg => undef, lazy => 1, default => $peptide
 #Moose should be used for the public facing API
 sub allSiteKeys {
   return ($siteTypeKey, $strandKey, $codonNumberKey,
-    $codonPositionKey, $codonSequenceKey, $peptideKey);
+    $codonPositionKey, $codonSequenceKey);
 }
 
 #some default value that is less than 0, which is a valid idx
@@ -112,7 +110,9 @@ sub packCodon {
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
   #https://ideone.com/TFGjte
-  return pack('cAlcc', $siteTypeNum, $strand,
+  return pack('cAlcc', 
+    $siteTypeNum, 
+    $strand,
     defined $codonNumber ? $codonNumber : $missingNumber,
     defined $codonPosition ? $codonPosition : $missingNumber,
     defined $codonSeqNumber ? $codonSeqNumber : $missingNumber);
@@ -124,11 +124,12 @@ sub unpackCodon {
   my @codon = unpack('cAlcc', $_[1]);
 
   return {
-    $siteTypeKey => defined $codon[0] ? $siteTypeMap->getSiteTypeFromNum($codon[0]) : undef,
+    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[0]),
     $strandKey => $codon[1],
+    #optional; values that may not exist (say a non-coding site)
     $codonNumberKey => $codon[2] > $missingNumber ? $codon[2] : undef,
     $codonPositionKey => $codon[3] > $missingNumber ? $codon[3] : undef,
-    $peptideKey => $codon[4] > $missingNumber ? $codonMap->codon2aa( $codonMap->num2Codon( $codon[4] ) ) : undef
+    $codonSequenceKey => $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
   };
 }
 

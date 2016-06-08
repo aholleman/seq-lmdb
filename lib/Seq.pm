@@ -112,7 +112,7 @@ sub BUILD {
   $refTrackGetter = $self->singletonTracks->getRefTrackGetter();
 
   #all other tracks
-  for my $trackGetter ($self->allTrackGetters) {
+  for my $trackGetter ($self->singletonTracks->allTrackGetters) {
     if($trackGetter->name ne $refTrackGetter->name) {
       push @$trackGettersExceptReference, $trackGetter;
     }
@@ -184,10 +184,17 @@ sub annotate_snpfile {
     chunk_size => 'auto',
     max_workers => 32,
     use_slurpio => 1,
+    gather => sub {
+      #say "gathering";
+      open (my $fh, '>>', $self->output_path);
+      print $fh $_[0];
+    },
     #doesn't seem to improve performance
     #and apparently slow on shared storage
    # parallel_io => 1,
   };
+
+
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
@@ -218,7 +225,7 @@ sub annotate_snpfile {
      close  $MEM_FH;
 
     #write to file
-    MCE->print($outFh, $self->annotateLines(\@lines) );
+    $self->annotateLines(\@lines);
   } $fh;
 }
 
@@ -227,9 +234,8 @@ sub annotate_snpfile {
 
 #Accumulates data from the database, then returns an output string
 sub annotateLines {
-  my ($self, $linesAref) = @_;
+  my ($self, $linesAref, $outFh) = @_;
 
-  my @output;
   my @inputData;
 
   # if chromosomes are out of order, or one batch has more than 1 chr,
@@ -255,16 +261,12 @@ sub annotateLines {
         }
 
         # accumulate results in @output
-        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-          \@positions, \@output);
-        
-        # and prepare those reults for output, save the accumulated string value
-        $outputString .= $outputter->makeOutputString(\@output);
+        MCE->gather( $outputter->makeOutputString( $self->finishAnnotatingLines($wantedChr,
+          $dataFromDatabaseAref, \@inputData, \@positions) ) );
 
         #erase accumulated values; relies on finishAnnotatingLines being synchronous
         #this will let us repeat the finishAnnotatingLines process
         undef @positions;
-        undef @output;
         undef @inputData;
 
         #grab the new allele
@@ -298,12 +300,12 @@ sub annotateLines {
       $dataFromDatabaseAref = [$dataFromDatabaseAref];
     }
 
-    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-      \@positions, \@output);
+    MCE->gather( $outputter->makeOutputString( $self->finishAnnotatingLines($wantedChr, 
+      $dataFromDatabaseAref, \@inputData, \@positions) ) );
   }
 
   #write everything for this part
-  return $outputString . $outputter->makeOutputString(\@output);
+  return $outputString;
 
   #TODO: need also to take care of statistics stuff
 }
@@ -311,10 +313,11 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $databaseDataAref, $inputDataAref, $outAref) = @_;
+  my ($self, $chr, $databaseDataAref, $inputDataAref) = @_;
 
   state $refTrackName = $refTrackGetter->name;
 
+  my @output;
   ########### Iterate over all records, and build up the $outAref ##############
   #note, that if dataFromDbRef, and inputDataAref contain different numbers
   #of records, that is evidence of a programmatic bug
@@ -324,10 +327,13 @@ sub finishAnnotatingLines {
         You may have chosen the wrong assembly.");
     }
 
+    $output[$i] = {
+      $refTrackName => $refTrackGetter->get($databaseDataAref->[$i])
+    };
     ###### Get the true reference, and check whether it matches the input file reference ######
-    $outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseDataAref->[$i]);
+    #$outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseDataAref->[$i]);
 
-    if( $outAref->[$i]{$refTrackName} ne $inputDataAref->[$i][$referenceFieldIdx] ) {
+    if( $output[$i]{$refTrackName} ne $inputDataAref->[$i][$referenceFieldIdx] ) {
       $self->log('warn', "Input file reference doesn't match our reference, ".
         "at $inputDataAref->[$i][$chrFieldIdx]\:$inputDataAref->[$i][$positionFieldIdx]");
     }
@@ -343,8 +349,8 @@ sub finishAnnotatingLines {
       }
     }
 
-    if(@alleles == 1) {
-      $allelesAref = $alleles->[0];
+    if(@$allelesAref == 1) {
+      $allelesAref = $allelesAref->[0];
     }
 
     ####################### Collect all Track data #####################
@@ -355,16 +361,16 @@ sub finishAnnotatingLines {
     #in the order found in any snp file. These are the only input fields expected
     #by our track getters
     #the database data is always the first
-    push @$outAref, { map {
+    push @output, { map {
       $_->name => $_->get( $databaseDataAref->[$i], $inputDataAref->[$i][$chrFieldIdx],
-        $inputDataAref->[$i][$positionFieldIdx], $outAref->[$i]{$refTrackName}, $allelesAref )
+        $inputDataAref->[$i][$positionFieldIdx], $output[$i]{$refTrackName}, $allelesAref )
     } @$trackGettersExceptReference };
 
     ################ Store chr, position, alleles, type ##################
-    $outAref->[$i]{$chrFieldName} = $inputDataAref->[$i][$chrFieldIdx];
-    $outAref->[$i]{$positionFieldName} = $inputDataAref->[$i][$positionFieldIdx];
-    $outAref->[$i]{$alleleFieldName} = $inputDataAref->[$i][$alleleFieldIdx];
-    $outAref->[$i]{$typeFieldName} = $inputDataAref->[$i][$typeFieldIdx];
+    $output[$i]{$chrFieldName} = $inputDataAref->[$i][$chrFieldIdx];
+    $output[$i]{$positionFieldName} = $inputDataAref->[$i][$positionFieldIdx];
+    $output[$i]{$alleleFieldName} = $inputDataAref->[$i][$alleleFieldIdx];
+    $output[$i]{$typeFieldName} = $inputDataAref->[$i][$typeFieldIdx];
 
     ########### Store homozygotes, heterozygotes, compoundHeterozygotes #########
     SAMPLE_LOOP: for my $id ( @$sampleIDaref ) { # same as for my $id (@$id_names_aref);
@@ -377,24 +383,24 @@ sub finishAnnotatingLines {
       }
 
       if ( $self->isHet($geno) ) {
-        $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
+        $output[$i]{$heterozygousIdsKey} .= "$id;";
 
         if( $self->isCompoundHeterozygote($geno, $inputDataAref->[$i][$referenceFieldIdx] ) ) {
-          $outAref->[$i]{$compoundIdsKey} .= "$id;";
+          $output[$i]{$compoundIdsKey} .= "$id;";
         }
       } elsif( $self->isHomo($geno) ){
-        $outAref->[$i]{$homozygousIdsKey} .= "$id;";
+        $output[$i]{$homozygousIdsKey} .= "$id;";
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
       }
     }
 
-    if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
-    if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
-    if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
+    if   ($output[$i]{$homozygousIdsKey}) { chop $output[$i]{$homozygousIdsKey}; }
+    if   ($output[$i]{$heterozygousIdsKey}) { chop $output[$i]{$heterozygousIdsKey}; }
+    if   ($output[$i]{$compoundIdsKey}) { chop $output[$i]{$compoundIdsKey}; }
   }
 
-  return $outAref;
+  return \@output;
 }
 
 __PACKAGE__->meta->make_immutable;
