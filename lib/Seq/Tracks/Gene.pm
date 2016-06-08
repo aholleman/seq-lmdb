@@ -2,6 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
+#### TODO: Could do a better job optimizing for non-multiallelic sites ####
 package Seq::Tracks::Gene;
 
 our $VERSION = '0.001';
@@ -32,6 +33,8 @@ use DDP;
 extends 'Seq::Tracks::Get';
 
 use Seq::Tracks::Gene::Site;
+use Seq::Tracks::Gene::Site::SiteTypeMap;
+use Seq::Tracks::Gene::Site::CodonMap;
 
 #regionReferenceFeatureName and regionTrackPath
 with 'Seq::Tracks::Region::Definition',
@@ -39,6 +42,11 @@ with 'Seq::Tracks::Region::Definition',
 'Seq::Tracks::Gene::Definition',
 #dbReadAll
 'Seq::Role::DBManager';
+
+### objects that get used by multiple subs, but shouldn't be public attributes ###
+state $siteUnpacker = Seq::Tracks::Gene::Site->new();
+state $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
+state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 
 ### Additional "features" that we will add to our output ###
 state $refAminoAcidKey = 'referenceAminoAcid';
@@ -61,9 +69,6 @@ state $inFrame = 'InFrame';
 state $startLoss = 'StartLoss';
 state $stopLoss = 'StopLoss';
 state $truncated = 'TruncatedCodon';
-
-### objects that get used by multiple subs, but shouldn't be public attributes ###
-state $siteUnpacker = Seq::Tracks::Gene::Site->new();
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
@@ -138,22 +143,15 @@ sub get {
 
   ################# Populate nearestGeneSubTrackName ##############
   if(!$self->noNearestFeatures) {
-    #get the database name of the nearest gene track
-    #but this never changes, so store as static
-
     # this is a reference to something stored in the gene tracks' region database
     my $nearestGeneNumber = $geneData->{ $cachedDbNames->{$self->nearestGeneFeatureName} };
 
     #may not have one at the end of a chromosome
     if($nearestGeneNumber) {
-      
-      #get the nearest gene data
-      #outputted as "nearest.someFeature" => value if "nearest" is the nearestGeneFeatureName
       for my $nFeature ($self->allNearestFeatureNames) {
         $out{"$nearestGeneSubTrackName.$nFeature"} = $regionData->{$nearestGeneNumber}
           ->{$self->dbName}->{ $cachedDbNames->{$nFeature} };
       }
-      
     }
   } 
 
@@ -170,20 +168,13 @@ sub get {
 
   ################# Populate $regionTypeKey if no gene is covered #####################
   if(!$geneRegionNumberRef) {
-    #if we don't have a gene at this site, it's Integenic
-    #this is the lowest index item
     $out{$regionTypeKey} = $intergenic;
-    
     return \%out;
   }
 
   ################# Populate geneTrack's user-defined features #####################
-  my $regionDataAref;
-  if(ref $geneRegionNumberRef) {
-    $regionDataAref = [ map { $regionData->{$_}->{$self->dbName} } @$geneRegionNumberRef ];
-  } else {
-    $regionDataAref = [ $regionData->{$geneRegionNumberRef}->{$self->dbName} ];
-  }
+  my $regionDataAref = ref $geneRegionNumberRef ? [ map { $regionData->{$_}->{$self->dbName} } @$geneRegionNumberRef ]
+    : [ $regionData->{$geneRegionNumberRef}->{$self->dbName} ];
   
   #now go from the database feature names to the human readable feature names
   #and include only the featuers specified in the yaml file
@@ -193,153 +184,91 @@ sub get {
   #better too much than too little
   for my $featureName ($self->allFeatureNames) {
     INNER: for my $geneDataHref (@$regionDataAref) {
-      if(defined $out{$featureName} ) {
-        #check if this value has already been made an array
-        if(ref $out{$featureName} ne 'ARRAY') {
-          $out{$featureName} = [ $out{$featureName} ];
-        }
-
-        #could be pushing undefined valueundefined
-        push @{ $out{$featureName} }, $geneDataHref->{ $cachedDbNames->{$featureName} };
-        
-        next INNER;
-      }
-      #could be undefined
-      $out{ $featureName } = $geneDataHref->{ $cachedDbNames->{$featureName} };
+      push @{ $out{$featureName} }, $geneDataHref->{ $cachedDbNames->{$featureName} };
     }
   }
 
   my $siteDetailsRef = $geneData->{ $cachedDbNames->{$self->siteFeatureName} };
 
-  ########### Check if allele is an insertion or deletion, and if so, get siteDetails for each of them #########
-
-  #if deletion, get all sites covered by the deletion
-  #if insertion, get the next site over, because insertions insert 1 position
-  #up from the current position
-
+  ###### save unpacked sites, for use in txEffectsKey population #####
   my @unpackedSites;
+
   ################## Populate site information ########################
   if( !$siteDetailsRef ) {
-    $self->log('warn', "Position $chr:@{[$dbPosition+1]} was covered by a gene" .
+    $self->log('warn', "Position $chr:@{[$dbPosition+1]} covered a gene" .
       " but didn't have site info. This is a database build error");
     
-    $out{$regionTypeKey} = undef;
-    $out{$siteTypeKey} = undef;
-    #return \%out;
-  } else {
-    ################# Populate all $siteUnpacker->allSiteKeys and $retionTypeKey #####################
-    if(!ref $siteDetailsRef) {
-      $siteDetailsRef = [$siteDetailsRef];
-    }
-
-    for (my $i = 0; $i < @$siteDetailsRef; $i++) {
-      #update the item in the array, to avoid allocating a new array for the purpose
-      push @unpackedSites, $siteUnpacker->unpackCodon($siteDetailsRef->[$i]);
-
-      for my $key (keys %{ $unpackedSites[$i] }) {
-        #### Populate the regionTypeKey, which can be Exonic or Intronic ###
-        if($key eq $siteUnpacker->siteTypeKey) {
-          if( $siteUnpacker->siteTypeMap->isExonicSite( $unpackedSites[$i]{$key} ) ) {
-            $out{$regionTypeKey} = $exonic;
-          }
-        }
-
-        #### Populate refAminoAcidKey; note we always set array; at
-        ###      end of file, reduce back to string #####################
-        if($key eq $siteUnpacker->codonSequenceKey) {
-          push @{ $out{$refAminoAcidKey} }, defined $unpackedSites[$i]{$key} ?
-            $siteUnpacker->codonMap->codon2aa( $unpackedSites[$i]{$key} ) : undef;
-        }
-
-        if(exists $out{$key} ) {
-          if(ref $out{$key} ne 'ARRAY') {
-            $out{$key} = [$out{$key}];
-          }
-
-          push @{ $out{$key} }, $unpackedSites[$i]{$key};
-          next;
-        }
-
-        $out{$key} = $unpackedSites[$i]{$key};
-      }
-    }
-
-    ### If regionTypeKey not defined we didn't find isExonicSite(), so Intronic
-    if(! $out{$regionTypeKey} ) {
-      $out{$regionTypeKey} = $intronic;
-    }
+    return \%out;
   }
+
+  ################# Populate all $siteUnpacker->allSiteKeys and $retionTypeKey #####################
+  if(!ref $siteDetailsRef) {
+    $siteDetailsRef = [$siteDetailsRef];
+  }
+
+  foreach (@$siteDetailsRef) {
+    #update the item in the array, to avoid allocating a new array for the purpose
+    my $site = $siteUnpacker->unpackCodon($_);
+
+    for my $key (keys %$site) {
+      #### Populate the regionTypeKey, which can be Exonic or Intronic ###
+      if($key eq $siteUnpacker->siteTypeKey) {
+        if( $siteTypeMap->isExonicSite( $site->{$key} ) ) {
+          $out{$regionTypeKey} = $exonic;
+        }
+      }
+
+      #### Populate refAminoAcidKey; note that for a single site
+      ###    we can have only one codon sequence, so not need to set array of them ###
+      if(defined $site->{$key} && $key eq $siteUnpacker->codonSequenceKey) {
+        push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->{$key} );
+      }
+
+      #strand and site
+      push @{ $out{$key} }, $site->{$key};
+    }
+
+    push @unpackedSites, $site; #save for us in txEffects;
+  }
+
+  ### If regionTypeKey not defined we didn't find isExonicSite(), so Intronic
+  if(! $out{$regionTypeKey} ) {
+    $out{$regionTypeKey} = $intronic;
+  } 
 
   ################# Populate $transcriptEffectsKey, $refAminoAcidKey, and $newAminoAcidKey #####################
   ################# We include analysis of indels here, becuase  
   #############  we may want to know how/if they disturb genes  #####################
   my @alleles = ref $allelesAref ? @$allelesAref : ($allelesAref);
 
-  state $indelTypeMap = {
-    '-' => 'Deletion',
-    '+' => 'Insertion',
-  };
-
-  #<ArrayRef|String>
-  #$out{$txEffectsKey};
-
-  # #### Populate reference amino acid keys ####
-    # if(defined $out{$siteUnpacker->codonSequenceKey} ) {
-    #   if(ref $out{$siteUnpacker->codonSequenceKey} ) {
-    #     $out{$refAminoAcidKey} = [ map { $siteUnpacker->codonMap->codon2aa($_) } 
-    #       @{ $out{$siteUnpacker->codonSequenceKey} } ]
-    #   } else {
-    #     push $out{$refAminoAcidKey}, defined $_ ? $siteUnpacker->codonMap->codon2aa($_) : undef
-    #   }
-    # } else {
-    #   $out{$refAminoAcidKey} = undef;
-    # }
-
   for my $allele (@alleles) {
     my @accum;
     if(length($allele) > 1) {
       my $type = substr($allele, 0, 1);
 
-      if($type eq '+') {
-        #insertion
+      #store as array because our output engine writes [ [one], [two] ] as "1,2"
+      push @accum, [ $self->_annotateIndel($chr, $dbPosition, $allele) ];
 
-        push @accum, $self->_annotateInsertion($dbPosition, $allele);
-        next;
-      }
-
-      if($type eq '-') {
-        #deletion
-
-        push @accum, $self->_annotateDeletion($dbPosition, $allele, \@unpackedSites);
-        next;
-      }
-
-      $self->log('warn', "Can't recognize allele $allele for $chr:@{[$dbPosition+1]}");
       next;
     }
 
-    ### Most cases are just snps, so we will inline that functionality
+    ######### Most cases are just snps, so we will inline that functionality #############
     state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
-
 
     # say "number of unpacked codons is: " . scalar @unpackedSites;
     ### We only populate newAminoAcidKey for snps ###
     SNP_LOOP: for (my $i = 0; $i < @unpackedSites; $i++ ) {
-      my $codonSequence = $unpackedSites[$i]->{ $siteUnpacker->codonSequenceKey };
+      my $refCodonSequence = $unpackedSites[$i]->{ $siteUnpacker->codonSequenceKey };
 
-      # say "i is $i";
-
-      # say "codon Sequence is " . (defined $codonSequence ? $codonSequence : 'undefined');
-      
-      if(!$codonSequence) {
+      if(!$refCodonSequence) {
         push @accum, "Non-Coding";
 
         next SNP_LOOP;
       }
 
-      if(length($codonSequence) != 3) {
+      if(length($refCodonSequence) != 3) {
         $self->log('warn', "The codon @ $chr: @{[$dbPosition + 1]}" .
-          " isn't 3 bases long: $codonSequence");
+          " isn't 3 bases long: $refCodonSequence");
         
         push @accum, $truncated;
         next SNP_LOOP;
@@ -351,13 +280,16 @@ sub get {
       }
 
       #make a codon where the reference base is swapped for the allele
-      substr($codonSequence, $unpackedSites[$i]->{ $siteUnpacker->codonPositionKey }, 1 ) = $allele;
+      my $alleleCodonSequence = $refCodonSequence;
+      substr($alleleCodonSequence, $unpackedSites[$i]->{ $siteUnpacker->codonPositionKey }, 1 ) = $allele;
 
+      push @{ $out{$newAminoAcidKey} }, $alleleCodonSequence;
+      
       # say "allele is $allele, position is $unpackedSites[$i]->{ $siteUnpacker->codonPositionKey }";
-      # say "new aa is $codonSequence";
+      # say "new aa is $refCodonSequence";
 
       # If reference codon is same as the allele-substititued version, it's a Silent site
-      if( $out{$refAminoAcidKey}->[$i] eq $siteUnpacker->codonMap->codon2aa($codonSequence) ) {
+      if( $codonMap->codon2aa($refCodonSequence) eq $codonMap->codon2aa($alleleCodonSequence) ) {
         push @accum, $silent;
       } else {
         push @accum, $replacement;
@@ -371,115 +303,77 @@ sub get {
 
   if( !defined $out{$txEffectsKey} ) {
     $out{$txEffectsKey} = $intergenic;
-  }
-
-  if( @{ $out{$txEffectsKey} } == 1) {
+  } elsif( @{ $out{$txEffectsKey} } == 1) {
     $out{$txEffectsKey} = $out{$txEffectsKey}->[0];
   }
-
-  #reduce to string, maybe faster printing, since no need to traverse array
-  if( @{ $out{$refAminoAcidKey} } == 1) {
-    $out{$refAminoAcidKey} = $out{$refAminoAcidKey}->[0];
-  }
-
-  # say "txEffects are " . join(";", @{ $out{$txEffectsKey} } );
- # p $out{$txEffectsKey};
 
   return \%out;
 };
 
-sub _annotateInsertion {
-  my ($self, $chr, $dbPosition,, $allele) = @_;
+sub _annotateIndel {
+  my ($self, $chr, $dbPosition, $allele) = @_;
 
-  my $out = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) ."[";
+  my $beginning;
+  
+  my $dbDataAref;
+  #### Check if insertion or deletion ###
+  if(substr($allele, 0, 1) eq '+') {
+    #insetion
+    $beginning = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) ."[";
 
-  my $nextData = $self->dbRead($chr, $dbPosition + 1);
-
-  if (! defined $nextData->{ $self->dbName } ) {
-    say "nextData doesn't have geneTrack, result is : '$out$intergenic];'";
-    return "$out$intergenic];";
+    #by passing the dbRead function an array, we get an array of data back
+    #even if it's one position worth of data
+    $dbDataAref = $self->dbRead( $chr, [ $dbPosition + 1 ] );
+  } elsif(substr($allele, 0, 1) eq '-') {
+    #deletion
+    $beginning = ($allele % 3 ? $frameshift : $inFrame) ."[";
+    
+    $dbDataAref = $self->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
+  } else {
+    $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
+      as valid indel (must start with - or +)");
+    return undef;
   }
-
-  my $nextSiteDataRef = $nextData->{ $self->dbName }->{ 
-    $allCachedDbNames->{$self->name}->{$self->siteFeatureName} };
-
-  if(!ref $nextSiteDataRef) {
-    $nextSiteDataRef = [$nextSiteDataRef];
-  }
-
-  for my $nextSiteData (@$nextSiteDataRef) {
-    if ( $nextSiteData->{ $siteUnpacker->codonNumberKey } == 1 ) {
-      $out .= "$startLoss;";
-    } elsif ( $nextSiteData->{ $siteUnpacker->peptideKey } eq '*' ) {
-      $out .= "$stopLoss;";
-    } else {
-      $out .= $nextSiteData->{ $siteUnpacker->siteTypeKey } . ";";
-    }
-  }
-
-  chop $out;
-
-  return "$out]";
-}
-
-sub _annotateDeletion {
-  my ($self, $chr, $dbPosition, $allele, $unpackedSitesAref) = @_;
-
-  my @out;
-
-  #https://ideone.com/ydQtgU
-  my $frameLabel = $allele % 3 ? $frameshift : $inFrame;
-
-  my $nextDataAref = $self->dbRead($chr, $dbPosition + $allele);
-
-  my $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
-  my $end = "]";
 
   my $count = 0;
-  my $pushUnpackedSites;
-  for my $nextData (@$nextDataAref) {
-    $count++;
-
-    if (! defined $nextData->{ $self->dbName } ) {
-      $beginning .= "$intergenic;";
-
-      if ($count == @$nextDataAref) {
-        $pushUnpackedSites = 1;
-      } else {
-        next;
-      }
+  for my $data (@$dbDataAref) {
+    if (! defined $data->{ $self->dbName } ) {
+      #this position doesn't have a gene track, so skip
+      $beginning .= "$intergenic";
+      next;
     }
-    
-    my $nextSiteDataRef = $nextData->{ $self->dbName }->{ 
+
+    if($count++ > 1) {
+      #separate different positions by a pipe to denote difference from alleles and
+      #transcripts (transcripts separated by a ";")
+      substr($beginning, -1, 1) = "|";
+    }
+      
+   
+
+    my $siteData = $data->{ $self->dbName }->{
       $allCachedDbNames->{$self->name}->{$self->siteFeatureName} };
 
-    if(! ref $nextSiteDataRef ) {
-      $nextSiteDataRef = [$nextSiteDataRef];
+    if(! ref $siteData ) {
+      $siteData = [$siteData];
     }
 
-    if ($pushUnpackedSites) {
-      if(@$unpackedSitesAref) {
-        push @$nextSiteDataRef, @$unpackedSitesAref;
-      }
-    }
+    for my $oneSiteData (@$siteData) {
+      my $site = $siteUnpacker->unpackCodon($oneSiteData);
 
-    say "nextSiteDataRef is";
-    p $nextSiteDataRef;
-
-    for my $nextSiteData (@$nextSiteDataRef) {
-      if ( $nextSiteData->{ $siteUnpacker->codonNumberKey } == 1 ) {
+      if ( defined $site->{ $siteUnpacker->codonNumberKey } && $site->{ $siteUnpacker->codonNumberKey } == 1 ) {
         $beginning .= "$startLoss;";
-      } elsif ( $nextSiteData->{ $siteUnpacker->peptideKey } eq '*' ) {
+      } elsif ( defined $site->{ $siteUnpacker->codonSequenceKey }
+      &&  $codonMap->codon2aa( $site->{ $siteUnpacker->codonSequenceKey } ) eq '*' ) {
         $beginning .= "$stopLoss;";
       } else {
-        $beginning .= $nextSiteData->{ $siteUnpacker->siteTypeKey } . ";";
+        $beginning .= $site->{ $siteUnpacker->siteTypeKey } . ";";
       }
     }
   }
-
+  
   chop $beginning;
-  say "deletion transcript effects are : '$beginning]'";
-  return "$beginning]";
+  return "beginning]";
 }
 
 __PACKAGE__->meta->make_immutable;

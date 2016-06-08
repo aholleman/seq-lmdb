@@ -93,6 +93,9 @@ sub makeOutputString {
         next PARENT;
       }
 
+      ### This could be split into separate function, and used 2x;
+      ### kept like this in case perf matters
+
       #say "feature is $feature";
       #p $href->{feature};
       if(!defined $href->{$feature} ) {

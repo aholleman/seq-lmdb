@@ -97,8 +97,6 @@ my $typeFieldName;
 my $sampleIDsToIndexesMap;
 my $sampleIDaref;
 
-# TODO: add
-# The reference track is used to check on discordant bases
 my $refTrackGetter;
 my $trackGettersExceptReference;
 
@@ -156,10 +154,8 @@ sub annotate_snpfile {
     $typeFieldName = $inputFileProcessor->typeFieldName;
 
     #1 means prepend
-    $headers->addFeaturesToHeader( [
-      $inputFileProcessor->chrFieldName, $inputFileProcessor->positionFieldName,
-      $inputFileProcessor->alleleFieldName, $inputFileProcessor->typeFieldName,
-      $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
+    $headers->addFeaturesToHeader( [$chrFieldName, $positionFieldName, $alleleFieldName,
+      $typeFieldName, $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
 
     #outputter needs to know which fields we're going to want to writer
     $outputter->setOutputDataFieldsWanted( $headers->get() );
@@ -184,17 +180,10 @@ sub annotate_snpfile {
     chunk_size => 'auto',
     max_workers => 32,
     use_slurpio => 1,
-    gather => sub {
-      #say "gathering";
-      open (my $fh, '>>', $self->output_path);
-      print $fh $_[0];
-    },
     #doesn't seem to improve performance
     #and apparently slow on shared storage
-   # parallel_io => 1,
+    # parallel_io => 1,
   };
-
-
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
@@ -225,7 +214,8 @@ sub annotate_snpfile {
      close  $MEM_FH;
 
     #write to file
-    $self->annotateLines(\@lines);
+    $self->annotateLines(\@lines, $outFh);
+   #MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
 }
 
@@ -236,6 +226,7 @@ sub annotate_snpfile {
 sub annotateLines {
   my ($self, $linesAref, $outFh) = @_;
 
+  my @output;
   my @inputData;
 
   # if chromosomes are out of order, or one batch has more than 1 chr,
@@ -261,12 +252,16 @@ sub annotateLines {
         }
 
         # accumulate results in @output
-        MCE->gather( $outputter->makeOutputString( $self->finishAnnotatingLines($wantedChr,
-          $dataFromDatabaseAref, \@inputData, \@positions) ) );
+        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
+          \@positions, \@output);
+        
+        # and prepare those reults for output, save the accumulated string value
+        $outputString .= $outputter->makeOutputString(\@output);
 
         #erase accumulated values; relies on finishAnnotatingLines being synchronous
         #this will let us repeat the finishAnnotatingLines process
         undef @positions;
+        undef @output;
         undef @inputData;
 
         #grab the new allele
@@ -300,12 +295,12 @@ sub annotateLines {
       $dataFromDatabaseAref = [$dataFromDatabaseAref];
     }
 
-    MCE->gather( $outputter->makeOutputString( $self->finishAnnotatingLines($wantedChr, 
-      $dataFromDatabaseAref, \@inputData, \@positions) ) );
+    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
+      \@positions, \@output);
   }
 
   #write everything for this part
-  return $outputString;
+  MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
 
   #TODO: need also to take care of statistics stuff
 }
@@ -313,94 +308,108 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $databaseDataAref, $inputDataAref) = @_;
+  my ($self, $chr, $databaseAref, $inputAref, $positionsAref, $outAref) = @_;
 
   state $refTrackName = $refTrackGetter->name;
-
-  my @output;
-  ########### Iterate over all records, and build up the $outAref ##############
-  #note, that if dataFromDbRef, and inputDataAref contain different numbers
+  state $cached;
+  #note, that if dataFromDbRef, and inputAref contain different numbers
   #of records, that is evidence of a programmatic bug
-  for (my $i = 0; $i < @$inputDataAref; $i++) {
-    if(!defined $databaseDataAref->[$i] ) {
-      $self->log('fatal', "$chr: " . $inputDataAref->[$i][1] . " not found.
+  for (my $i = 0; $i < @$inputAref; $i++) {
+    if(!defined $databaseAref->[$i] ) {
+      $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
         You may have chosen the wrong assembly.");
     }
 
-    $output[$i] = {
-      $refTrackName => $refTrackGetter->get($databaseDataAref->[$i])
-    };
-    ###### Get the true reference, and check whether it matches the input file reference ######
-    #$outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseDataAref->[$i]);
+    $outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseAref->[$i]);
 
-    if( $output[$i]{$refTrackName} ne $inputDataAref->[$i][$referenceFieldIdx] ) {
-      $self->log('warn', "Input file reference doesn't match our reference, ".
-        "at $inputDataAref->[$i][$chrFieldIdx]\:$inputDataAref->[$i][$positionFieldIdx]");
+    my $givenRef = $inputAref->[$i][$referenceFieldIdx];
+
+    if( $outAref->[$i]{$refTrackName} ne $givenRef) {
+      $self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
     }
 
-    ################ Gather all alleles ################################
-    #uses the reference found in the snp file, rather than true reference
-    #because it's not clear what to do in the discordant case
-    #and so we want to pass the most conservative list of variants to trackGetters that need them
+    ############### Gather genotypes ... cache to avoid re-work ###############
+    #$cached->{genotype}->{$reference} = $minorAllele
     my $allelesAref;
-    for my $allele ( split(',', $inputDataAref->[$i][$alleleFieldIdx] ) ) {
-      if($allele ne $inputDataAref->[$i][$referenceFieldIdx]) {
-        push @$allelesAref, $allele;
+    
+    if(defined $cached->{$givenRef}->{ $inputAref->[$i][$alleleFieldIdx] } ) {
+      $allelesAref = $cached->{$givenRef} ->{ $inputAref->[$i][$alleleFieldIdx] };
+    } else {
+      for my $allele ( split(',', $inputAref->[$i][$alleleFieldIdx] ) ) {
+        if($allele ne $givenRef) {
+          push @$allelesAref, $allele;
+        }
       }
+
+      if(@$allelesAref == 1) {
+        $allelesAref = $allelesAref->[0];
+      }
+
+      $cached->{$givenRef} ->{ $inputAref->[$i][$alleleFieldIdx] } = $allelesAref;
     }
 
-    if(@$allelesAref == 1) {
-      $allelesAref = $allelesAref->[0];
-    }
+    ############### Gather all track data (besides reference) #################
 
-    ####################### Collect all Track data #####################
-    #Note: the key order does not matter within any $outAref->[$i]
+    #Note: the output order does not matter for any single $i
     #Ordering is handled by Output.pm
 
-    #We pass chr, position, ref (true reference from our assembly), and alleles
-    #in the order found in any snp file. These are the only input fields expected
-    #by our track getters
-    #the database data is always the first
-    push @output, { map {
-      $_->name => $_->get( $databaseDataAref->[$i], $inputDataAref->[$i][$chrFieldIdx],
-        $inputDataAref->[$i][$positionFieldIdx], $output[$i]{$refTrackName}, $allelesAref )
-    } @$trackGettersExceptReference };
+    #some tracks may also want the alternative alleles, so give those as last arg
+    #example: cadd track needs this
+    foreach(@$trackGettersExceptReference) {
+      $outAref->[$i]->{$_->name} = $_->get($databaseAref->[$i], $chr, 
+        $positionsAref->[$i], $outAref->[$i]{$refTrackName}, $allelesAref) 
+    };
 
-    ################ Store chr, position, alleles, type ##################
-    $output[$i]{$chrFieldName} = $inputDataAref->[$i][$chrFieldIdx];
-    $output[$i]{$positionFieldName} = $inputDataAref->[$i][$positionFieldIdx];
-    $output[$i]{$alleleFieldName} = $inputDataAref->[$i][$alleleFieldIdx];
-    $output[$i]{$typeFieldName} = $inputDataAref->[$i][$typeFieldIdx];
+    ############# Store chr, position, alleles, type ###############
 
-    ########### Store homozygotes, heterozygotes, compoundHeterozygotes #########
-    SAMPLE_LOOP: for my $id ( @$sampleIDaref ) { # same as for my $id (@$id_names_aref);
-      my $geno = $inputDataAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
+    $outAref->[$i]{$chrFieldName} = $inputAref->[$i][$chrFieldIdx];
+    $outAref->[$i]{$positionFieldName} = $inputAref->[$i][$positionFieldIdx];
+    $outAref->[$i]{$alleleFieldName} = $inputAref->[$i][$alleleFieldIdx];
+    $outAref->[$i]{$typeFieldName} = $inputAref->[$i][$typeFieldIdx];
 
-      # Check whether the genotype is undefined or reference
-      # Uses the input-file provided reference, because not clear what to do in discordant case
-      if( $geno eq 'N' || $geno eq $inputDataAref->[$i][$referenceFieldIdx] ) {
+    ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
+    SAMPLE_LOOP: for my $id ( @$sampleIDaref ) {
+      my $geno = $inputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
+
+      if( $geno eq 'N' || $geno eq $givenRef ) {
         next SAMPLE_LOOP;
       }
 
       if ( $self->isHet($geno) ) {
-        $output[$i]{$heterozygousIdsKey} .= "$id;";
+        $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
 
-        if( $self->isCompoundHeterozygote($geno, $inputDataAref->[$i][$referenceFieldIdx] ) ) {
-          $output[$i]{$compoundIdsKey} .= "$id;";
+        if( $self->isCompoundHeterozygote($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
+          $outAref->[$i]{$compoundIdsKey} .= "$id;";
         }
       } elsif( $self->isHomo($geno) ){
-        $output[$i]{$homozygousIdsKey} .= "$id;";
+        $outAref->[$i]{$homozygousIdsKey} .= "$id;";
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
       }
+
+      #statistics calculator wants the actual genotype
+      #but we're not using this for now
+      #$sampleIDtypes[3]->{$id} = $geno;
     }
 
-    if   ($output[$i]{$homozygousIdsKey}) { chop $output[$i]{$homozygousIdsKey}; }
-    if   ($output[$i]{$heterozygousIdsKey}) { chop $output[$i]{$heterozygousIdsKey}; }
-    if   ($output[$i]{$compoundIdsKey}) { chop $output[$i]{$compoundIdsKey}; }
+    if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
+    if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
+    if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
+
+    #Could check for discordant bases here
+    
+    #Annotate the Indel, which is a bit like annotating a bunch of other
+    #sites
+    #and is held in a separate package, Sites::Indels
+    #it takes the chr, and the current site's annotation data
+    #then it will fetch the required sites, and get the gene track
+    #TODO: finish implementing
+    #$self->annotateIndel( $chr, \%singleLineOutput, $inputAref->[$i] );
+
+    #Indels
   }
 
-  return \@output;
+  return $outAref;
 }
 
 __PACKAGE__->meta->make_immutable;
