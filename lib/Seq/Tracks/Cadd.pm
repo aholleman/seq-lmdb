@@ -7,53 +7,41 @@ package Seq::Tracks::Cadd;
 #A track whose features are only reported if they match the minor allele 
 #present in the sample
 #Called cadd because at the time of writing it's the 
-use Moose;
+use Moose 2;
 use namespace::autoclean;
 extends 'Seq::Tracks::Get';
 
-use DDP;
-
+state $order = {
+  A => {
+    C => 0,
+    G => 1,
+    T => 2,
+  },
+  C => {
+    G => 0,
+    T => 1,
+    A => 2,
+  },
+  G => {
+    T => 0,
+    A => 1,
+    C => 2,
+  },
+  T => {
+    A => 0,
+    C => 1,
+    G => 2,
+  }
+};
 
 #accepts $self, $dataHref, $chr (not used), $altAlleles
 #@param <String|ArrayRef> $altAlleles : the alleles, like A,C,T,G or ['A','C','T','G'] 
 sub get {
-  state $order = {
-    A => {
-      C => 0,
-      G => 1,
-      T => 2,
-    },
-    C => {
-      G => 0,
-      T => 1,
-      A => 2,
-    },
-    G => {
-      T => 0,
-      A => 1,
-      C => 2,
-    },
-    T => {
-      A => 0,
-      C => 1,
-      G => 2,
-    }
-  };
-
-  state $tracks = Seq::Tracks::SingletonTracks->new();
-
-  state $refTrack = $tracks->getRefTrackGetter();
-
   #my ($self, $href, $chr, $position, $refBase, $altAlleles) = @_
   # $_[0] == $self
   # $_[1] == $href
   # $_[4] == $refBase
   # $_[5] == $altAlleles
-  
-  #no alleles ($_[5] == $altAlleles)
-  if( !$_[5] ) {
-    return undef;
-  }
 
   # if (!defined $order->{ $refBase} )
   if (!defined $order->{ $_[4] } ) {
