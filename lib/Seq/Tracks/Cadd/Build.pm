@@ -30,6 +30,10 @@ use DDP;
 
 use MCE::Loop;
 
+has '+based' => (
+  default => 1,
+);
+
 #my $pm = Parallel::ForkManager->new(26); 
 sub buildTrack {
   my ($self) = @_;
@@ -41,21 +45,7 @@ sub buildTrack {
   my ($file) = $self->all_local_files;
 
   my $fh = $self->get_read_fh($file);
-
-  my %data = ();
-  my $wantedChr;
   
-  my $chr;
-  my $featureIdxHref;
-  my $reqIdxHref;
-
-  my $count = 0;
-
-  # sparse track should be 1 based
-  # we have a method ->zeroBased, but in practice I find it more confusing to use
-  my $based = $self->based;
-
-
   if( ! ~index $fh->getline(), '#') {
     close $fh;
     goto &buildTrackFromHeaderlessWigFix;
@@ -93,7 +83,6 @@ sub buildTrackFromHeaderlessWigFix {
 
   my $fh = $self->get_read_fh($file);
   
-  my %data = ();
   my $wantedChr;
   
   my $singleWantedChrRegex;
@@ -102,22 +91,13 @@ sub buildTrackFromHeaderlessWigFix {
     $singleWantedChrRegex = qr/$singleWantedChrRegex/;
   }
 
-  my $chr;
-  my $featureIdxHref;
-  my $reqIdxHref;
-
   my $count = 0;
-
-  my @positions;
-  my @inputData;
 
   # sparse track should be 1 based
   # we have a method ->zeroBased, but in practice I find it more confusing to use
   my $based = $self->based;
 
   my $delimiter = $self->delimiter;
-
-  my %results;
 
   MCE::Loop::init {
     chunk_size => 2e8, #read in chunks of 200MB
@@ -163,6 +143,7 @@ sub buildTrackFromHeaderlessWigFix {
       #if this chr has more than $self->commitEvery records, put it in db
       if( $count{ $sLine[0] } == $self->commitEvery ) {
         MCE->gather($self, { $sLine[0] => $out{ $sLine[0] } } );
+        
         $out{ $sLine[0] } = {};
         $count{ $sLine[0] } = 0;
       }
@@ -175,6 +156,9 @@ sub buildTrackFromHeaderlessWigFix {
     if(%out) {
       MCE->gather($self, \%out);
     }
+
+    undef %out;
+    undef %count;
   } $fh;
 
   $self->log('info', 'finished building: ' . $self->name);
@@ -188,6 +172,8 @@ sub writeToDatabase {
       $self->dbPatchBulk($chr, $resultRef->{$chr} );
     }
   }
+
+  undef $resultRef;
 }
 
 __PACKAGE__->meta->make_immutable;
