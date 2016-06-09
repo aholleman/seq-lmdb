@@ -283,13 +283,14 @@ sub get {
       my $alleleCodonSequence = $refCodonSequence;
       substr($alleleCodonSequence, $unpackedSites[$i]->{ $siteUnpacker->codonPositionKey }, 1 ) = $allele;
 
-      push @{ $out{$newAminoAcidKey} }, $alleleCodonSequence;
+      my $newAmino = $codonMap->codon2aa($refCodonSequence);
+      push @{ $out{$newAminoAcidKey} }, $newAmino;
       
       # say "allele is $allele, position is $unpackedSites[$i]->{ $siteUnpacker->codonPositionKey }";
       # say "new aa is $refCodonSequence";
 
       # If reference codon is same as the allele-substititued version, it's a Silent site
-      if( $codonMap->codon2aa($refCodonSequence) eq $codonMap->codon2aa($alleleCodonSequence) ) {
+      if( $codonMap->codon2aa($refCodonSequence) eq $newAmino ) {
         push @accum, $silent;
       } else {
         push @accum, $replacement;

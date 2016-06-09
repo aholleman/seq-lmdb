@@ -79,7 +79,7 @@ sub makeOutputString {
                 next ACCUM;
               }
 
-              $accum .= join(";", $_) . ";";
+              $accum .= join(";", @$_) . ";";
 
               next ACCUM;
             }
@@ -139,7 +139,7 @@ sub makeOutputString {
             next ACCUM;
           }
 
-          $accum .= join(";", $_) . ";";
+          $accum .= join(";", @$_) . ";";
 
           next ACCUM;
         }

@@ -324,6 +324,12 @@ sub finishAnnotatingLines {
 
     my $givenRef = $inputAref->[$i][$referenceFieldIdx];
 
+    #TODO: figure out if we should actually output a line for this case
+    if( $outAref->[$i]{$refTrackName} eq 'N') {
+      $self->log('warn', "Reference is 'N' in this assembly. You may have chosen the wrong assembly.");
+      next;
+    }
+
     if( $outAref->[$i]{$refTrackName} ne $givenRef) {
       $self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
     }

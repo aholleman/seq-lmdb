@@ -6,7 +6,7 @@ package MockAnnotationClass;
 use lib './lib';
 use Moose;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
-extends 'Seq::Base';
+extends 'Seq::Tracks';
 with 'Seq::Role::DBManager';
 
 #__PACKAGE__->meta->
@@ -23,11 +23,11 @@ my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
 );
 
-my $refTrack = $tracks->getRefTrackGetter();
-my $snpTrack = $tracks->getTrackGetterByName('snp142');
-my $phyloPTrack = $tracks->getTrackGetterByName('phyloP');
-my $phastConsTrack = $tracks->getTrackGetterByName('phastCons');
-my $geneTrack = $tracks->getTrackGetterByName('refSeq');
+my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
+my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp142');
+my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
+my $phastConsTrack = $tracks->singletonTracks->getTrackGetterByName('phastCons');
+my $geneTrack = $tracks->singletonTracks->getTrackGetterByName('refSeq');
 p $refTrack;
 p $snpTrack;
 p $phyloPTrack;
@@ -63,4 +63,10 @@ $snpValHref = $snpTrack->get($dataAref);
 ok(!defined $snpValHref,
   "no snp142 sparse track exists beyond the end of the snp142 input text file,
     which ends at chr1:249240604-249240605");
+p $dataAref;
+
+$dataAref = $tracks->dbRead('chr1', 4252994 - 1);
+
+
+$dataAref = $tracks->dbRead('chr1', 10918);
 p $dataAref;

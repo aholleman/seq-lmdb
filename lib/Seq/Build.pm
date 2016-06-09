@@ -80,18 +80,6 @@ sub BUILD {
     p @builders;
   }
 
-  #TODO: decide whether we really want this
-  my $refTrackBuilder = $self->singletonTracks->getRefTrackBuilder();
-
-  $self->log('info', "Verifying that needed reference tracks are built");
-
-  my $err = $refTrackBuilder->buildTrack();
-
-  if($err) {
-    $self->log('fatal', "Building reference tracks failed due to: $err");
-  }
-
-  $self->log('info', "Finished checking the requisite reference tracks");
       
   #TODO: return error codes from the rest of the buildTrack methods
   for my $builder (@builders) {
@@ -102,9 +90,6 @@ sub BUILD {
     #and of course if the user requests we overwrite, lets respect that
     #but I've for now decided to encapsulate the overwrite check within the 
     #reference track build method
-    if($builder->name eq $refTrackBuilder->name) {
-      next;
-    }
 
     $self->log('info', "Started building " . $builder->name );
     

@@ -23,11 +23,11 @@ my $tracks = MockAnnotationClass->new_with_config(
   { configfile =>'./config/hg19.lmdb.yml'}
 );
 
-my $refTrack = $tracks->getRefTrackGetter();
-my $snpTrack = $tracks->getTrackGetterByName('snp142');
-my $phyloPTrack = $tracks->getTrackGetterByName('phyloP');
-my $phastConsTrack = $tracks->getTrackGetterByName('phastCons');
-my $geneTrack = $tracks->getTrackGetterByName('refSeq');
+my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
+my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp142');
+my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
+my $phastConsTrack = $tracks->singletonTracks->getTrackGetterByName('phastCons');
+my $geneTrack = $tracks->singletonTracks->getTrackGetterByName('refSeq');
 p $refTrack;
 p $snpTrack;
 p $phyloPTrack;
