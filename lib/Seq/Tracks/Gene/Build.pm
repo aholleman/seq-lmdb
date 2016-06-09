@@ -1,13 +1,3 @@
-#
-##### TODO: Split off the region track building, and insertion of 
-###### the pointer to the correct item into RegionTracks
-####### Until then, we only have the special case "GeneTrack"
-#
-### For now: Gene tracks are just weird, and we ignore any user supplied features
-# We just give them what we think is useful
-# Anything they want in addition to that can be specified as a region track
-# Using the existing system, although maybe we will need to specify 
-# a "region_features" key
 use 5.10.0;
 use strict;
 use warnings;
@@ -16,38 +6,12 @@ package Seq::Tracks::Gene::Build;
 
 our $VERSION = '0.001';
 
-#TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
-
 # ABSTRACT: Builds Gene Tracks 
     # Takes care of gene_db, transcript_db, and ngene from the previous Seqant version
 
-#We precalculate everything in this class
-#So individual feature names should not need to be known by 
-#the class that retrieves this data
-#We define what we want at build time, and at run time just look it up.
-#Every build track should follow a similar philosophy
+    #Inserts a single value <ArrayRef> @ $self->name
+    #If $self->nearest defined, inserts a <Int> @ $self->nearestFeatureName
 
-# VERSION
-
-=head1 DESCRIPTION
-
-  @class B<Seq::Build::GeneTrack>
-
-  TODO: Describe
-
-Used in:
-
-=for :list
-
-* Seq::Build:
-* Seq::Config::SparseTrack
-    The base class for building, annotating sparse track features.
-    Used by @class Seq::Build
-    Extended by @class Seq::Build::SparseTrack, @class Seq::Fetch::Sql,
-
-Extended in: None
-
-=cut
 
 use Moose 2;
 use namespace::autoclean;
@@ -60,23 +24,23 @@ use Seq::Tracks::Gene::Build::TX;
 use DDP;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Tracks::Region::Definition', 'Seq::Tracks::Gene::Definition';
 
-# This builder is a bit different. We're going to store not only data in the
-# main, genome-wide database (which has sparse stuff)
-# but also a special sparse database, the region database
-# for this, we need
+#exports regionTrackPath
+with 'Seq::Tracks::Region::Definition',
+#exports siteFeatureName, nearestGeneFeatureName, ucscGeneAref
+'Seq::Tracks::Gene::Definition';
 
-
-#what the chromosome field name is in the source file
-#know that we would need to update the ucscGeneAref as well
-has chrFieldName => (is => 'ro', lazy => 1, default => 'chrom' );
-has transcriptStartFieldName => (is => 'ro', lazy => 1, default => 'txStart' );
+#can be overwritten if needed in the config file, as described in Tracks::Build
+has chrom_field_name => (is => 'ro', lazy => 1, default => 'chrom' );
+has txStart_field_name => (is => 'ro', lazy => 1, default => 'txStart' );
+has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
 
 #give the user some sensible defaults, in case they don't specify anything
 #by default we exclude exonStarts and exonEnds
 #because they're long, and there's little reason to store anything other than
 #naming info in the region database, since we use starts and ends for site-specific stuff
+#doing this also guarantees that at BUILD time, we will generate dbNames
+#for all features, see Tracks::Base
 has '+features' => (
   default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
 );
@@ -88,9 +52,13 @@ sub BUILD {
   #We have some extras, so make sure those are mapped before we start 
   #any parallel processing
 
+  #nearest genes are pseudo-tracks
+  #they're stored under their own track names, but that name
+  #is private to the track under which they were defined
+  #the implementation details of this are private, no one should care
+  #because the track name they use if based on $self->name
+  #which is guaranteed to be unique at run time
   $self->getFieldDbName($self->nearestGeneFeatureName);
-  $self->getFieldDbName($self->regionReferenceFeatureName);
-  $self->getFieldDbName($self->siteFeatureName);
 }
 
 #note, if the user chooses to specify features, but doesn't include whatever
@@ -122,7 +90,7 @@ sub buildTrack {
       my %perSiteData;
       
       #lets map, for each chromosome the transcript start, and the transcript number
-      my %perChromosomeTranscriptStarts;
+      my %txStartData;
 
       my $wantedChr;
       
@@ -130,11 +98,6 @@ sub buildTrack {
       #track how many region track records we've collected
       #to gauge when to bulk insert
       my $regionCount = 0; 
-
-      #We will be inserting two fields into every single site that is covered
-      #by a gene
-      my $regionReferenceDbFieldName = $self->getFieldDbName($self->regionReferenceFeatureName);
-      my $siteFeatureDbFieldName = $self->getFieldDbName($self->siteFeatureName);
 
       #we'll also store a nearest gene field ($self->nearestGeneFeatureName)
       #but that's done at the end
@@ -159,7 +122,7 @@ sub buildTrack {
           }
 
           #however, this package absolutely needs the chromosome field
-          if( !defined $allIdx{$self->chrFieldName} ) {
+          if( !defined $allIdx{$self->chrom_field_name} ) {
             $self->log('fatal', 'must provide chromosome field');
           }
 
@@ -191,7 +154,7 @@ sub buildTrack {
         #also, we try to avoid assignment operations when not onerous
         #but here not as much of an issue; we expect only say 20k genes
         #and only hundreds of thousands to low millions of transcripts
-        my $chr = $fields[ $allIdx{$self->chrFieldName} ];
+        my $chr = $fields[ $allIdx{$self->chrom_field_name} ];
 
         #if we have a wanted chr
         if( $wantedChr ) {
@@ -247,19 +210,28 @@ sub buildTrack {
           }
 
           # if this is a field that we need to store in the region db
+          # create a shortened field name
           my $dbName = $self->getFieldDbName($fieldName);
           
+          #store under a shortened fieldName
           $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
         }
 
-        my $txStart = $allDataHref->{$self->transcriptStartFieldName};
+        my $txStart = $allDataHref->{$self->txStart_field_name};
         
         if(!$txStart) {
           $self->log('fatal', 'Missing transcript start ( we expected a value @ ' .
-            $self->transcriptStartFieldName . ')');
+            $self->txStart_field_name . ')');
         }
 
-        $perChromosomeTranscriptStarts{$wantedChr}{$txStart} = $txNumber;
+        my $txEnd = $allDataHref->{$self->txEnd_field_name};
+        
+        if(!$txEnd) {
+          $self->log('fatal', 'Missing transcript start ( we expected a value @ ' .
+            $self->txEnd_field_name . ')');
+        }
+
+        $txStartData{$wantedChr}{$txStart} = [$txNumber, $txEnd];
 
         # The responsibility of this BUILD class, as a superset of the Region build class
         # Is to
@@ -276,10 +248,11 @@ sub buildTrack {
           $tRegionDataHref->{$dbName} = \@txErrors;
         }
         
-        #we prepare the region data to store in the region database
-        #we key on transcript so that we can match our region reference 
+        #we are already storing the region data under a special database name
+        #which is based on $self->name, so no need to $self->prepare the data
+        #we key on transcript number so that we can match our region reference 
         #entry in the main database
-        $regionData{$txNumber} = $self->prepareData($tRegionDataHref);
+        $regionData{$txNumber} = $tRegionDataHref;
 
         #And we're done with region database handling
         #So let's move on to the main database entries,
@@ -305,35 +278,13 @@ sub buildTrack {
         # and fetched by that class. We don't need to know exactly how it's stored
         # but for our amusement, it's packed into a single string
         POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
-          my $dataHref = {
-            #remember, we always insert some very short name in the database
-            #to save on space
-            #the reference to the region database entry
-            #Region tracks also do this, so we get the name from Region::Definition
-            $regionReferenceDbFieldName => $txNumber,
-            #every detail related to the gene that is specific to that site in the ref
-            #like codon sequence, codon number, codon position,
-            #strand also stored here, but only for convenience
-            #could be taken out later to save space
-            $siteFeatureDbFieldName => $txInfo->getTranscriptSite($pos),
-          };
-
+          #we always insert a reference to the region database entry
+          #and some site-specific information about this position
           if(defined $perSiteData{$wantedChr}->{$pos} ) {
-            for my $key (keys %$dataHref) {
-              if(defined $perSiteData{$wantedChr}->{$pos}{$key} ) {
-                if(!ref $perSiteData{$wantedChr}->{$pos}{$key} ||
-                ref $perSiteData{$wantedChr}->{$pos}{$key} ne 'ARRAY') {
-                  $perSiteData{$wantedChr}->{$pos}{$key} = [$perSiteData{$wantedChr}->{$pos}{$key}];
-                }
-                push @{ $perSiteData{$wantedChr}->{$pos}{$key} }, $dataHref->{$key};
-              } else {
-                $perSiteData{$wantedChr}->{$pos}{$key} = $dataHref->{$key};
-              }
-            }
-
-            next POS_DATA;
+            push @{ $perSiteData{$wantedChr}->{$pos} }, [ $txNumber, $txInfo->getTranscriptSite($pos) ] ;
+          } else {
+            $perSiteData{$wantedChr}->{$pos} = [ [ $txNumber, $txInfo->getTranscriptSite($pos) ] ];
           }
-          $perSiteData{$wantedChr}->{$pos} = $dataHref;
         }
 
         #iterate how many region sites we've accumulated
@@ -361,6 +312,12 @@ sub buildTrack {
       #but that wouldn't completely guarantee the proper accumulation
       #for out of order multi-chr files
       #so we wait until the end
+
+      if($self->debug) {
+        say "at end, number of chr is " . scalar keys %perSiteData;
+      }
+
+      #could parallelize if > 1 chr
       for my $chr (keys %perSiteData) {
         my %accumData;
         my $accumCount;
@@ -382,10 +339,12 @@ sub buildTrack {
         }
       }
 
-      # %perChromosomeTranscriptStarts will empty if chr wasn't the requested one
+      # %txStartData will empty if chr wasn't the requested one
       # and we're using one file per chr
-      if(%perChromosomeTranscriptStarts && !$self->noNearestFeatures) {
-        $self->makeNearestGenes( \%perChromosomeTranscriptStarts );
+      if(%txStartData && !$self->noNearestFeatures) {
+        $self->log('info', "Beginning to write ". $self->name .".nearest records");
+        $self->makeNearestGenes( \%txStartData, \%perSiteData );
+        $self->log('info', "Finished writing ". $self->name .".nearest records");
       }
 
     $pm->finish;
@@ -398,31 +357,62 @@ sub buildTrack {
 #Note: all UCSC refGene data is 0-based
 #http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
 sub makeNearestGenes {
-  my ($self, $perChromosomeTranscriptStarts) = @_;
+  my ($self, $txStartData, $coveredSitesHref) = @_;
   
   #get the nearest gene feature name that we want to use in our database (expect some integer)
-  my $ngFeatureDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
+  my $nearestGeneDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
   
-  #$perChromosomeTranscriptStarts holds everything that has been covered
-  for my $chr (keys %$perChromosomeTranscriptStarts) {
+  #$txStartData holds everything that has been covered
+  for my $chr (keys %$txStartData) {
     #length of the database
     #assumes that the database is built, using reference track
 
     #coveredGenes is either one, or an array
     my @allTranscriptStarts = sort {
       $a <=> $b
-    } keys %{ $perChromosomeTranscriptStarts->{$chr} };
+    } keys %{ $txStartData->{$chr} };
   
     my $count = 0;
     my %out;
     my $i = 0;
-    for my $txStart (@allTranscriptStarts) {
-      my $txNumber = $perChromosomeTranscriptStarts->{$chr}->{$txStart};
 
-      #returns trackName => { $ngFeatureDbName => $txNumber }
-      my $txData = $self->prepareData( { $ngFeatureDbName => $txNumber } );
+    for (my $n = 0; $n < @allTranscriptStarts; $n++) {
+      my $txStart = $allTranscriptStarts[$n];
+      my ($txNumber, $txEnd) = $txStartData->{$chr}->{$txStart};
+
+      # not using $self->prepareData( , because that would put this
+      # under the gene track designation
+      # in order to save a few gigabytes, we're putting it under its own
+      # key
+      # so that we can store a single value for the main track (@ $self->name )
+      my $txData = { $nearestGeneDbName => $txNumber };
+
+      my ($previousTxStart, $previousTxNumber, $previousTxEnd, $previousTxData);
+
+      $previousTxStart = $allTranscriptStarts[$n - 1];
+
+      my $midPoint;
+
+      if($previousTxStart) {
+        ($previousTxNumber, $previousTxEnd) = $txStartData->{$chr}{$previousTxStart};
+        
+        # not using $self->prepareData( , because that would put this
+        # under the gene track designation
+        # in order to save a few gigabytes, we're putting it under its own
+        # key
+        # so that we can store a single value for the main trakc
+        $previousTxData = { $nearestGeneDbName => $previousTxNumber };
+
+        $midPoint = $txStart + ( ($txStart - $previousTxStart ) / 2 );
+      }
 
       for(my $y = $i; $y < $txStart; $y++) {
+        #exclude anything covered by a gene, save space in the database
+        #we can conclude that the nearest gene for something covered by a gene
+        #is itself (and in overlap case, the list of genes it overlaps)
+        if(defined $coveredSitesHref->{$chr}{$y} ) {
+          next;
+        }
 
         if($count >= $self->commitEvery && %out) {
           #1 flag to merge whatever is held in the $self->name value in the db
@@ -432,14 +422,26 @@ sub makeNearestGenes {
           $count = 0;
         }
 
-        $out{$y} = $txData;
+        if($previousTxStart && $y < $midPoint) {
+          $out{$y} = $previousTxData;
+
+          if($self->debug) {
+            say "$chr:$y is before the midpoint of $midPoint, "
+             . " so using previousTxData for $previousTxStart";
+          }
+        } else {
+          #so will give the next one for $y >= $midPoint
+          $out{$y} = $txData;
+        }
 
         $count++;
       }
 
       #once we're in one transcript, the nearest is the next closest transcript
-      #so let's start with the current txStart as our new baseline position
-      $i = $txStart;
+      #so let's start with the current txEnd as our new baseline position
+      #note taht since txEnd is open range, txEnd is also the first base
+      #past the end of this transcript
+      $i = $txEnd;
     }
 
     #leftovers
@@ -450,4 +452,3 @@ sub makeNearestGenes {
 }
 __PACKAGE__->meta->make_immutable;
 1;
-

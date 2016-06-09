@@ -301,7 +301,24 @@ sub _buildTranscriptAnnotation {
   my $nonCoding = $self->cdsStart == $self->cdsEnd;
 
   my $txAnnotationHref;
-  #First generated the non-coding, 5'UTR, 3'UTR annotations
+
+  # Store intron site type if that's what this is
+  # Note that the splice loop below this will ovewrite any positions that are
+  # Called Splice Sites
+  INTRON_LOOP: for ( my $i = 0; $i < @exonEnds; $i++ ) {
+    my $thisExonEnd = $exonEnds[$i];
+    my $nextExonStart = $exonStarts[$i + 1];
+
+    if(!$nextExonStart) {
+      last INTRON_LOOP;
+    }
+    #exon Ends are open, so the exon actually ends $exonEnds - 1
+    for (my $intronPos = $thisExonEnd; $intronPos < $nextExonStart; $intronPos++ ) {
+      $txAnnotationHref->{$intronPos} = $codonPacker->siteTypeMap->intronicSiteType;
+    }
+  }
+
+  #Then stroe non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
     UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
       if($nonCoding) {

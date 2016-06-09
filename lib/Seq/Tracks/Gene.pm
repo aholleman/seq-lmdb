@@ -2,7 +2,6 @@ use 5.10.0;
 use strict;
 use warnings;
 
-#### TODO: Could do a better job optimizing for non-multiallelic sites ####
 package Seq::Tracks::Gene;
 
 our $VERSION = '0.001';
@@ -11,15 +10,12 @@ our $VERSION = '0.001';
 
   @class B<Seq::Gene>
   
-  Takes a hash ref (which presumably comes from the database)
-  And returns a hash ref with {
-    feature1 => value1,
-    etc
-  }
+  Note: unlike previous SeqAnt, there is no longer a genomic_type
+  Just a siteType, which is Intronic, Coding, 5UTR, etc
+  This is just like Annovar's
+  We add "Intergenic" if not covered by any gene
 
-  Also adds a regionType, siteType, and txEffects key
-  
-  Handles indels
+  This class also handles intergenic sites
 
 =cut
 
@@ -36,7 +32,7 @@ use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
 
-#regionReferenceFeatureName and regionTrackPath
+#exports regionTrackPath
 with 'Seq::Tracks::Region::Definition',
 #siteFeatureName, defaultUCSCgeneFeatures, nearestGeneFeatureName
 'Seq::Tracks::Gene::Definition',
@@ -51,15 +47,13 @@ state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 ### Additional "features" that we will add to our output ###
 state $refAminoAcidKey = 'referenceAminoAcid';
 state $newAminoAcidKey = 'newAminoAcid';
-state $regionTypeKey = 'regionType';
+
 state $nearestGeneSubTrackName = 'nearest';
 state $siteTypeKey = 'siteType';
-state $txEffectsKey = 'txEffect';
+state $txEffectsKey = 'proteinEffect';
 
-### region type possible values ###
+### Positions that aren't covered by a refSeq record are intergenic ###
 state $intergenic = 'Intergenic';
-state $intronic = 'Intronic';
-state $exonic = 'Exonic';
 
 ### txEffect possible values ###
 state $silent = 'Silent';
@@ -82,8 +76,8 @@ state $allCachedDbNames;
 override 'BUILD' => sub {
   my $self = shift;
 
-  $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, $regionTypeKey,
-    $siteTypeKey, $txEffectsKey, $refAminoAcidKey, $newAminoAcidKey], $self->name);
+  $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, $siteTypeKey, $txEffectsKey, 
+    $refAminoAcidKey, $newAminoAcidKey], $self->name);
 
   my @nearestFeatureNames = $self->allNearestFeatureNames;
   
@@ -94,15 +88,17 @@ override 'BUILD' => sub {
 
   ###Build up a list of fieldDbNames; these are called millions of times ###
   $allCachedDbNames->{$self->name} = {
-    $self->siteFeatureName => $self->getFieldDbName($self->siteFeatureName),
+    #nearest gene is a pseudo-track, stored as it's own key, outside of
+    #$self->name, but in a unique name based on $self->name that is defined
+    #by the gene track (in the future region tracks will follow this method)
     $self->nearestGeneFeatureName => $self->getFieldDbName($self->nearestGeneFeatureName),
-    $self->regionReferenceFeatureName => $self->getFieldDbName($self->regionReferenceFeatureName),
   };
 
   for my $featureName ($self->allFeatureNames) {
     $allCachedDbNames->{$self->name}->{$featureName} = $self->getFieldDbName($featureName);
   }
 
+  #the features specified in the region database which we want for nearest gene records
   for my $nearestFeatureName ($self->allNearestFeatureNames) {
     $allCachedDbNames->{$self->name}->{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
   }
@@ -118,14 +114,7 @@ override 'BUILD' => sub {
 sub get {
   my ($self, $href, $chr, $dbPosition, $refBase, $allelesAref) = @_;
 
-  #### Get all of the region data if not already fetched
-  #we expect the region database to look like
-  # {
-  #  someNumber => {
-  #    $self->name => {
-  #     someFeatureDbName1 => val1,
-  #     etc  
-  #} } }
+  ################# Cache track's region data ##############
   state $geneTrackRegionHref = {};
   if(!defined $geneTrackRegionHref->{$self->name}->{$chr} ) {
     $geneTrackRegionHref->{$self->name}->{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
@@ -133,94 +122,86 @@ sub get {
 
   my $regionData = $geneTrackRegionHref->{$self->name}->{$chr};
 
-  # Gene track data stored in the main database, for this position
-  my $geneData = $href->{$self->dbName};
-  
   # Cached field names to avoid extra $self->dbName overhead, easier to read
   my $cachedDbNames = $allCachedDbNames->{$self->name};
+
+  # is an <ArrayRef> of [ [$referenceNumberToRegionDatabase, $siteData], ... ]
+  my $trackDataAref = $href->{$self->dbName};
+
+  my (@txNumbers, @siteData);
+  for my $dataAref (@$trackDataAref) {
+    #$dataAref[0] is the txNumber in each pair
+    #the region database keys are txNumber(s)
+    push @txNumbers, $regionData->{$dataAref->[0]};
+    push @siteData, $regionData->{$dataAref->[1]}; 
+  }
 
   my %out;
 
   ################# Populate nearestGeneSubTrackName ##############
   if(!$self->noNearestFeatures) {
+    # nearest genes are sub tracks, stored under their own key, based on $self->name
     # this is a reference to something stored in the gene tracks' region database
-    my $nearestGeneNumber = $geneData->{ $cachedDbNames->{$self->nearestGeneFeatureName} };
+    my $nearestGeneNumber = $href->{$self->nearestGeneFeatureName};
 
     #may not have one at the end of a chromosome
+    #and no nearest gene reference is given for sites in a gene
     if($nearestGeneNumber) {
       for my $nFeature ($self->allNearestFeatureNames) {
-        $out{"$nearestGeneSubTrackName.$nFeature"} = $regionData->{$nearestGeneNumber}
-          ->{$self->dbName}->{ $cachedDbNames->{$nFeature} };
+        $out{"$nearestGeneSubTrackName.$nFeature"} =
+          $regionData->{$nearestGeneNumber}->{ $cachedDbNames->{$nFeature} };
       }
+    } elsif(@txNumbers) {
+      #TODO: could reduce { } to unique set, to lessen chances of multiple identical sites
+      #in case of multiple transcripts covering
+      foreach (@txNumbers) {
+        for my $nFeature ($self->allNearestFeatureNames) {
+          $out{"$nearestGeneSubTrackName.$nFeature"} = $regionData->{$_}->{ $cachedDbNames->{$nFeature} };
+        }
+      }
+    } else {
+      $self->log('warn', "no " . $self->name . " or " . $self->nearestGeneFeatureName . " found");
     }
   } 
 
   ################# Check if this position is in a place covered by gene track #####################
-  #a single position may cover one or more sites
-  #we expect either a single value (href in this case) or an array of them
-
-  # if $href has
-  # {
-  #  $self->regionReferenceFeatureName => someNumber
-  #}
-  #this position covers these genes
-  my $geneRegionNumberRef = $geneData->{ $cachedDbNames->{$self->regionReferenceFeatureName} };
-
-  ################# Populate $regionTypeKey if no gene is covered #####################
-  if(!$geneRegionNumberRef) {
-    $out{$regionTypeKey} = $intergenic;
+  if(!$trackDataAref) {
+    $out{$siteTypeKey} = $intergenic;
     return \%out;
   }
 
   ################# Populate geneTrack's user-defined features #####################
-  my $regionDataAref = ref $geneRegionNumberRef ? [ map { $regionData->{$_}->{$self->dbName} } @$geneRegionNumberRef ]
-    : [ $regionData->{$geneRegionNumberRef}->{$self->dbName} ];
-  
-  #now go from the database feature names to the human readable feature names
-  #and include only the featuers specified in the yaml file
-  #each $pair <ArrayRef> : [dbName, humanReadableName]
-  #and if we don't have the feature, that's ok, we'll leave it as undefined
-  #also, if no features specified, then just get all of them
-  #better too much than too little
   for my $featureName ($self->allFeatureNames) {
-    INNER: for my $geneDataHref (@$regionDataAref) {
-      push @{ $out{$featureName} }, $geneDataHref->{ $cachedDbNames->{$featureName} };
+    INNER: for my $txNumber (@txNumbers) {
+      #dataAref == [$txNumber, $siteData]
+      push @{ $out{$featureName} }, $regionData->{$txNumber}{ $cachedDbNames->{$featureName} };
     }
   }
 
-  my $siteDetailsRef = $geneData->{ $cachedDbNames->{$self->siteFeatureName} };
-
-  ###### save unpacked sites, for use in txEffectsKey population #####
-  my @unpackedSites;
-
   ################## Populate site information ########################
-  if( !$siteDetailsRef ) {
+  if( !@siteData ) {
     $self->log('warn', "Position $chr:@{[$dbPosition+1]} covered a gene" .
       " but didn't have site info. This is a database build error");
     
     return \%out;
   }
 
-  ################# Populate all $siteUnpacker->allSiteKeys and $retionTypeKey #####################
-  if(!ref $siteDetailsRef) {
-    $siteDetailsRef = [$siteDetailsRef];
-  }
+  ###### save unpacked sites, for use in txEffectsKey population #####
+  my @unpackedSites;
 
-  foreach (@$siteDetailsRef) {
+  ################# Populate all $siteUnpacker->allSiteKeys and $retionTypeKey #####################
+  foreach (@siteData) {
     #update the item in the array, to avoid allocating a new array for the purpose
     my $site = $siteUnpacker->unpackCodon($_);
 
     for my $key (keys %$site) {
-      #### Populate the regionTypeKey, which can be Exonic or Intronic ###
-      if($key eq $siteUnpacker->siteTypeKey) {
-        if( $siteTypeMap->isExonicSite( $site->{$key} ) ) {
-          $out{$regionTypeKey} = $exonic;
-        }
-      }
-
       #### Populate refAminoAcidKey; note that for a single site
       ###    we can have only one codon sequence, so not need to set array of them ###
-      if(defined $site->{$key} && $key eq $siteUnpacker->codonSequenceKey) {
+      if(!defined $site->{$key}) {
+        next;
+      }
+
+      if($key eq $siteUnpacker->codonSequenceKey) {
         push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->{$key} );
       }
 
@@ -230,11 +211,6 @@ sub get {
 
     push @unpackedSites, $site; #save for us in txEffects;
   }
-
-  ### If regionTypeKey not defined we didn't find isExonicSite(), so Intronic
-  if(! $out{$regionTypeKey} ) {
-    $out{$regionTypeKey} = $intronic;
-  } 
 
   ################# Populate $transcriptEffectsKey, $refAminoAcidKey, and $newAminoAcidKey #####################
   ################# We include analysis of indels here, becuase  

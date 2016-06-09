@@ -15,16 +15,18 @@ state $fivePrimeSite = '5UTR';
 has fivePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$fivePrimeSite} );
 state $threePrimeSite = '3UTR';
 has threePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$threePrimeSite} );
-state $spliceAcSite = 'Splice Acceptor';
+state $spliceAcSite = 'SpliceAcceptor';
 has spliceAcSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceAcSite} );
-state $spliceDonSite = 'Splice Donor';
+state $spliceDonSite = 'SpliceDonor';
 has spliceDonSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceDonSite} );
-state $ncRNAsite = 'non-coding RNA';
+state $ncRNAsite = 'NonCodingRNA';
 has ncRNAsiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$ncRNAsite} );
+state $intronicSite = 'Intronic';
+has intronicSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$intronicSite} );
 
 # #Coding type always first; order of interest
 state $siteTypes = [$codingSite, $fivePrimeSite, $threePrimeSite,
-  $spliceAcSite, $spliceDonSite, $ncRNAsite];
+  $spliceAcSite, $spliceDonSite, $ncRNAsite, $intronicSite];
 
 # #public
 has siteTypes => (
@@ -88,6 +90,14 @@ has spliceDonBase => (
   default => 5,
 );
 
+has intronicBase => (
+  is => 'ro',
+  isa => 'Int',
+  init_arg => undef,
+  lazy => 1,
+  default => 6,
+);
+
 #TODO: should constrain values to GeneSiteType
 has siteTypeMap => (
   is => 'ro',
@@ -111,6 +121,7 @@ sub _buildSiteTypeMap {
     $self->threePrimeBase => $threePrimeSite,
     $self->spliceAcBase => $spliceAcSite,
     $self->spliceDonBase => $spliceDonSite,
+    $self->intronicBase => $intronicSite,
   };
 
   return $mapHref;

@@ -85,12 +85,6 @@ sub buildTrackFromHeaderlessWigFix {
   
   my $wantedChr;
   
-  my $singleWantedChrRegex;
-  if($self->wantedChr) {
-    $singleWantedChrRegex = $self->wantedChr;
-    $singleWantedChrRegex = qr/$singleWantedChrRegex/;
-  }
-
   my $count = 0;
 
   # sparse track should be 1 based
@@ -121,9 +115,10 @@ sub buildTrackFromHeaderlessWigFix {
     my %count;
 
     LINE_LOOP: for my $line (@{$_}) {
-      if($singleWantedChrRegex && $line !~ $singleWantedChrRegex) {
+      #wantedChr means user has asked for just one chromosome
+      if($self->wantedChr && index($line, $self->wantedChr) == -1) {
         next LINE_LOOP;
-      } 
+      }
 
       chomp $line;
 
@@ -131,7 +126,7 @@ sub buildTrackFromHeaderlessWigFix {
 
       #if no single --chr is specified at run time,
       #check against list of genome_chrs
-      if(! $singleWantedChrRegex && ! $self->chrIsWanted( $sLine[0] ) ) {
+      if(!$self->chrIsWanted( $sLine[0] ) ) {
         next;
       }
 

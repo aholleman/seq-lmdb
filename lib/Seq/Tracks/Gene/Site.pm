@@ -69,12 +69,12 @@ state $missingNumber = -9;
 sub packCodon {
   my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
+  my @outArray;
+
   #used to require strand too, but that may go away
   if( !$siteType ) {
     $self->log('fatal', 'packCodon requires site type');
-  } elsif( $strand ne '-' && $strand ne '+') {
-    $self->log('fatal', "strand should be a + or -, got $strand");
-  } 
+  }
 
   my $siteTypeNum = $siteTypeMap->getSiteTypeNum( $siteType );
 
@@ -82,40 +82,61 @@ sub packCodon {
     $self->log('fatal', "site type $siteType not recognized");
   }
 
-  if(defined $codonNumber && !defined $codonPosition) {
-    $self->log('fatal', 'if codon number provided also need Position');
-  }
+  #We only require siteTypeNum
+  push @outArray, $siteTypeNum;
 
-  if( defined $codonPosition && defined $codonNumber && 
-  !(looks_like_number( $codonPosition ) && looks_like_number( $codonNumber) ) ) {
-    $self->log('fatal', 'codon position & Number must be numeric');
-  }
-
-  if(defined $codonSeq && !(defined $codonPosition && defined $codonNumber) ) {
-    $self->log('fatal', 'codon sequence requires codonPosition or codonNumber');
-  }
-
-  my $codonSeqNumber;
-
-  if(defined $codonSeq) {
-    $codonSeqNumber = $codonMap->codon2Num($codonSeq);
-
-    #warning for now, this mimics the original codebase
-    #TODO: do we want to store this as an error in the TX?
-    if(!$codonSeqNumber) {
-      $self->log('warn', "couldn\'t convert codon sequence $codonSeq to a number");
+  if( $strand ) {
+    if( $strand ne '-' && $strand ne '+') {
+      $self->log('fatal', "Strand strand should be a + or -, got $strand");
     }
+
+    push @outArray, $strand;
+  }
+
+  if(defined $codonNumber || defined $codonPosition || defined $codonSeq) {
+    if(!defined $codonNumber && !defined $codonPosition && !defined $codonSeq) {
+      $self->log('fatal', "Codons must be given codonNumber, codonPosition, and codonSeq"); 
+    }
+
+    if( !(looks_like_number( $codonPosition ) && looks_like_number( $codonNumber) ) ) {
+      $self->log('fatal', 'codonPosition & codonNumber must be numeric');
+    }
+
+    my $codonSeqNumber;
+
+    if(defined $codonSeq) {
+      $codonSeqNumber = $codonMap->codon2Num($codonSeq);
+
+      #warning for now, this mimics the original codebase
+      #TODO: do we want to store this as an error in the TX?
+      if(!$codonSeqNumber) {
+        $self->log('warn', "couldn\'t convert codon sequence $codonSeq to a number");
+
+        $codonSeqNumber = $missingNumber;
+      }
+    }
+
+    push @outArray, $codonNumber;
+    push @outArray, $codonPosition;
+    push @outArray, $codonSeqNumber;
   }
 
   #c = signed char; A = ASCII string space padded, l = signed long
   #usign signed values to allow for missing data
   #https://ideone.com/TFGjte
-  return pack('cAlcc', 
-    $siteTypeNum, 
-    $strand,
-    defined $codonNumber ? $codonNumber : $missingNumber,
-    defined $codonPosition ? $codonPosition : $missingNumber,
-    defined $codonSeqNumber ? $codonSeqNumber : $missingNumber);
+
+  if(@outArray == 1) {
+    #siteTypeNum only
+    return pack('c', @outArray);
+  }
+
+  if(@outArray == 2) {
+    #siteTypeNum and $strand only
+    return pack('cA', @outArray);
+  }
+
+  #all
+  return pack('cAlcc', @outArray);
 }
 #@param <Seq::Tracks::Gene::Site> $self
 #@param <String> $packedCodon
@@ -127,9 +148,9 @@ sub unpackCodon {
     $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[0]),
     $strandKey => $codon[1],
     #optional; values that may not exist (say a non-coding site)
-    $codonNumberKey => $codon[2] > $missingNumber ? $codon[2] : undef,
-    $codonPositionKey => $codon[3] > $missingNumber ? $codon[3] : undef,
-    $codonSequenceKey => $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
+    $codonNumberKey => $codon[2],
+    $codonPositionKey => $codon[3],
+    $codonSequenceKey => $codon[4] && $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
   };
 }
 

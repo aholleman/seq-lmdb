@@ -45,12 +45,12 @@ has wantedName => (
 );
 
 #not in use atm
-# has buildClean => (
-#   is => 'ro',
-#   isa => 'Bool',
-#   lazy => 1,
-#   default => 0,
-# );
+has buildClean => (
+  is => 'ro',
+  isa => 'Bool',
+  lazy => 1,
+  default => 0,
+);
 
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 

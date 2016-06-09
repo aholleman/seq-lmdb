@@ -493,6 +493,46 @@ sub dbPutBulk {
   $LMDB_File::last_err = 0;
 }
 
+# @param $nameOfKeyToDelete
+# sub dbDeleteKeys {
+#   my ( $self, $chr, $nameOfKeyToDelete) = @_;
+  
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   my $DB = $txn->OpenDB();
+#   #https://metacpan.org/pod/LMDB_File
+#   #avoids memory copy on get operation
+#   $DB->ReadMode(1);
+
+#   my $cursor = $DB->Cursor;
+
+#   my @err;
+
+#   my ($key, $value, %out);
+#   while(1) {
+#     $cursor->get($key, $value, MDB_NEXT);
+
+#     #because this error is generated right after the get
+#     #we want to capture it before the next iteration 
+#     #hence this is not inside while( )
+#     if($LMDB_File::last_err == MDB_NOTFOUND) {
+#       last;
+#     }
+
+#     if($LMDB_FILE::last_err) {
+#       $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+#         $LMDB_FILE::last_err );
+#       push @err, $LMDB_FILE::last_err;
+#       $LMDB_FILE::last_err = 0;
+#       next;
+#     }
+
+#     $txn->commit();
+#   }
+# }
+
 #TODO: Finish; should go over every record in the requested database
 #and write single commit size 
 #we don't care terribly much about performance here, this happens once in a great while,
@@ -503,13 +543,12 @@ sub dbWriteCleanCopy {
   my ( $self, $chr ) = @_;
 
   if($self->dbGetNumberOfEntries($chr) == 0) {
-    $self->log('warn', "Database $chr is empty, canceling clean copy command");
-    return;
+    $self->log('fatal', "Database $chr is empty, canceling clean copy command");
   }
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn();
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my $db2 = $self->_getDbi("$chr\_clean_copy");
   my $dbi2 = $db2->{dbi};
@@ -682,6 +721,7 @@ sub dbReadAll {
 
   return \%out;
 }
+
 #We allow people to update special "Meta" databases
 #The difference here is that for each $databaseName, there is always
 #only one meta database. Makes storing multiple meta documents in a single

@@ -19,6 +19,8 @@ use DDP;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 
+use MCE::Loop;
+
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO'; #all build methods need to read files
 
@@ -173,6 +175,7 @@ around BUILDARGS => sub {
   return $class->$orig(\%data);
 };
 
+###################Prepare Data For Database Insertion ##########################
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
 #retrieves data
@@ -189,21 +192,28 @@ sub prepareData {
   return {
     $_[0]->dbName => $_[1],
   }
-  #could also do this, but this seems more abstracted than necessary
-  # $targetHref->{$pos} = {
-  #   $self->name => $data,
-  # }
 }
 
-# sub BUILD {
-#   my $self = shift;
-#   say "the build filters are";
-#   my $filters = $self->build_row_filters;
-#   p $filters;
+sub deleteTrack {
+  my $self = shift;
 
-#   say "all fields to transform:";
-#   p $self->build_field_transformations;
-# }
+  MCE::Loop->init({
+    max_workers => 26,
+    chunk_size => 1,
+  });
+
+  my @err= mce_loop {
+    my $err = $self->dbDeleteKeys($_. $self->dbName);
+
+    if($err) {
+      MCE->gather($err);
+    }
+  } $self->allWantedChrs;
+
+  return @err;
+}
+
+#########################Type Conversion, Input Field Filtering #########################
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature

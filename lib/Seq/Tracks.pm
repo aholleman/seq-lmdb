@@ -39,8 +39,9 @@ use namespace::autoclean;
 #holds a permanent record of all of the tracks
 use Seq::Tracks::SingletonTracks;
 
+#exports new_with_config
 with 'Seq::Role::ConfigFromFile',
-#we configure the db manager here as well, so we include it
+#exports all the methods prefaced with db* like dbGet
 'Seq::Role::DBManager';
 
 #the only property we mean to export
