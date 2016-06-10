@@ -156,7 +156,6 @@ cpan install MooseX::Types::Path::Tiny
 cpan install DDP
 cpan install YAML::XS
 cpan install Getopt::Long::Descriptive
-cpan install Parallel::ForkManager (deprecated, will be removed)
 cpan install MCE::Loop
 cpan install List::MoreUtils::XS
 cpan install Data::MessagePack

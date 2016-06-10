@@ -97,6 +97,10 @@ sub buildTrackFromHeaderlessWigFix {
     chunk_size => 2e8, #read in chunks of 200MB
     max_workers => 30,
     gather => \&writeToDatabase,
+    user_end => sub {
+      #indicates success
+      return 1;
+    },
   };
 
   mce_loop_f {
@@ -155,8 +159,6 @@ sub buildTrackFromHeaderlessWigFix {
     undef %out;
     undef %count;
   } $fh;
-
-  $self->log('info', 'finished building: ' . $self->name);
 }
 
 sub writeToDatabase {
