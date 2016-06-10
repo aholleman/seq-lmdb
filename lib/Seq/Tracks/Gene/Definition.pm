@@ -7,14 +7,6 @@ use Moose::Role 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
 
 requires 'name';
-#these are two features that are used in the main database
-has siteFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => 'site');
-
-has nearestGeneFeatureName => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
-  my $self = shift;
-
-  return $self->name . '.nearest';
-});
 
 #these is features used in the region database
 has geneTrackRegionDatabaseTXerrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
@@ -43,6 +35,7 @@ state $ucscGeneAref = [
   'description',
   'rfamAcc',
 ];
+
 has ucscGeneAref => (
   is => 'ro', 
   init_arg => undef, 
@@ -52,7 +45,7 @@ has ucscGeneAref => (
   },
   traits => ['Array'],
   handles => {
-    defaultUCSCgeneFeatures => 'elements',
+    allUCSCgeneFeatures => 'elements',
   }
 );
 

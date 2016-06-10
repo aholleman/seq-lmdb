@@ -18,16 +18,14 @@ use namespace::autoclean;
 
 use Parallel::ForkManager;
 
-use List::Util qw/min first/;
-
 use Seq::Tracks::Gene::Build::TX;
 use DDP;
 
 extends 'Seq::Tracks::Build';
 
-#exports regionTrackPath
+#exports regionTrackPath, regionNearestSubTrackName
 with 'Seq::Tracks::Region::Definition',
-#exports siteFeatureName, nearestGeneFeatureName, ucscGeneAref
+#exports allUCSCgeneFeatures
 'Seq::Tracks::Gene::Definition';
 
 #can be overwritten if needed in the config file, as described in Tracks::Build
@@ -42,7 +40,7 @@ has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
 #doing this also guarantees that at BUILD time, we will generate dbNames
 #for all features, see Tracks::Base
 has '+features' => (
-  default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
+  default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
 );
 
 sub BUILD {
@@ -58,7 +56,13 @@ sub BUILD {
   #the implementation details of this are private, no one should care
   #because the track name they use if based on $self->name
   #which is guaranteed to be unique at run time
-  $self->getFieldDbName($self->nearestGeneFeatureName);
+  $self->getFieldDbName($self->regionNearestSubTrackName);
+
+  #also not a default feature, since for Gene tracks "features" are whatever
+  #is stored in the region database
+  #initializing here to make sure we store this value (if calling for first time)
+  #before any threads get to it
+  $self->getFieldDbName($self->geneTrackRegionDatabaseTXerrorName);
 }
 
 #note, if the user chooses to specify features, but doesn't include whatever
@@ -356,7 +360,7 @@ sub makeNearestGenes {
   my ($self, $txStartData, $coveredSitesHref) = @_;
   
   #get the nearest gene feature name that we want to use in our database (expect some integer)
-  my $nearestGeneDbName = $self->getFieldDbName( $self->nearestGeneFeatureName );
+  my $nearestGeneDbName = $self->getFieldDbName( $self->regionNearestSubTrackName );
   
   #$txStartData holds everything that has been covered
   for my $chr (keys %$txStartData) {
@@ -389,11 +393,11 @@ sub makeNearestGenes {
         $midPoint = $txStart + ( ($txStart - $previousTxStart ) / 2 );
       }
 
-      say "n is $n, previousTxStart is $previousTxStart";
-      say "midpoint is $midPoint";
-      say "txEnd is $txEnd, previous txEnd is $previousTxEnd";
+      # say "n is $n, previousTxStart is $previousTxStart";
+      # say "midpoint is $midPoint";
+      # say "txEnd is $txEnd, previous txEnd is $previousTxEnd";
 
-      my $printedOutputExample;
+      # my $printedOutputExample;
 
       for(my $y = $i; $y < $txStart; $y++) {
         #exclude anything covered by a gene, save space in the database
@@ -407,10 +411,10 @@ sub makeNearestGenes {
           #1 flag to merge whatever is held in the $self->name value in the db
           #since this is basically a 2nd insertion step
           
-          if(!$printedOutputExample) {
-            say "in nearest gene, putting the following for position $y";
-            p %out;
-          }
+          # if(!$printedOutputExample) {
+          #   say "in nearest gene, putting the following for position $y";
+          #   p %out;
+          # }
           
           $self->dbPatchBulk($chr, \%out);
           %out = ();

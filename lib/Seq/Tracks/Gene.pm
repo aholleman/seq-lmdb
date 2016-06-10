@@ -32,9 +32,9 @@ use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
 
-#exports regionTrackPath
+#exports regionTrackPath, regionNearestSubTrackName
 with 'Seq::Tracks::Region::Definition',
-#siteFeatureName, defaultUCSCgeneFeatures, nearestGeneFeatureName
+#allUCSCgeneFeatures
 'Seq::Tracks::Gene::Definition',
 #dbReadAll
 'Seq::Role::DBManager';
@@ -65,7 +65,7 @@ state $truncated = 'TruncatedCodon';
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
-  default => sub{ my $self = shift; return $self->defaultUCSCgeneFeatures; },
+  default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
 );
 
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
@@ -92,7 +92,7 @@ override 'BUILD' => sub {
     #nearest gene is a pseudo-track, stored as it's own key, outside of
     #$self->name, but in a unique name based on $self->name that is defined
     #by the gene track (in the future region tracks will follow this method)
-    $self->nearestGeneFeatureName => $self->getFieldDbName($self->nearestGeneFeatureName),
+    $self->regionNearestSubTrackName => $self->getFieldDbName($self->regionNearestSubTrackName),
   };
 
   for my $featureName ($self->allFeatureNames) {
@@ -144,7 +144,7 @@ sub get {
   if(!$self->noNearestFeatures) {
     # nearest genes are sub tracks, stored under their own key, based on $self->name
     # this is a reference to something stored in the gene tracks' region database
-    my $nearestGeneNumber = $href->{$self->nearestGeneFeatureName};
+    my $nearestGeneNumber = $href->{ $cachedDbNames->{$self->regionNearestSubTrackName} };
 
     #may not have one at the end of a chromosome
     #and no nearest gene reference is given for sites in a gene
@@ -162,7 +162,7 @@ sub get {
         }
       }
     } else {
-      $self->log('warn', "no " . $self->name . " or " . $self->nearestGeneFeatureName . " found");
+      $self->log('warn', "no " . $self->name . " or " . $self->regionNearestSubTrackName . " found");
     }
   } 
 
@@ -305,21 +305,26 @@ sub get {
 sub _annotateIndel {
   my ($self, $chr, $dbPosition, $allele) = @_;
 
-  my $beginning;
-  
+  my $beginning = '';
+  my $middle = '';
+
   my $dbDataAref;
+
+  my $type = substr($allele, 0, 1);
   #### Check if insertion or deletion ###
-  if(substr($allele, 0, 1) eq '+') {
+  if($type eq '+') {
     #insetion
-    $beginning = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) ."[";
+    $beginning = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) . "[";
 
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
     $dbDataAref = $self->dbRead( $chr, [ $dbPosition + 1 ] );
-  } elsif(substr($allele, 0, 1) eq '-') {
+  } elsif($type eq '-') {
     #deletion
-    $beginning = ($allele % 3 ? $frameshift : $inFrame) ."[";
+    $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
+    #get everything including the current dbPosition, in order to simplify code
+    #small perf hit because few indels
     $dbDataAref = $self->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
   } else {
     $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
@@ -327,45 +332,34 @@ sub _annotateIndel {
     return undef;
   }
 
-  my $count = 0;
   for my $data (@$dbDataAref) {
     if (! defined $data->{ $self->dbName } ) {
       #this position doesn't have a gene track, so skip
-      $beginning .= "$intergenic";
+      $middle .= "$intergenic";
       next;
     }
-
-    if($count++ > 1) {
-      #separate different positions by a pipe to denote difference from alleles and
-      #transcripts (transcripts separated by a ";")
-      substr($beginning, -1, 1) = "|";
-    }
-      
    
+    my (@txNumbers, @siteData) = $data->{ $self->dbName };
 
-    my $siteData = $data->{ $self->dbName }->{
-      $allCachedDbNames->{$self->name}->{$self->siteFeatureName} };
-
-    if(! ref $siteData ) {
-      $siteData = [$siteData];
-    }
-
-    for my $oneSiteData (@$siteData) {
+    for my $oneSiteData (@siteData) {
       my $site = $siteUnpacker->unpackCodon($oneSiteData);
 
+      #Accumulate the annotation. We aren't using Seq::Output to format, because
+      #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
       if ( defined $site->{ $siteUnpacker->codonNumberKey } && $site->{ $siteUnpacker->codonNumberKey } == 1 ) {
-        $beginning .= "$startLoss;";
+        $middle .= "$startLoss;";
       } elsif ( defined $site->{ $siteUnpacker->codonSequenceKey }
       &&  $codonMap->codon2aa( $site->{ $siteUnpacker->codonSequenceKey } ) eq '*' ) {
-        $beginning .= "$stopLoss;";
+        $middle .= "$stopLoss;";
       } else {
-        $beginning .= $site->{ $siteUnpacker->siteTypeKey } . ";";
+        $middle .= $site->{ $siteUnpacker->siteTypeKey } . ";";
       }
     }
   }
   
-  chop $beginning;
-  return "beginning]";
+  chop $middle;
+
+  return $beginning . $middle . "]";
 }
 
 __PACKAGE__->meta->make_immutable;

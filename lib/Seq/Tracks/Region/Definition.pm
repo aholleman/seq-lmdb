@@ -7,6 +7,14 @@ use warnings;
 use Moose::Role 2;
 use namespace::autoclean;
 
+requires 'name';
+
+has regionNearestSubTrackName => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
+  my $self = shift;
+
+  return $self->name . '.nearest';
+});
+
 sub regionTrackPath {
   my ($self, $chr) = @_;
 
