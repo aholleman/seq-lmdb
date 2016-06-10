@@ -6,7 +6,7 @@ package MockAnnotationClass;
 use lib './lib';
 use Moose;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
-extends 'Seq::Base';
+extends 'Seq::Tracks';
 with 'Seq::Role::DBManager';
 
 #__PACKAGE__->meta->

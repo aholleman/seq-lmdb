@@ -313,10 +313,6 @@ sub buildTrack {
       #for out of order multi-chr files
       #so we wait until the end
 
-      if($self->debug) {
-        say "at end, number of chr is " . scalar keys %perSiteData;
-      }
-
       #could parallelize if > 1 chr
       for my $chr (keys %perSiteData) {
         my %accumData;
@@ -378,33 +374,26 @@ sub makeNearestGenes {
 
     for (my $n = 0; $n < @allTranscriptStarts; $n++) {
       my $txStart = $allTranscriptStarts[$n];
-      my ($txNumber, $txEnd) = $txStartData->{$chr}->{$txStart};
+      
+      my ($txNumber, $txEnd) = @{ $txStartData->{$chr}->{$txStart} };
 
-      # not using $self->prepareData( , because that would put this
-      # under the gene track designation
-      # in order to save a few gigabytes, we're putting it under its own
-      # key
-      # so that we can store a single value for the main track (@ $self->name )
-      my $txData = { $nearestGeneDbName => $txNumber };
-
-      my ($previousTxStart, $previousTxNumber, $previousTxEnd, $previousTxData);
+      my ($previousTxStart, $previousTxNumber, $previousTxEnd);
 
       $previousTxStart = $allTranscriptStarts[$n - 1];
 
       my $midPoint;
 
       if($previousTxStart) {
-        ($previousTxNumber, $previousTxEnd) = $txStartData->{$chr}{$previousTxStart};
+        ($previousTxNumber, $previousTxEnd) = @{ $txStartData->{$chr}{$previousTxStart} };
         
-        # not using $self->prepareData( , because that would put this
-        # under the gene track designation
-        # in order to save a few gigabytes, we're putting it under its own
-        # key
-        # so that we can store a single value for the main trakc
-        $previousTxData = { $nearestGeneDbName => $previousTxNumber };
-
         $midPoint = $txStart + ( ($txStart - $previousTxStart ) / 2 );
       }
+
+      say "n is $n, previousTxStart is $previousTxStart";
+      say "midpoint is $midPoint";
+      say "txEnd is $txEnd, previous txEnd is $previousTxEnd";
+
+      my $printedOutputExample;
 
       for(my $y = $i; $y < $txStart; $y++) {
         #exclude anything covered by a gene, save space in the database
@@ -417,13 +406,24 @@ sub makeNearestGenes {
         if($count >= $self->commitEvery && %out) {
           #1 flag to merge whatever is held in the $self->name value in the db
           #since this is basically a 2nd insertion step
-          $self->dbPatchBulk($chr, \%out, 1);
+          
+          if(!$printedOutputExample) {
+            say "in nearest gene, putting the following for position $y";
+            p %out;
+          }
+          
+          $self->dbPatchBulk($chr, \%out);
           %out = ();
           $count = 0;
         }
 
+        ############ Accumulate the txNumber for the nearest, per position #########
+        # not using $self->prepareData( , because that would put this
+        # under the gene track designation
+        # in order to save a few gigabytes, we're putting it under its own key
+        # so that we can store a single value for the main track (@ $self->name )
         if($previousTxStart && $y < $midPoint) {
-          $out{$y} = $previousTxData;
+          $out{$y} = { $nearestGeneDbName => $previousTxNumber };
 
           if($self->debug) {
             say "$chr:$y is before the midpoint of $midPoint, "
@@ -431,7 +431,7 @@ sub makeNearestGenes {
           }
         } else {
           #so will give the next one for $y >= $midPoint
-          $out{$y} = $txData;
+          $out{$y} = { $nearestGeneDbName => $txNumber };
         }
 
         $count++;
@@ -446,7 +446,7 @@ sub makeNearestGenes {
 
     #leftovers
     if(%out) {
-      $self->dbPatchBulk($chr, \%out, 1);
+      $self->dbPatchBulk($chr, \%out);
     }
   }
 }

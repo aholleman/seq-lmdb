@@ -355,7 +355,7 @@ sub dbPatchBulk {
 
   #modifies the stack, but hopefully a smaller change than a full
   #new stack + function call (look to goto below)
-  my $sortedPositionsAref = xsort( [keys %$posHref ] );
+  my $sortedPositionsAref = xsort( [ keys %$posHref ] );
 
   for my $pos ( @$sortedPositionsAref) { #want sequential
     my $json; #zero-copy
