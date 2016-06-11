@@ -54,7 +54,7 @@ state $txEffectsKey = 'proteinEffect';
 state $intergenic = 'Intergenic';
 
 ### txEffect possible values ###
-state $nonCoding = 'Non-Coding';
+state $nonCoding = 'NonCoding';
 state $silent = 'Silent';
 state $replacement = 'Replacement';
 state $frameshift = 'Frameshift';
@@ -131,13 +131,17 @@ sub get {
 
   ####### Get all transcript numbers, and site data for this position #########
   my (@txNumbers, @siteData);
-  for my $dataAref (@$trackDataAref) {
-    #$dataAref[0] is the txNumber in each pair
-    #the region database keys are txNumber(s)
-    push @txNumbers, $regionData->{$dataAref->[0]};
-    push @siteData, $regionData->{$dataAref->[1]}; 
-  }
 
+  if($trackDataAref) {
+    for my $dataAref (@$trackDataAref) {
+      #$dataAref[0] is the txNumber in each pair
+      #the region database keys are txNumber(s)
+      push @txNumbers, $dataAref->[0];
+
+      push @siteData, $dataAref->[1]; 
+    }
+  }
+  
   my %out;
 
   ################# Populate nearestGeneSubTrackName ##############
@@ -167,9 +171,17 @@ sub get {
   } 
 
   ################# Check if this position is in a place covered by gene track #####################
+    
   if(!$trackDataAref) {
     #if not, state that the siteType is intergenic!
-    $out{$self->siteTypeKey} = $intergenic;
+    $out{$siteUnpacker->siteTypeKey} = $intergenic;
+    return \%out;
+  }
+
+  if( !@txNumbers || !@siteData ) {
+    $self->log('warn', "Position $chr:@{[$dbPosition+1]} covered a gene, but was " .
+      "missing either a txNumber, or siteData. This is a database build error");
+    
     return \%out;
   }
 
@@ -182,14 +194,6 @@ sub get {
   }
 
   ################## Populate site information ########################
-  if( !@txNumbers || !@siteData ) {
-    $self->log('warn', "Position $chr:@{[$dbPosition+1]} covered a gene, but was " .
-      "missing either a txNumber, or siteData. This is a database build error");
-    
-    return \%out;
-  }
-
-  ################# Populate all $siteUnpacker->allSiteKeys and $retionTypeKey #####################
   # save unpacked sites, for use in txEffectsKey population #####
   my @unpackedSites;
   foreach (@siteData) {
@@ -243,7 +247,6 @@ sub get {
     ######### Most cases are just snps, so  inline that functionality ##########
     state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 
-    # say "number of unpacked codons is: " . scalar @unpackedSites;
     ### We only populate newAminoAcidKey for snps ###
     SNP_LOOP: for (my $i = 0; $i < @unpackedSites; $i++ ) {
       my $refCodonSequence = $unpackedSites[$i]->{ $siteUnpacker->codonSequenceKey };

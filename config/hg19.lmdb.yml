@@ -199,9 +199,6 @@ tracks:
   type: cadd
   local_files:
     - hg19.cadd.fixed.gz
-  remote_dir: NA
-  remote_files:
-  - NA
 - name: refSeq
   type: gene
   features:
@@ -243,8 +240,7 @@ tracks:
     - hg19.refGene.chr22.txt
     - hg19.refGene.chrX.txt
     - hg19.refGene.chrY.txt
-  sql_statement: SELECT _gene_fields FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq
-    = hg19.refGene.name
+  sql_statement: SELECT features FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq = hg19.refGene.name
 - name: snp142
   type: sparse
   features:
@@ -284,7 +280,7 @@ tracks:
     - hg19.snp142.chrX.txt
     - hg19.snp142.chrM.txt
     - hg19.snp142.chrY.txt
-  sql_statement: SELECT _snp_fields FROM hg19.snp142
+  sql_statement: SELECT features FROM hg19.snp142
 - name: clinvar
   type: sparse
   features:
