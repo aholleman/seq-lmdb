@@ -78,11 +78,17 @@ sub buildTrack {
       use_slurpio => 1,
       max_workers => 8,
       gather => sub {
-        my ($chr, $data) = @_;
+        my ($chr, $data, $exitCode) = @_;
 
-        $self->dbPatchBulk($chr, $data);
+        if($exitCode) {
+          return $exitCode;
+        }
 
-        $visitedChrs{$chr} = 1;
+        if($chr && $data) {
+          $self->dbPatchBulk($chr, $data);
+
+          $visitedChrs{$chr} = 1;
+        }
       },
       user_end => sub {
         foreach ( keys %visitedChrs ) {
@@ -102,27 +108,18 @@ sub buildTrack {
       my $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
       if(!$wantedChr || !$self->itIsOkToProceedBuilding($wantedChr)) {
-        #gets sent to user_end
-        $mce->exit();
+        #gets sent to both gather and user_end, so null first 2 args
+        $mce->exit(undef, undef, 1);
       }
 
       # we store the 0 indexed position, or something else if the user
       # specifies something else; to allow fasta-formatted data sources that
       # aren't reference
       my $chrPosition = $based;
-      
+
       FH_LOOP: while (<$MEM_FH>) {
         #super chomp; also helps us avoid weird characters in the fasta data string
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
-
-        #don't die if no wanted chr; could be some harmless mistake
-        #like a blank line on the first, instead of a header
-        #but the user should know, because it portends other issues
-        if ( !$wantedChr ) {
-          $self->log('warn', "No wanted chr after first line " .
-            'could be malformed reference file');
-          next;
-        }
         
         if( $_ =~ $dataRegex ) {
           #store the uppercase versions; how UCSC does it, how people likely
@@ -150,6 +147,8 @@ sub buildTrack {
               #and we haven't changed chromosomes
             }
           }
+        } else {
+          $self->log('warn', "Encountered non-data line after first line of " . $self->name . "file $file");
         }
         #end reading the chunk
       }
