@@ -52,7 +52,7 @@ has local_files => (
   isa     => 'ArrayRef',
   traits  => ['Array'],
   handles => {
-    all_local_files => 'elements',
+    allLocalFiles => 'elements',
   },
   default => sub { [] },
   lazy    => 1,
@@ -175,6 +175,18 @@ around BUILDARGS => sub {
   return $class->$orig(\%data);
 };
 
+sub BUILD {
+  my $self = shift;
+
+  my @allLocalFiles = $self->allLocalFiles;
+  my @allWantedChrs = $self->allWantedChrs;
+
+  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
+    $self->log("fatal", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
+      . scalar @allWantedChrs . " chromosomes. We expect one chromosome per file."
+      . " TODO: Split file into parts automatically");
+  }
+}
 ###################Prepare Data For Database Insertion ##########################
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base

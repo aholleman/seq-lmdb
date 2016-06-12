@@ -248,7 +248,6 @@ tracks:
     - strand
     - refUCSC
     - observed
-    - maf
     - func
     - alleleFreqCount: int
     - alleles

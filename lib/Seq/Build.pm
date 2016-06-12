@@ -56,12 +56,6 @@ has buildClean => (
 #and then builds that track by calling the tracks 
 #"buildTrack" method
 sub BUILD {
-
-  #$_[0] == $self
-  # if($_[0]->buildClean) {
-  #   goto &BUILD_CLEAN;
-  # }
-
   my $self = shift;
 
   my @builders;

@@ -19,6 +19,7 @@ use Moose 2;
 use namespace::autoclean;
 use List::MoreUtils qw/firstidx/;
 use MCE::Loop;
+use Parallel::ForkManager;
 
 use DDP;
 
@@ -29,10 +30,12 @@ has chrom_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chrom'
 has chromStart_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromStart');
 has chromEnd_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromEnd');
 
+my $pm = Parallel::ForkManager->new(26);
+
 sub buildTrack {
   my $self = shift;
 
-  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+  my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
 
   my $chrom = $self->chrom_field_name;
   my $cStart = $self->chromStart_field_name;
@@ -40,33 +43,21 @@ sub buildTrack {
 
   my @requiredFields = ($chrom, $cStart, $cEnd);
 
-  $self->log('debug', $self->name . ' requiredFields are ' . join(',', @requiredFields ) );
-
-  #1 more process than # of chr in human, to allow parent process + simult. 25 chr
-  #if N < 26 processes needed, N will be used.
-  MCE::Loop->init({
-    max_workers => 26,
-    chunk_size => 1,
-    user_end => sub {
-      #indicates success
-      return 1;
-    },
-  });
-
-  my @allLocalFiles = $self->all_local_files;
-
-  mce_loop {
-    my $file = $_;
+  for my $file ($self->allLocalFiles) {
+    $pm->start and next;
 
     my $fh = $self->get_read_fh($file);
 
-    my %data = ();
-    my $wantedChr;
-    
-    my $chr;
+    ############# Get Headers ##############
+    my $firstLine = <$fh>;
+
+    chomp $firstLine;
+
+    my @fields = split "\t", $firstLine;
+
     my $featureIdxHref;
     my $reqIdxHref;
-
+    
     # these are fields that may or may not be included in the output
     # and may or may not be required fields
     # These are also fields the user told us they want to either transform
@@ -75,209 +66,182 @@ sub buildTrack {
     my $fieldsToTransformIdx;
     my $fieldsToFilterOnIdx;
 
-    my $count = 0;
+    REQ_LOOP: for my $field (@requiredFields) {
+      my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
+      if(~$idx) { #bitwise complement, makes -1 0
+        $reqIdxHref->{$field} = $idx;
+        next REQ_LOOP; #label for clarity
+      }
+      
+      $self->log('fatal', "Required field $field missing in $file header");
+    }
 
-    # sparse track should be 1 based
-    # we have a method ->zeroBased, but in practice I find it more confusing to use
+    FEATURE_LOOP: for my $fname ($self->allFeatureNames) {
+      my $idx = firstidx {$_ eq $fname} @fields;
+      if(~$idx) { #only non-0 when non-negative, ~0 > 0
+        $featureIdxHref->{ $fname } = $idx;
+        next FEATURE_LOOP;
+      }
+      $self->log('fatal', "Feature $fname missing in $file header");
+    }
+
+    FILTER_LOOP: for my $fname ($self->allFieldsToFilterOn) {
+      my $idx = firstidx {$_ eq $fname} @fields;
+      if(~$idx) { #only non-0 when non-negative, ~0 > 0
+        $fieldsToFilterOnIdx->{ $fname } = $idx;
+        next FILTER_LOOP;
+      }
+      $self->log('fatal', "Feature $fname missing in $file header");
+    }
+
+    TRANSFORM_LOOP: for my $fname ($self->allFieldsToTransform) {
+      my $idx = firstidx {$_ eq $fname} @fields;
+      if(~$idx) { #only non-0 when non-negative, ~0 > 0
+        $fieldsToTransformIdx->{ $fname } = $idx;
+        next TRANSFORM_LOOP;
+      }
+      $self->log('fatal', "Feature $fname missing in $file header");
+    }
+
+    ########## Get rest of data #########
+    my %data = ();
+    my $wantedChr;
+    
+    my $chr;
+
+    # sparse tracks are by default 1 based, but user can override
     my $based = $self->based;
 
-    FH_LOOP: while (<$fh>) {
-      chomp $_; #$_ not nec. , but more cross-language understandable
-      #this may be too aggressive, like a super chomp, that hits 
-      #leading whitespace as well; wouldn't give us undef fields
-      #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
+    MCE::Loop::init({
+      use_slurpio => 1,
+      gather => sub {
+        my ($chr, $data) = @_;
+        $self->dbPatchBulk($chr, $data);
+      },
+    });
 
-       #$_ not nec. here, but this is less idiomatic, more cross-language
-      my @fields = split("\t", $_);
+    mce_loop_f {
+      my ($mce, $slurp_ref, $chunk_id) = @_;
+      open my $MEM_FH, '<', $slurp_ref;
+      binmode $MEM_FH, ':raw';
 
-      if($. == 1) {
-        REQ_LOOP: for my $field (@requiredFields) {
-          my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
-          if(~$idx) { #bitwise complement, makes -1 0
-            $reqIdxHref->{$field} = $idx;
-            next REQ_LOOP; #label for clarity
+      my $count = 0;
+      my $lineCount = 0;
+      FH_LOOP: while (<$MEM_FH>) {
+        chomp;
+        my @fields = split("\t", $_);
+
+        #If the user wants to modify the values of any fields, do that first
+        for my $fieldName ($self->allFieldsToTransform) {
+          $fields[ $fieldsToTransformIdx->{$fieldName} ] = 
+            $self->transformField($fieldName, $fields[ $fieldsToTransformIdx->{$fieldName} ] );
+        }
+
+        # Then, if the user wants to exclude rows that don't pass some criteria
+        # that they defined in the YAML file, allow that.
+        for my $fieldName ($self->allFieldsToFilterOn) {
+          #say "testing $fieldName filter, whose value is " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
+          if(!$self->passesFilter($fieldName, $fields[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
+            #say "$fieldName doesn't pass with value " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
+            next FH_LOOP;
+          }
+        }
+
+        $chr = $fields[ $reqIdxHref->{$chrom} ];
+
+        #If the chromosome is new, write any data we have & see if we want new one
+        if($wantedChr ) {
+          if($wantedChr ne $chr) {
+            if (%data) {
+              MCE->gather($wantedChr, \%data);
+             
+              undef %data;
+              $count = 0;
+            }
+            
+            $wantedChr = $self->chrIsWanted($chr) || undef;
+          }
+        } else {
+          $wantedChr = $self->chrIsWanted($chr) || undef;
+        }
+        
+        if(!$wantedChr) {
+          if($chrPerFile) {
+            $mce->abort;
           }
           
-          $self->log('fatal', "Required field $field missing in $file header");
-        }
-
-        # say 'all features wanted are';
-        # p @{[$self->allFeatures]};
-        
-        FEATURE_LOOP: for my $fname ($self->allFeatureNames) {
-          my $idx = firstidx {$_ eq $fname} @fields;
-          if(~$idx) { #only non-0 when non-negative, ~0 > 0
-            $featureIdxHref->{ $fname } = $idx;
-            next FEATURE_LOOP;
-          }
-          $self->log('fatal', "Feature $fname missing in $file header");
-        }
-
-        FILTER_LOOP: for my $fname ($self->allFieldsToFilterOn) {
-          my $idx = firstidx {$_ eq $fname} @fields;
-          if(~$idx) { #only non-0 when non-negative, ~0 > 0
-            $fieldsToFilterOnIdx->{ $fname } = $idx;
-            next FILTER_LOOP;
-          }
-          $self->log('fatal', "Feature $fname missing in $file header");
-        }
-
-        TRANSFORM_LOOP: for my $fname ($self->allFieldsToTransform) {
-          my $idx = firstidx {$_ eq $fname} @fields;
-          if(~$idx) { #only non-0 when non-negative, ~0 > 0
-            $fieldsToTransformIdx->{ $fname } = $idx;
-            next TRANSFORM_LOOP;
-          }
-          $self->log('fatal', "Feature $fname missing in $file header");
-        }
-
-        next FH_LOOP;
-      }
-
-      #If the user wants to modify the values of any fields, do that first
-      for my $fieldName ($self->allFieldsToTransform) {
-        $fields[ $fieldsToTransformIdx->{$fieldName} ] = 
-          $self->transformField($fieldName, $fields[ $fieldsToTransformIdx->{$fieldName} ] );
-
-          # say "after transformation, $fieldName becomes";
-          # p $fields[ $fieldsToTransformIdx->{$fieldName} ];
-      }
-
-      # Then, if the user wants to exclude rows that don't pass some criteria
-      # that they defined in the YAML file, allow that.
-      for my $fieldName ($self->allFieldsToFilterOn) {
-        #say "testing $fieldName filter, whose value is " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
-        if(!$self->passesFilter($fieldName, $fields[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
-          #say "$fieldName doesn't pass with value " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
           next FH_LOOP;
         }
-      }
 
-      $chr = $fields[ $reqIdxHref->{$chrom} ];
+        #let's collect all of our positions
+        #bed files should be 1 based, but let's just say someone passes in
+        #something bed-like
+        #they could override our default 0 value, and we can still get back
+        #a 0 indexed array of positions
+        my $pAref;
 
-      #say "chr is $chr";
+        #chromStart - chromEnd is a half closed range; i.e 0 1 means feature
+        #exists only at position 0
+        #this makes a 1 member array if both values are identical
+        
+        #this is an insertion; the only case when start should == stop
+        #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
+        #logging currently is synchronous, and very, very slow compared to CPU speed
+        #example where this happens: clinvar
+        if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
+          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
+        } else { #it's a normal change, or a deletion
+          #BED is a half-closed format, so subtract 1 from end
+          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
+            .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
+        }
+      
+        #now we collect all of the feature data
+        #coerceFeatureType will return if no type specified for feature
+        #otherwise will try to coerce the field into the type specified for $name
+        my $fDataHref;
+        FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
+          my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
+          $fDataHref->{ $self->getFieldDbName($name) } = $value;
+        }
 
-      #this will not work well if chr are significantly out of order
-      #because we won't be able to benefit from sequential read/write
-      #we could move to building a larger hash of {chr => { pos => data } }
-      #but would need to check commit limits then on a per-chr basis
-      #easier to just ask people to give sorted files?
-      #or could sort ourselves.
-      if($wantedChr) {
-        #save a few cycles by not reassigning $wantedChr for every pos
-        #if we changed chromosomes, lets write the previous chr's data
-        if($wantedChr ne $chr) {
-          $self->dbPatchBulk($wantedChr, \%data);
+        
+        #get it ready for insertion, one func call instead of for N pos
+        $fDataHref = $self->prepareData($fDataHref);
+        
+        for my $pos (@$pAref) {
+          $data{$pos} = $fDataHref;
+          $count++;
+        }
 
-          %data = ();
+        #be a bit conservative with the count, since what happens below
+        #could bring us all the way to segfault
+        if($count >= $self->commitEvery) {
+          MCE->gather($wantedChr, \%data);
+
+          undef %data;
           $count = 0;
-          
-          $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
         }
-      } else {
-        $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+        $lineCount++;
       }
 
-      if(!$wantedChr) {
-        if($chrPerFile) {
-          last FH_LOOP;
+      if(%data) {
+        if(!$wantedChr) {
+          return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
-        next FH_LOOP;
+
+        MCE->gather($wantedChr, \%data);
+        MCE->say("line count was $lineCount");
       }
+    } $fh;
 
-      #be a bit conservative with the count, since what happens below
-      #could bring us all the way to segfault
-      if($count >= $self->commitEvery) {
-        $self->dbPatchBulk($wantedChr, \%data);
+    MCE::Loop::finish;
+    $pm->finish;
+  }
 
-        %data = ();
-        $count = 0;
-      }
-
-      #let's collect all of our positions
-      #bed files should be 1 based, but let's just say someone passes in
-      #something bed-like
-      #they could override our default 0 value, and we can still get back
-      #a 0 indexed array of positions
-      my $pAref;
-
-      #chromStart - chromEnd is a half closed range; i.e 0 1 means feature
-      #exists only at position 0
-      #this makes a 1 member array if both values are identical
-      
-      #this is an insertion; the only case when start should == stop
-      #TODO: this could lead to errors with non-snp tracks, not sure if should wwarn
-      #logging currently is synchronous, and very, very slow compared to CPU speed
-      #example where this happens: clinvar
-      if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
-        $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
-      } else { #it's a normal change, or a deletion
-        #BED is a half-closed format, so subtract 1 from end
-        $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
-          .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
-      }
-    
-      #now we collect all of the feature data
-      #coerceFeatureType will return if no type specified for feature
-      #otherwise will try to coerce the field into the type specified for $name
-      my $fDataHref;
-      FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
-        my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
-        $fDataHref->{ $self->getFieldDbName($name) } = $value;
-      }
-
-      
-      #get it ready for insertion, one func call instead of for N pos
-      $fDataHref = $self->prepareData($fDataHref);
-      
-      for my $pos (@$pAref) {
-        $data{$pos} = $fDataHref;
-        $count++;
-      }
-
-      # say "data to print is";
-      # p %data;
-    }
-
-    #we're done with the file, and stuff is left over;
-    if(%data) {
-      if(!$wantedChr) {
-        return $self->log('fatal', 'After file read, data left, but no wantecChr');
-      }
-      #let's write that stuff
-      $self->dbPatchBulk($wantedChr, \%data);
-    }
-  } @allLocalFiles;
+  $pm->wait_all_children;
 }
 
 __PACKAGE__->meta->make_immutable;
 
 1;
-
-###moved field -> index map to seperate function, since shared with region tracks
-###old code for if ($. == 1) {
-   # say "fields are";
-          # p @fields;
-
-#           REQ_LOOP: for my $field (@$reqFields) {
-#             my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
-#             if(~$idx) { #bitwise complement, makes -1 0
-#               $reqIdx{$field} = $idx;
-#               next REQ_LOOP; #label for clarity
-#             }
-            
-#             $self->log('error', 'Required field $field missing in $file header');
-#           }
-
-#           # say 'all features wanted are';
-#           # p @{[$self->allFeatures]};
-          
-#           FEATURE_LOOP: for my $fname ($self->allFeatures) {
-#             my $idx = firstidx {$_ eq $fname} @fields;
-#             if(~$idx) { #only non-0 when non-negative, ~0 > 0
-#               $featureIdx{$fname} = $idx;
-#               next FEATURE_LOOP;
-#             }
-#             $self->log('warn', "Feature $fname missing in $file header");
-#           }
-# }

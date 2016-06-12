@@ -22,6 +22,7 @@ Extended in: None
 
 use Moose 2;
 use MCE::Loop;
+use Parallel::ForkManager;
 
 use DDP;
 
@@ -29,13 +30,15 @@ use namespace::autoclean;
 
 extends 'Seq::Tracks::Build';
 
+my $pm = Parallel::ForkManager->new(26);
+
 sub buildTrack {
   my $self = shift;
 
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
-  my @allLocalFiles = $self->all_local_files;
+  my @allLocalFiles = $self->allLocalFiles;
 
   my $chrPerFile = @allLocalFiles > 1 ? 1 : 0;
 
@@ -43,156 +46,185 @@ sub buildTrack {
   #we should only allow them to tell us how to get their custom tracks to 0 based
   my $based = 0; #$self->based;
 
-  #simple forking; could do something more involvd if we had guarantee
-  #that a single file would be in order of chr
-  #expects that if n+1 files, each file has a single chr (one writer per chr)
-  #important, because we'll probably get slower writes due to locks otherwise
-  #unless we pass the slurped file to the fork, it doesn't seem to actually
-  MCE::Loop->init({
-    max_workers => 26,
-    chunk_size => 1,
-    user_end => sub {
-      #indicates success
-      return 1;
-    },
-  });
-
-  mce_loop {
-    my $file = $_;
+  for my $file ($self->allLocalFiles) {
+    $pm->start and next;
 
     if ( ! -f $file ) {
       $self->log('fatal', "ERROR: cannot find $file");
     }
+
     my $fh = $self->get_read_fh($file);
-
-    my %data = ();
-    my $count = 0;
-
-    my $wantedChr;
-
     # we store the 0 indexed position, or something else if the user
     # specifies something else; to allow fasta-formatted data sources that
     # aren't reference
     my $chrPosition = $based;
-    
+
+    my $firstLine = <$fh>;
+    my $chr;
+
+    $firstLine =~ s/^\s+|\s+$//g;
+
+    if ( $firstLine =~ m/$headerRegex/ ) {
+      $chr = $1;
+    }
+
+    if(!$chr) {
+      #should die after error, return is just to indicate intention
+      $self->log('fatal', 'Require chr in fasta file headers');
+    }
+
     #record which chromosomes we completed, so as to write their success
     my %visitedChrs;
-    FH_LOOP: while ( <$fh> ) {
-      #super chomp; also helps us avoid weird characters in the fasta data string
-      $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
 
-      #could do check here for cadd default format
-      #for now, let's assume that we put the CADD file into a wigfix format
-      if ( $_ =~ m/$headerRegex/ ) { #we found a wig header
-        my $chr = $1;
+    MCE::Loop::init({
+      use_slurpio => 1,
+      max_workers => 8,
+      gather => sub {
+        my ($chr, $data, $exitCode) = @_;
 
-        if(!$chr) {
-          #should die after error, return is just to indicate intention
-          $self->log('fatal', 'Require chr in fasta file headers');
+        if(defined $exitCode) {
+          return $exitCode;
         }
 
-        
-        if($wantedChr) {
-          #this is old news to us, so we have nothing to do in this header
-          #row
-          if($wantedChr eq $chr) {
-            next;
-          }
+        $self->dbPatchBulk($chr, $data);
 
-          #ok, we found something new, 
-          if($wantedChr ne $chr){
-            #so let's write whatever we have for the previous chr
-            $self->dbPatchBulk($wantedChr, \%data );
+        $visitedChrs{$chr} = 1;
+      },
+      user_end => sub {
+        foreach ( keys %visitedChrs ) {
+          say "recording completion of $_";
+          $self->recordCompletion($_);
+        }
+      }
+    });
 
-            #since this is new, let's reset our data and count
-            #we've already updated the chrPosition above
-            %data = ();
-            $count = 0;
+    mce_loop_f {
+      my ($mce, $slurp_ref, $chunk_id) = @_;
+      open my $MEM_FH, '<', $slurp_ref;
+      binmode $MEM_FH, ':raw';
 
-            #and figure out if we want the current chromosome
+      my %data = ();
+      my $count = 0;
+
+      my $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+      if(!$wantedChr) {
+        #signal error
+        #gets sent to gather
+        $mce->abort();
+      }
+
+      FH_LOOP: while (<$MEM_FH>) {
+        #super chomp; also helps us avoid weird characters in the fasta data string
+        $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
+
+        #allow a multi-fasta file, with multiple headers
+        if ( $_ =~ m/$headerRegex/ ) {
+          if($wantedChr) {
+            #ok, we found something new, 
+            if($wantedChr ne $chr){
+              #so let's write whatever we have for the previous chr
+              MCE->gather($wantedChr, \%data );
+
+              #since this is new, let's reset our data and count
+              #we've already updated the chrPosition above
+              undef %data;
+              $count = 0;
+
+              #and figure out if we want the current chromosome
+              $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+              if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
+                undef $wantedChr;
+              }
+            }
+          } else {
             $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
             if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
               undef $wantedChr;
             }
           }
-        } else {
-          $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
-          if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
-            undef $wantedChr;
-          }
-        }
-
-        #this allows us to use a single fasta file as well
-        #although in the current setup, using such a file will prevent
-        #forking use (since we read the file in the fork)
-        #we could always spawn a fork within the fork
-        #if we're expecting one chr per file, no need to read through the
-        #rest of the file if we don't want the current header chr
-        if(!$wantedChr) {
-          if($chrPerFile) {
-            last FH_LOOP;
-          }
-          next FH_LOOP;
-        } 
-
-        $visitedChrs{$wantedChr} = 1;
-        #restart chrPosition count at 0, since we're storing 0 indexed pos
-        $chrPosition = $based;
-      }
-
-      #don't die if no wanted chr; could be some harmless mistake
-      #like a blank line on the first, instead of a header
-      #but the user should know, because it portends other issues
-      if ( !$wantedChr ) {
-        $self->log('warn', "No wanted chr after first line " .
-          'could be malformed reference file');
-        next;
-      }
-      
-      if( $_ =~ $dataRegex ) {
-        #store the uppercase versions; how UCSC does it, how people likely
-        #expect it, and remove the need to do it at annotation time
-        for my $char ( split '', uc($1) ) {
-          #we always store on position
-          #it could als make sense for prepareData to handle the key (chrPosition)
-          #since this needs to be uniform across most tracks
-          #but this is a bit easier to understand for me:
-          $data{$chrPosition} = $self->prepareData($char);
-
-          #must come after, to not be 1 off; 
-          #assumes fasta file is properly sorted, so contiguous 
-          $chrPosition++; 
-
-          $count++;
-          if($count >= $self->commitEvery) {
-            $self->dbPatchBulk($wantedChr, \%data );
+          #this allows us to use a single fasta file as well
+          #although in the current setup, using such a file will prevent
+          #forking use (since we read the file in the fork)
+          #we could always spawn a fork within the fork
+          #if we're expecting one chr per file, no need to read through the
+          #rest of the file if we don't want the current header chr
+          if(!$wantedChr) {
+            if($chrPerFile) {
+              #signal that we've successfully completed a chromosome
+              #we assume that if there is more than 1 file, that there is only
+              #1 chr in the file, and that file contains all records
+              #signal error
+              $mce->abort();
+            }
             
-            %data = ();
-            $count = 0;
+            next FH_LOOP;
+          }
 
-            #don't reset chrPosition, or wantedChr, because chrPosition is
-            #continuous from the previous position in a fixed step file
-            #and we haven't changed chromosomes
+          #restart chrPosition count at 0, since we're storing 0 indexed pos
+          $chrPosition = $based;
+        }
+
+        
+
+        #don't die if no wanted chr; could be some harmless mistake
+        #like a blank line on the first, instead of a header
+        #but the user should know, because it portends other issues
+        if ( !$wantedChr ) {
+          $self->log('warn', "No wanted chr after first line " .
+            'could be malformed reference file');
+          next;
+        }
+        
+        if( $_ =~ $dataRegex ) {
+          #store the uppercase versions; how UCSC does it, how people likely
+          #expect it, and remove the need to do it at annotation time
+          for my $char ( split '', uc($1) ) {
+            #we always store on position
+            #it could als make sense for prepareData to handle the key (chrPosition)
+            #since this needs to be uniform across most tracks
+            #but this is a bit easier to understand for me:
+            $data{$chrPosition} = $self->prepareData($char);
+
+            #must come after, to not be 1 off; 
+            #assumes fasta file is properly sorted, so contiguous 
+            $chrPosition++; 
+
+            $count++;
+            if($count >= $self->commitEvery) {
+              MCE->gather($wantedChr, \%data );
+              
+              undef %data;
+              $count = 0;
+
+              #don't reset chrPosition, or wantedChr, because chrPosition is
+              #continuous from the previous position in a fixed step file
+              #and we haven't changed chromosomes
+            }
           }
         }
+        #end reading the chunk
       }
-    }
 
-    #we're done with the input file, 
-    if( %data ) {
-      if(!$wantedChr) { #sanity check, 'error' log dies
-       return $self->log('fatal', "@ end of $file, but no wantedChr and data");
+      #we're done with the input file, 
+      if( %data ) {
+        if(!$wantedChr) { #sanity check, 'error' log dies
+         return $self->log('fatal', "@ end of $file, but no wantedChr and data");
+        }
+        #and we could still have some data to write
+        MCE->gather($wantedChr, \%data );
       }
-      #and we could still have some data to write
-      $self->dbPatchBulk($wantedChr, \%data );
-    }
+      #move on to next chunk
+    } $fh;
 
-    foreach ( keys %visitedChrs ) {
-      $self->recordCompletion($_);
-    }
-  } @allLocalFiles;
+    MCE::Loop::finish;
+    $pm->finish;
+  }
+
+  $pm->wait_all_children;
 };
 
 #TODO: need to catch errors if any

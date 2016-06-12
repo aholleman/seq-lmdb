@@ -30,6 +30,8 @@ use Moose 2;
 
 use namespace::autoclean;
 use Parallel::ForkManager;
+use MCE::Loop;
+
 use DDP;
 
 extends 'Seq::Tracks::Build';
@@ -55,7 +57,7 @@ sub buildTrack{
   my $vStep = 'variableStep';
   my $headerRegex = qr/^($fStep|$vStep)\s+chrom=(\S+)\s+start=(\d+)\s+step=(\d+)/;
   
-  my $chrPerFile = scalar $self->all_local_files > 1 ? 1 : 0;
+  my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
 
   # score track could potentially be 0 based
   # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
@@ -71,29 +73,46 @@ sub buildTrack{
     #important, because we'll probably get slower writes due to locks otherwise
     #unless we pass the slurped file to the fork, it doesn't seem to actually
     $pm->start and next; 
-      unless ( -f $file ) {
-        return $self->log('fatal', "ERROR: cannot find $file");
-      }
-      #say "entering fork with $file";
-      #my @lines = $self->get_file_lines($file);
-      my $fh = $self->get_read_fh($file);
 
-      my %data = ();
-      my $count = 0;
+    unless ( -f $file ) {
+      return $self->log('fatal', "ERROR: cannot find $file");
+    }
 
-      my $wantedChr;
-      my $chrPosition; # absolute by default, 0 index
-      
-      my $step;
-      my $stepType;
+    MCE::Loop::init({
+      chunk_size => 'auto',
+      use_slurpio => 1,
+      gather => sub {
+        my ($chr, $data) = @_;
+        $self->dbPatchBulk($chr, $data);
+      },
+    });
 
-      # score track could potentially be 0 based
-      # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
-      # if it is the BED format version of the WIG format.
-      # BED doesn't have a header line, and we don't currently support it, but want flex.
-      my $based = $self->based;
+    
+    #say "entering fork with $file";
+    #my @lines = $self->get_file_lines($file);
+    my $fh = $self->get_read_fh($file);
 
-      FH_LOOP: while ( <$fh> ) {
+    my %data = ();
+    my $count = 0;
+
+    my $wantedChr;
+    my $chrPosition; # absolute by default, 0 index
+    
+    my $step;
+    my $stepType;
+
+    # score track could potentially be 0 based
+    # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
+    # if it is the BED format version of the WIG format.
+    # BED doesn't have a header line, and we don't currently support it, but want flex.
+    my $based = $self->based;
+
+    mce_loop_f {
+      my ($mce, $slurp_ref, $chunk_id) = @_;
+      open my $MEM_FH, '<', $slurp_ref;
+      binmode $MEM_FH, ':raw';
+
+      FH_LOOP: while (<$MEM_FH>) {
         #super chomp; helps us avoid unexpected whitespace on either side
         #of the data; since we expect one field per column, this should be safe
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
@@ -101,12 +120,13 @@ sub buildTrack{
         #could do check here for cadd default format
         #for now, let's assume that we put the CADD file into a wigfix format
         if ( $_ =~ m/$headerRegex/ ) { #we found a wig header
-          my $chr = $2;
-
-          $step = $4;
           $stepType = $1;
 
+          my $chr = $2;
+
           my $start = $3;
+
+          $step = $4;
           
           if(!$chr && $step && $start && $stepType) {
            return $self->log('fatal', 'Require chr, step, start, 
@@ -121,37 +141,33 @@ sub buildTrack{
           #and make this 0 index
           $chrPosition = $start - $based;
 
-          if ($wantedChr && $wantedChr eq $chr) {
-            next;
+          #If the chromosome is new, write any data we have & see if we want new one
+          if($wantedChr ) {
+            if($wantedChr ne $chr) {
+              #ok, we found something new, or this is our first time getting a $wantedChr
+              #so let's write whatever we have for the previous wanted chr
+              if (%data) {
+                MCE->gather($wantedChr, \%data);
+               
+                undef %data;
+                $count = 0;
+              }
+              
+              $wantedChr = $self->chrIsWanted($chr) || undef;
+            }
+          } else {
+            $wantedChr = $self->chrIsWanted($chr) || undef;
           }
-
-          #ok, we found something new, or this is our first time getting a $wantedChr
-          #so let's write whatever we have for the previous wanted chr
-          if($wantedChr && $wantedChr ne $chr) {
-            $self->dbPatchBulk($wantedChr, \%data );
-          }
-
-          #since this is new, let's reset our data and count
-          #we've already updated the chrPosition above
-          %data = ();
-          $count = 0;
           
-          #chr is new and wanted
-          if ( $self->chrIsWanted($chr) ) {
-            $wantedChr = $chr;
-            next;
-          }
-
-          # chr isn't wanted if we got here
-
-          #so let's erase the remaining data associated with this chr
-          undef $wantedChr;
-          undef $chrPosition;
-
-          #if we're expecting one chr per file, no need to read through the
-          #rest of the file if we don't want the current header chr
-          if ( $chrPerFile ) {
-            last FH_LOOP; 
+          if(!$wantedChr) {
+            # chr isn't wanted if we got here
+            # so leave this loop if we have one chr per file
+            # else we have one file, so abort this process
+            if($chrPerFile) {
+              $mce->abort;
+            }
+            # else just move on to the next line (explict next for clarity)
+            next FH_LOOP;
           }
         }
 
@@ -170,9 +186,11 @@ sub buildTrack{
         $chrPosition += $step;
 
         $count++;
+
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulk($wantedChr, \%data );
-          %data = ();
+          MCE->gather($wantedChr, \%data );
+
+          undef %data;
           $count = 0;
 
           #don't reset chrPosition, or wantedChr, because chrPosition is
@@ -181,18 +199,25 @@ sub buildTrack{
         }
       }
 
-      #we're done with the input file, and we could still have some data to write
+      #we're done with this input file chunk and we could still have some data to write
       if( %data ) {
         if(!$wantedChr) { #sanity check, 'error' will die
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
-        $self->dbPatchBulk($wantedChr, \%data );
+        MCE->gather($wantedChr, \%data );
 
         #now we're done with the process, and memory gets freed
+        #but just in case
+        undef %data;
+        undef $wantedChr
       }
+    } $fh;
+
+    MCE::Loop::finish;
     $pm->finish;
   }
+
   $pm->wait_all_children;
 };
 
