@@ -44,9 +44,10 @@ sub buildTrack {
 
   #don't let the users change this (at least for now)
   #we should only allow them to tell us how to get their custom tracks to 0 based
-  my $based = 0; #$self->based;
+  #default of $self->based is 0
+  my $based = $self->based;
 
-  for my $file ($self->allLocalFiles) {
+  for my $file (@allLocalFiles) {
     $pm->start and next;
 
     if ( ! -f $file ) {
@@ -54,12 +55,9 @@ sub buildTrack {
     }
 
     my $fh = $self->get_read_fh($file);
-    # we store the 0 indexed position, or something else if the user
-    # specifies something else; to allow fasta-formatted data sources that
-    # aren't reference
-    my $chrPosition = $based;
 
     my $firstLine = <$fh>;
+
     my $chr;
 
     $firstLine =~ s/^\s+|\s+$//g;
@@ -80,11 +78,7 @@ sub buildTrack {
       use_slurpio => 1,
       max_workers => 8,
       gather => sub {
-        my ($chr, $data, $exitCode) = @_;
-
-        if(defined $exitCode) {
-          return $exitCode;
-        }
+        my ($chr, $data) = @_;
 
         $self->dbPatchBulk($chr, $data);
 
@@ -92,7 +86,6 @@ sub buildTrack {
       },
       user_end => sub {
         foreach ( keys %visitedChrs ) {
-          say "recording completion of $_";
           $self->recordCompletion($_);
         }
       }
@@ -108,67 +101,19 @@ sub buildTrack {
 
       my $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
-      if(!$wantedChr) {
-        #signal error
-        #gets sent to gather
-        $mce->abort();
+      if(!$wantedChr || !$self->itIsOkToProceedBuilding($wantedChr)) {
+        #gets sent to user_end
+        $mce->exit();
       }
 
+      # we store the 0 indexed position, or something else if the user
+      # specifies something else; to allow fasta-formatted data sources that
+      # aren't reference
+      my $chrPosition = $based;
+      
       FH_LOOP: while (<$MEM_FH>) {
         #super chomp; also helps us avoid weird characters in the fasta data string
         $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
-
-        #allow a multi-fasta file, with multiple headers
-        if ( $_ =~ m/$headerRegex/ ) {
-          if($wantedChr) {
-            #ok, we found something new, 
-            if($wantedChr ne $chr){
-              #so let's write whatever we have for the previous chr
-              MCE->gather($wantedChr, \%data );
-
-              #since this is new, let's reset our data and count
-              #we've already updated the chrPosition above
-              undef %data;
-              $count = 0;
-
-              #and figure out if we want the current chromosome
-              $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
-
-              if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
-                undef $wantedChr;
-              }
-            }
-          } else {
-            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
-
-            if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
-              undef $wantedChr;
-            }
-          }
-
-          #this allows us to use a single fasta file as well
-          #although in the current setup, using such a file will prevent
-          #forking use (since we read the file in the fork)
-          #we could always spawn a fork within the fork
-          #if we're expecting one chr per file, no need to read through the
-          #rest of the file if we don't want the current header chr
-          if(!$wantedChr) {
-            if($chrPerFile) {
-              #signal that we've successfully completed a chromosome
-              #we assume that if there is more than 1 file, that there is only
-              #1 chr in the file, and that file contains all records
-              #signal error
-              $mce->abort();
-            }
-            
-            next FH_LOOP;
-          }
-
-          #restart chrPosition count at 0, since we're storing 0 indexed pos
-          $chrPosition = $based;
-        }
-
-        
 
         #don't die if no wanted chr; could be some harmless mistake
         #like a blank line on the first, instead of a header
