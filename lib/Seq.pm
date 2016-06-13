@@ -122,6 +122,11 @@ sub annotate_snpfile {
 
   $self->log( 'info', 'Beginning annotation' );
 
+  # Set the lmdb database to read only, remove locking
+  # We MUST make sure everything is written to the database by this point,
+  # including any meta fields
+  $self->setDbReadOnly(1);
+
   my $headers = Seq::Headers->new();
   
   my $fh = $self->get_read_fh($self->snpfile_path);

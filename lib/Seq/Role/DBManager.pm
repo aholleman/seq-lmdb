@@ -93,6 +93,14 @@ has overwrite => (
   lazy => 1,
 );
 
+has dbReadOnly => (
+  is => 'ro',
+  isa => 'Bool',
+  default => 0,
+  lazy => 1,
+  writer => "setDbReadOnly",
+);
+
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
   #using state to make implicit singleton for the state that we want
@@ -118,6 +126,13 @@ sub _getDbi {
 
   $dbPath = $dbPath->stringify;
 
+  my $flags;
+  if($self->dbReadOnly) {
+    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC | MDB_NOLOCK;
+  } else {
+    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
+  }
+
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
       mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
       #maxdbs => 20, # Some databases
@@ -125,7 +140,7 @@ sub _getDbi {
       #can't just use ternary that outputs 0 if not read only...
       #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
       #in the docs
-      flags => MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC # MDB_INTEGERKEY, may not have benefits, not as flexible
+      flags => $flags,
       maxreaders => 1000,
       maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
@@ -140,6 +155,8 @@ sub _getDbi {
   my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
   
   my $DB = $txn->OpenDB();
+
+  #means we have unsafe reading; gives memory pointer for perf reasons
   $DB->ReadMode(1);
 
   #unfortunately if we close the transaction, cursors stop working

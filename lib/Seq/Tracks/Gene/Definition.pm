@@ -9,7 +9,7 @@ use Moose::Role 2;
 requires 'name';
 
 #these is features used in the region database
-has geneTrackRegionDatabaseTXerrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
+has geneTxErrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
 
 #some default fields, some of which are required
 #TODO: allow people to remap the names of required fields if their source

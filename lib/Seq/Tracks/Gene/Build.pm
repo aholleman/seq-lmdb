@@ -16,7 +16,6 @@ our $VERSION = '0.001';
 use Moose 2;
 use namespace::autoclean;
 
-use MCE::Loop;
 use Parallel::ForkManager;
 
 use Seq::Tracks::Gene::Build::TX;
@@ -28,6 +27,9 @@ extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::Definition',
 #exports allUCSCgeneFeatures
 'Seq::Tracks::Gene::Definition';
+
+#unlike original GeneTrack, don't remap names
+#I think it's easier to refer to UCSC gene naming convention
 
 #can be overwritten if needed in the config file, as described in Tracks::Build
 has chrom_field_name => (is => 'ro', lazy => 1, default => 'chrom' );
@@ -63,183 +65,107 @@ sub BUILD {
   #is stored in the region database
   #initializing here to make sure we store this value (if calling for first time)
   #before any threads get to it
-  $self->getFieldDbName($self->geneTrackRegionDatabaseTXerrorName);
+  $self->getFieldDbName($self->geneTxErrorName);
 }
 
-#note, if the user chooses to specify features, but doesn't include whatever
-#the Build::TX class needs, they'll get an ugly message, and that's just ok
-#because they need to know :)
 
-#unlike original GeneTrack, don't remap names
-#I think it's easier to refer to UCSC gene naming convention
-#Rather than implement our own.
-#unfortunately, sources tell me that you can't augment attributes inside 
-#of moose roles, so done here
-#NOTE: each site can have one or more codons and one or more transcript references
-#(we expect to always have the same number of each, but don't currently expliclty check for this)
-#This means that when moving to Golang, need to use a type that is either
 my $pm = Parallel::ForkManager->new(26);
 
+# 1) Store a reference to the corresponding entry in the gene database (region database)
+# 2) Store this codon information at some key, which the Tracks::Region::Gene
+# 3) Store transcript errors, if any
+# 4) Write region data
+# 5) Write gene track data in main db
+# 6) Write nearest genes if user wants those
 sub buildTrack {
   my $self = shift;
 
   my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
 
+  # We assume one file per loop,
+  # Or all sites in one file
+  # Enforce by BUILD.pm
   for my $file ($self->allLocalFiles) {
     $pm->start and next;
 
-    my $fh = $self->get_read_fh($file);
+      my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
+      my %regionIdx; #like allIdx, but only for features going into the region databae
 
-    #allData holds everything. regionData holds what is meant for the region track
-    my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
-    my %regionIdx; #like allIdx, but only for features going into the region databae
-    my %regionData;
-    my %perSiteData;
-    
-    #lets map, for each chromosome the transcript start, and the transcript number
-    my %txStartData;
+      my $fh = $self->get_read_fh($file);
 
-    my $wantedChr;
-    
-    my $txNumber = 0; # this is what our key will be in the region track
-    #track how many region track records we've collected
-    #to gauge when to bulk insert
-    my $regionCount = 0; 
-
-    #we'll also store a nearest gene field ($self->nearestGeneFeatureName)
-    #but that's done at the end
-    #because we can never quite be sure we've gotten all genes, for all 
-    #chromosomes, until the very end
-
-    my $firstLine = <$fh>;
-
-    chomp $firstLine;
-
-    my $fieldIdx = 0;
-
-    #now store all the features, in the hopes that we have enough
-    #for the TX package, and anything else that we consume
-    #Notably: we avoid the dictatorship model: this pacakge doesn't need to
-    #know every last thing that the packages it consumes require
-    #those packages will tell us if they don't have what they need
-    for my $field (split "\t", $firstLine) {
-      $allIdx{$field} = $fieldIdx;
-      $fieldIdx++;
-    }
-
-    #however, this package absolutely needs the chromosome field
-    if( !defined $allIdx{$self->chrom_field_name} ) {
-      $self->log('fatal', 'must provide chromosome field');
-    }
-
-    #and there are some things that we need in the region database
-    #as defined by the features YAML config or our default above
-    REGION_FEATS: for my $field ($self->allFeatureNames) {
-      if(exists $allIdx{$field} ) {
-        $regionIdx{$field} = $allIdx{$field};
-        next REGION_FEATS; #label for clarity
+      my $firstLine = <$fh>;
+      chomp $firstLine;
+   
+      #now store all the features, in the hopes that we have enough
+      #for the TX package, and anything else that we consume
+      #Notably: we avoid the dictatorship model: this pacakge doesn't need to
+      #know every last thing that the packages it consumes require
+      #those packages will tell us if they don't have what they need
+      my $fieldIdx = 0;
+      for my $field (split "\t", $firstLine) {
+        $allIdx{$field} = $fieldIdx;
+        $fieldIdx++;
       }
 
-      #should die here, so $fieldIdx++ not nec strictly
-      $self->log('fatal', 'Required $field missing in $file header');
-    }
-
-    MCE::Loop->init({
-      max_workers => 8,
-      use_slurpio => 1,
-      gather => sub {
-        my ($chr, $data, $perSiteDataHref, $txStartDataHref) = @_;
-
-        if($chr && $data) {
-          $self->dbPatchBulk($chr, $data);
-        }
-        
-
-        if($perSiteDataHref) {
-          %perSiteData = %$perSiteDataHref;
-        }
-
-        if($txStartDataHref) {
-          %txStartData = %$txStartDataHref;
-        }
+      #however, this package absolutely needs the chromosome field
+      if( !defined $allIdx{$self->chrom_field_name} ) {
+        $self->log('fatal', 'must provide chromosome field');
       }
-    });
 
-    mce_loop_f {
-      my ($mce, $slurp_ref, $chunk_id) = @_;
-      open my $MEM_FH, '<', $slurp_ref;
-      binmode $MEM_FH, ':raw';
+      #and there are some things that we need in the region database
+      #as defined by the features YAML config or our default above
+      REGION_FEATS: for my $field ($self->allFeatureNames) {
+        if(exists $allIdx{$field} ) {
+          $regionIdx{$field} = $allIdx{$field};
+          next REGION_FEATS; #label for clarity
+        }
 
-      FH_LOOP: while (<$MEM_FH>) {
+        #should die here, so $fieldIdx++ not nec strictly
+        $self->log('fatal', 'Required $field missing in $file header');
+      }
+
+      # In this loop, we build up txStartData, perSiteData, and regionData
+      # regionData is what goes into the gene track's region database
+      # perSiteData is what goes under the gene track dbName in the main database
+      # and txStartData is used to make nearest genes for gene track if requesed
+      # this loop also writes out the gene track data
+      #Every row (besides header) describes a transcript 
+      #MCE says "It is possible that Perl may create a new code ref on subsequent 
+      #runs causing MCE models to re-spawn. One solution to this is to declare 
+      #global variables, referenced by workers, with "our" instead of "my"."
+      my %allData;
+      my %regionData;
+      my %txStartData;
+
+      my $wantedChr;
+      my %txNumbers;
+      FH_LOOP: while (<$fh>) {
         chomp;
         my @fields = split("\t", $_);
 
-
-        #Every row (besides header) describes a transcript
-        #We want to keep track of which transcript this is (just a number,
-        #starting from 0), so that we can insert that 
-
-        #we're not going to insert all required fields into the region database
-        #only the stuff that isn't position-dependent
-        #because we will pre-calculate all position-dependent effects, as they
-        #relate positions in the genome overlapping with these gene ranges
-        #Dave's smart suggestion
-
-        #also, we try to avoid assignment operations when not onerous
-        #but here not as much of an issue; we expect only say 20k genes
-        #and only hundreds of thousands to low millions of transcripts
         my $chr = $fields[ $allIdx{$self->chrom_field_name} ];
 
-        #if we have a wanted chr
-        if($wantedChr ) {
-          if($wantedChr ne $chr) {
-            #ok, we found something new, or this is our first time getting a $wantedChr
-            #so let's write whatever we have for the previous wanted chr
-            if (%regionData) {
-              #write that data
-              MCE->gather($self->regionTrackPath($wantedChr), \%regionData);
-              
-              #reset the regionData
-              undef %regionData;
-              #and count of accumulated region sites
-              $regionCount = 0;
-            }
-            
-            $wantedChr = $self->chrIsWanted($chr) || undef;
+        if($wantedChr && $wantedChr ne $chr) {
+          $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+        } elsif(!$wantedChr) {
+          if( $self->chrIsWanted($chr) ) {
+            $wantedChr = $chr;
+            next FH_LOOP;
           }
-        } else {
-          $wantedChr = $self->chrIsWanted($chr) || undef;
-        }
-        
-        if(!$wantedChr) {
-          # chr isn't wanted if we got here
-          # so leave this loop if we have one chr per file
-          # else we have one file, so abort this process
+
+          # if not wanted, and we have one chr per file, exit
           if($chrPerFile) {
-            $mce->abort;
+            last FH_LOOP;
           }
-          # else just move on to the next line (explict next for clarity)
+
+          #not wanted, but multiple chr per file, skip
           next FH_LOOP;
         }
-
-        #if the chromosome is wanted, we should accumulate the features needed
-        #the trick for gene tracks is that we only want to add
-        #non-core features
-        #but we also need to keep track of the rest, to calculate 
-        #position-dependent features for the main database
-
-        if($regionCount >= $self->commitEvery && %regionData) {
-          MCE->gather($self->regionTrackPath($wantedChr), \%regionData);
-
-          $regionCount = 0;
-          undef %regionData;
-        }
         
-        #what we want to write
-        my $tRegionDataHref;
+        my $txNumber = $txNumbers{$wantedChr} || 0;
+
         my $allDataHref;
         ACCUM_VALUES: for my $fieldName (keys %allIdx) {
-          #store the field value
           $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
             
           if(!defined $regionIdx{$fieldName} ) {
@@ -248,10 +174,10 @@ sub buildTrack {
 
           # if this is a field that we need to store in the region db
           # create a shortened field name
-          my $dbName = $self->getFieldDbName($fieldName);
+          my $fieldDbName = $self->getFieldDbName($fieldName);
           
-          #store under a shortened fieldName
-          $tRegionDataHref->{ $dbName } = $allDataHref->{$fieldName};
+          #store under a shortened fieldName to save space in the db
+          $regionData{$wantedChr}{$txNumber}->{ $fieldDbName } = $allDataHref->{$fieldName};
         }
 
         my $txStart = $allDataHref->{$self->txStart_field_name};
@@ -268,130 +194,100 @@ sub buildTrack {
             $self->txEnd_field_name . ')');
         }
 
-        $txStartData{$wantedChr}{$txStart} = [$txNumber, $txEnd];
-
-        # The responsibility of this BUILD class, as a superset of the Region build class
-        # Is to
-        # 1) Store a reference to the corresponding entry in the gene database (region database)
-        # 2) Store this codon information at some key, which the Tracks::Region::Gene
-        # 3) Store transcript errors, if any
-        my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
-
-        #since some errors could have been generated, lets capture those
-        #and store them in the region database portion
-        my @txErrors = $txInfo->allTranscriptErrors;
-        if(@txErrors) {
-          my $dbName = $self->getFieldDbName($self->geneTrackRegionDatabaseTXerrorName);
-          $tRegionDataHref->{$dbName} = \@txErrors;
-        }
-        
-        #we are already storing the region data under a special database name
-        #which is based on $self->name, so no need to $self->prepare the data
-        #we key on transcript number so that we can match our region reference 
-        #entry in the main database
-        $regionData{$txNumber} = $tRegionDataHref;
-
-        #And we're done with region database handling
-        #So let's move on to the main database entries,
-        #which are the ones stored per-position
-
-        #now we move to taking care of the site specific stuff
-        #which gets inserted into the main database,
-        #for each reference position covered by a transcript
-        #"TX" is a misnomer at the moment, in a way, because our only goal
-        #with this class is to get back all sites covered by a transcript
-        #and for each one of those sites, store the genetic data pertaining to
-        #that transcript at that position
-
-        #This is:
-        # 1) The codon
-        # 2) The strand it's on
-        # 3) The codon number (which codon it is in the transcript)
-        # 4) The codon "Position" (which position that site occupies in the codon)
-        # 5) What type of site it is (As defined by Seq::Site::Definition)
-          # ex: non-coding RNA || Coding || 3' UTR etc
-
-        # So from the TX class, we can get this data, and it is stored
-        # and fetched by that class. We don't need to know exactly how it's stored
-        # but for our amusement, it's packed into a single string
-        POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
-          #we always insert a reference to the region database entry
-          #and some site-specific information about this position
-          if(defined $perSiteData{$wantedChr}->{$pos} ) {
-            push @{ $perSiteData{$wantedChr}->{$pos} }, [ $txNumber, $txInfo->getTranscriptSite($pos) ] ;
-          } else {
-            $perSiteData{$wantedChr}->{$pos} = [ [ $txNumber, $txInfo->getTranscriptSite($pos) ] ];
-          }
+        if(defined $txStartData{$wantedChr}{$txStart} ) {
+          push @{ $txStartData{$wantedChr}{$txStart} }, [$txNumber, $txEnd];
+        } else {
+          $txStartData{$wantedChr}{$txStart} = [ [$txNumber, $txEnd] ];
         }
 
-        #iterate how many region sites we've accumulated
-        #this will be off by 1 sometimes if we bulk write before getting here
-        #see above
-        $regionCount++;
+        #store all the data we can find in the input file,
+        #for use later in generating transcripts
+        $allData{$wantedChr}{$txNumber}{all} = $allDataHref;
 
-        #keep track of the transcript 0-indexed number
-        #this becomes the key in the region database
-        #and is also what the main database stores as a reference
-        #to the region database
-        #to save on space vs storing some other transcript id
-        $txNumber++;
-         #after the FH_LOOP, if anything left over write it
-        if(%regionData) {
-          if(!$wantedChr) {
-            return $self->log('fatal', 'data remains but no chr wanted');
-          }
-          MCE->gather($self->regionTrackPath($wantedChr), \%regionData);
+        # Keep track of our 0-indexed transcript refreence numbers
+        $txNumbers{$wantedChr}++;
+      }
+
+      my $pm2 = Parallel::ForkManager->new(32);
+      
+      #if we have > 1 chr in this file, write separately
+      for my $chr (keys %allData) {
+        for my $txNumber ( keys %{ $allData{$chr} } ) {
+          $pm2->start and next;
+            my $allDataHref = $allData{$chr}{$txNumber}{all};
+
+            my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
+
+            my %siteData;
+
+            POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
+              if(defined $siteData{$pos}) {
+                push @{ $siteData{$pos} }, [$txNumber, $txInfo->getTranscriptSite($pos) ] ;
+                next;
+              }
+
+              $siteData{$pos} = [ [ $txNumber, $txInfo->getTranscriptSite($pos) ] ];
+            }
+
+            my @errors = $txInfo->allTranscriptErrors;
+
+          $pm2->finish(0, [$chr, $txNumber, \%siteData, \@errors] );
         }
       }
-    } $fh;
 
-    #we could also do this in a more granular way, at every $wantedChr
-    #but that wouldn't completely guarantee the proper accumulation
-    #for out of order multi-chr files
-    #so we wait until the end
+      my %perSiteData;
+      my %sitesCoveredByTX;
 
-    #could parallelize if > 1 chr
-    for my $chr (keys %perSiteData) {
-      my %accumData;
-      my $accumCount;
+      $pm2->run_on_finish(sub {
+        my ($exitCode, $dataAref) = @_;
+        if($exitCode == 0){
+          my ($chr, $txNumber, $siteDataHref, $errorsAref) = @$dataAref;
 
-      mce_loop {
-        my ($mce, $chunk_ref, $chunk_id) = @_;
-          
-        say "number in chunk ref is " . scalar @$chunk_ref;
-        for my $pos ( @$chunk_ref) {
-          $accumData{$_} = $self->prepareData( $perSiteData{$chr}->{$_} );
+          #build up our hash of stuff to put into the main database
+          #since we can't easily tell which positions are not covered by multiple transcripts
+          #just build up an entire $chr worth at a time
+          POS_DATA: for my $pos (keys %$siteDataHref) {
+            foreach ( @{ $siteDataHref->{$pos} } ) {
+              if ( defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
+                push @{ $perSiteData{$chr}->{$pos}{$self->dbName} }, $_;
+                next;
+              }
 
-          $accumCount++;
-          
-          if($accumCount > $self->commitEvery) {
-            MCE->gather($chr, \%accumData);
-
-            undef %accumData;
-            $accumCount = 0;
+              $perSiteData{$chr}->{$pos}{$self->dbName} = [ $_ ];
+            }
+            #for use with nearest gene
+            $sitesCoveredByTX{$chr}{pos} = 1;
           }
 
-          #leftovers
-          if(%accumData) {
-            $self->dbPatchBulk($chr, \%accumData);
+          if(!@$errorsAref) {
+            return;
           }
+
+          $regionData{$chr}{$txNumber}{
+            $self->getFieldDbName($self->geneTxErrorName)
+          } = $errorsAref;
         }
-      } keys %{ $perSiteData{$chr} };
-    }
 
-    # %txStartData will empty if chr wasn't the requested one
-    # and we're using one file per chr
-    if(!$self->noNearestFeatures) {
-      return;
-    }
+        $self->log('fatal', $self->name . " exited with code $exitCode");
+      });
 
-    MCE::Loop::finish;
-    
-    $self->log('info', "Beginning to write ". $self->name .".nearest records");
-    
-    $self->makeNearestGenes( \%txStartData, \%perSiteData );
-    
-    $self->log('info', "Finished writing ". $self->name .".nearest records");
+      $pm2->wait_all_children;
+
+      undef %allData;
+
+      $self->_writeRegionData( \%regionData );
+
+      undef %regionData;
+
+      $self->_writeMainData( \%perSiteData );
+
+      undef %perSiteData;
+
+      # %txStartData will empty if chr wasn't the requested one
+      # and we're using one file per chr
+      if($self->noNearestFeatures) {
+        $self->makeNearestGenes( \%txStartData, \%sitesCoveredByTX );
+      }
 
     $pm->finish;
   }
@@ -399,81 +295,190 @@ sub buildTrack {
   $pm->wait_all_children;
 }
 
+sub _writeRegionData {
+  my ($self, $regionDataHref) = @_;
+
+  my $pm = Parallel::ForkManager->new(26);
+
+  for my $chr (keys %$regionDataHref) {
+    $pm->start and next;
+      my $dbName = $self->regionTrackPath($chr);
+
+      my @txNumbers = keys %$regionDataHref;
+
+      if(@txNumbers <= $self->commitEvery) {
+        $self->dbPatchBulk($dbName, $regionDataHref->{$chr} );
+        return;
+      }
+
+      my %out;
+      my $count;
+      for my $txNumber (@txNumbers) {
+        $out{$txNumber} = $regionDataHref->{$chr}{$txNumber};
+        $count++;
+
+        if($count >= $self->commitEvery) {
+          $self->dbPatchBulk($dbName, \%out);
+          $count = 0;
+          undef %out;
+        }
+      }
+
+      #remains
+      if(%out) {
+        $self->dbPatchBulk($dbName, \%out);
+      }
+
+    $pm->finish;
+  }
+  $pm->wait_all_children;
+}
+
+sub _writeMainData {
+  my ($self, $mainDataHref) = @_;
+
+  my $pm = Parallel::ForkManager->new(32);
+
+  for my $chr (keys %$mainDataHref) {
+    $pm->start and next;
+
+      my %out;
+      my $count = 0;
+
+      for my $pos (keys %{$mainDataHref->{$chr} } ) {
+        if($count >= $self->commitEvery) {
+          $self->dbPatchBulk($chr, \%out);
+          undef %out;
+          $count = 0;
+        }
+
+        $out{$pos} = $mainDataHref->{$chr}{$pos};
+      }
+
+      if(%out) {
+        $self->dbPatchBulk($chr, \%out);
+      }
+    $pm->finish;
+  }
+  $pm->wait_all_children;
+}
 #Find all of the nearest genes
 #Obviously completely dependent 
 #Note: all UCSC refGene data is 0-based
 #http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
+#We will only look between transcripts, nearest gene of a position covering a gene
+#is itself
 sub makeNearestGenes {
   my ($self, $txStartData, $coveredSitesHref) = @_;
   
   #get the nearest gene feature name that we want to use in our database (expect some integer)
   my $nearestGeneDbName = $self->getFieldDbName( $self->regionNearestSubTrackName );
-  
-  #$txStartData holds everything that has been covered
+    
+  #set a short commit, because we may be using multiple writers 
+  #per chr which can lead to runaway inflation
+  $self->commitEvery(1e2);
+
+  #we do this per chromosome
+  my $pm = Parallel::ForkManager->new(26);
+
   for my $chr (keys %$txStartData) {
-    #length of the database
-    #assumes that the database is built, using reference track
+    $pm->start and next;
+      #length of the database
+      #assumes that the database is built using reference track at the least
+      my $genomeNumberOfEntries = $self->dbGetNumberOfEntries($chr);
 
-    #coveredGenes is either one, or an array
-    my @allTranscriptStarts = sort {
-      $a <=> $b
-    } keys %{ $txStartData->{$chr} };
+      #we can write many sites in parallel
+      #if running one chr per file, this will lead to good use of HGCC/ amazon
+      my $pm2 = Parallel::ForkManager->new(32);
 
-    my $genomeNumberOfEntries = $self->dbGetNumberOfEntries($chr);
+      #coveredGenes is either one, or an array
+      my @allTranscriptStarts = sort {
+        $a <=> $b
+      } keys %{ $txStartData->{$chr} };
 
-    my $startingPos = 0;
+      my $startingPos = 0;
 
-    for (my $n = 0; $n < @allTranscriptStarts; $n++) {
-      my $txStart = $allTranscriptStarts[$n];
-      
-      my ($txNumber, $txEnd) = @{ $txStartData->{$chr}->{$txStart} };
+      for (my $n = 0; $n < @allTranscriptStarts; $n++) {
+        my $txStart = $allTranscriptStarts[$n];
 
-      my $txData = { $nearestGeneDbName => $txNumber };
+        #more than one transcript may share the same transcript start
+        #we'll accumulate all of these
+        #we only want to check between genes
+        #and by doing the following, we will not only do this,
+        #but also fit the conceit in which positions in a transcript
+        #are "nearest" to that transcript itself
+        my $longestTxEnd = 0;
+        my $txNumber;
 
-      my ($previousTxStart, $previousTxNumber, $previousTxEnd, $previousTxData);
+        #we look between the furthest down txEnd in case of multiple transcripts with
+        # these same txStart
+        # because we only care aboute intergenic positions
+        # anything before that is inside of a gene
+        if( @{ $allTranscriptStarts[$n] } > 1 ) {
+          foreach ( @{ $allTranscriptStarts[$n] } ) {
+            push @$txNumber, $_->[0];
+            
+            if($_->[1] > $longestTxEnd) {
+              $longestTxEnd = $_->[1];
+            }
+          }
+        } else {
+          ($txNumber, $longestTxEnd) = @$_;
+        }
 
-      $previousTxStart = $allTranscriptStarts[$n - 1];
+        my $txData = { $nearestGeneDbName => $txNumber };
 
-      my $midPoint;
+        my $previousTxStart = $allTranscriptStarts[$n - 1];
 
-      if($previousTxStart) {
-        ($previousTxNumber, $previousTxEnd) = @{ $txStartData->{$chr}{$previousTxStart} };
-        
-        $midPoint = $txStart + ( ($txStart - $previousTxStart ) / 2 );
+        my ($previousTxNumber, $previousTxEnd, $previousTxData);
 
-        $previousTxData = { $nearestGeneDbName => $previousTxNumber };
-      }
+        my $midPoint;
 
-      #once we're in one transcript, the nearest is the next closest transcript
-      #so let's start with the current txEnd as our new baseline position
-      #note taht since txEnd is open range, txEnd is also the first base
-      #past the end of this transcript
-      mce_loop {
-        my ($mce, $chunk_ref, $chunk_id) = @_;
-        
+        if($previousTxStart) {
+          my $longestPreviousTxEnd = 0;
+          #get the previous txNumber, which may be an array of arrays,
+          #or a 1D array containing txNumber, $txEnd
+          if(@{ $txStartData->{$chr}{$previousTxStart} } > 1) {
+            foreach ( @{ $txStartData->{$chr}{$previousTxStart} } ) {
+              push @$previousTxNumber, $_->[0];
+              if($_->[1] > $longestPreviousTxEnd) {
+                $longestPreviousTxEnd = $_->[1];
+              }
+            }
+          } else {
+            $previousTxNumber = $txStartData->{$chr}{$previousTxStart}[0];
+            $longestPreviousTxEnd = $txStartData->{$chr}{$previousTxStart}[1];
+          }
+            
+          #we take the midpoint as from the longestPreviousTxEnd
+          #because any position before the longestPreviousTxEnd is within the gene
+          #and therefore its nearest gene is its own
+          $midPoint = $txStart + ( ($txStart - $longestPreviousTxEnd ) / 2 );
+
+          $previousTxData = { $nearestGeneDbName => $previousTxNumber };
+        }
+
+        #we will scan through the whole genome
+        #going from 0 .. first txStart - 1, then txEnd .. next txStart and so on
+
+        #so let's start with the current txEnd as our new baseline position
+        #note taht since txEnd is open range, txEnd is also the first base
+        #past the end of this transcript
         my $count = 0;
         my %out;
 
-        say "number in chunk ref in ngene is " . scalar @$chunk_ref;
-        for my $pos ( @$chunk_ref) {
-
+        #txStart is closed, meaning included in a transcript, so stop before the end
+        for my $pos ( $startingPos .. $txStart - 1 ) {
           #exclude anything covered by a gene, save space in the database
           #we can conclude that the nearest gene for something covered by a gene
           #is itself (and in overlap case, the list of genes it overlaps)
           if(defined $coveredSitesHref->{$chr}{$pos} ) {
+            $self->log("debug", "Covered by gene: $chr:$pos, skipping");
             next;
           }
 
           if($count >= $self->commitEvery && %out) {
-            #1 flag to merge whatever is held in the $self->name value in the db
-            #since this is basically a 2nd insertion step
-            
-            # if(!$printedOutputExample) {
-            #   say "in nearest gene, putting the following for position $y";
-            #   p %out;
-            # }
-            
-            MCE->gather($chr, \%out);
+            $self->dbPatchBulk($chr, \%out);
             
             undef %out;
             $count = 0;
@@ -488,41 +493,26 @@ sub makeNearestGenes {
           # so that we can store a single value for the main track (@ $self->name )
           if($previousTxStart && $pos < $midPoint) {
             $out{$pos} = $txData;
-
-            if($self->debug) {
-              say "$chr:$pos is before the midpoint of $midPoint, "
-               . " so using previousTxData for $previousTxStart";
-            }
           } else {
             #so will give the next one for $y >= $midPoint
             $out{$pos} = $previousTxData;
           }
         }
 
-        #leftovers
-        if(%out) {
-          MCE->gather($chr, \%out);
-        }
+        $startingPos = $longestTxEnd;
 
-      } ( $startingPos .. $txStart - 1 );
-
-      $startingPos = $txEnd;
-
-      if ($n == @allTranscriptStarts) {
-        #we've reach the last transcript
-        mce_loop {
-          my ($mce, $chunk_ref, $chunk_id) = @_;
-          
-          my $count = 0;
-          my %out;
-          say "number in chunk ref in ngene is " . scalar @$chunk_ref;
-          for my $pos ( @$chunk_ref) {
+        #We're done looking at this transcript start
+        #If we also happne to be at the last txStart, then we need to consider
+        #The tail of the genome, which is always nearest to the last transcript
+        if ($n == @allTranscriptStarts) {
+          for my $pos ( $startingPos .. $genomeNumberOfEntries - 1 ) {
             if(defined $coveredSitesHref->{$chr}{$pos} ) {
+              $self->log("debug", "End covered by gene @ $chr:$pos, skipping");
               next;
             }
 
             if($count >= $self->commitEvery && %out) {
-              MCE->gather($chr, \%out);
+              $self->dbPatchBulk($chr, \%out);
               
               undef %out;
               $count = 0;
@@ -532,15 +522,20 @@ sub makeNearestGenes {
 
             $count++;
           }
+        }
 
-          #leftovers
-          if(%out) {
-            MCE->gather($chr, \%out);
-          }
-        } ( $txEnd .. $genomeNumberOfEntries );
+        #leftovers
+        if(%out) {
+          $self->dbPatchBulk($chr, \%out);
+          undef %out;
+          $count = 0;
+        }
       }
-    }
+
+    $pm->finish;
   }
+
+  $pm->wait_all_children;
 }
 
 __PACKAGE__->meta->make_immutable;
