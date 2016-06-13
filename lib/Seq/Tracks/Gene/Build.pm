@@ -207,71 +207,39 @@ sub buildTrack {
         # Keep track of our 0-indexed transcript refreence numbers
         $txNumbers{$wantedChr}++;
       }
-
-      my $pm2 = Parallel::ForkManager->new(32);
-      
-      #if we have > 1 chr in this file, write separately
-      for my $chr (keys %allData) {
-        for my $txNumber ( keys %{ $allData{$chr} } ) {
-          $pm2->start and next;
-            my $allDataHref = $allData{$chr}{$txNumber}{all};
-
-            my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
-
-            my %siteData;
-
-            POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
-              if(defined $siteData{$pos}) {
-                push @{ $siteData{$pos} }, [$txNumber, $txInfo->getTranscriptSite($pos) ] ;
-                next;
-              }
-
-              $siteData{$pos} = [ [ $txNumber, $txInfo->getTranscriptSite($pos) ] ];
-            }
-
-            my @errors = $txInfo->allTranscriptErrors;
-
-          $pm2->finish(0, [$chr, $txNumber, \%siteData, \@errors] );
-        }
-      }
-
+  
       my %perSiteData;
       my %sitesCoveredByTX;
 
-      $pm2->run_on_finish(sub {
-        my ($exitCode, $dataAref) = @_;
-        if($exitCode == 0){
-          my ($chr, $txNumber, $siteDataHref, $errorsAref) = @$dataAref;
+      #I wanted to parallelize, but parallel forkmanager has errors
+      #periodically, due to Storable failure
+      #No more time to spend on this.
+            
+      #if we have > 1 chr in this file, write separately
+      for my $chr (keys %allData) {
+        for my $txNumber ( keys %{ $allData{$chr} } ) {
+          my $allDataHref = $allData{$chr}{$txNumber}{all};
 
-          #build up our hash of stuff to put into the main database
-          #since we can't easily tell which positions are not covered by multiple transcripts
-          #just build up an entire $chr worth at a time
-          POS_DATA: for my $pos (keys %$siteDataHref) {
-            foreach ( @{ $siteDataHref->{$pos} } ) {
-              if ( defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
-                push @{ $perSiteData{$chr}->{$pos}{$self->dbName} }, $_;
-                next;
-              }
+          my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
 
-              $perSiteData{$chr}->{$pos}{$self->dbName} = [ $_ ];
+          my %siteData;
+
+          POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
+            if(defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
+              push @{ $perSiteData{$chr}->{$pos}{$self->dbName} },
+                [$txNumber, $txInfo->getTranscriptSite($pos) ] ;
+              next;
             }
-            #for use with nearest gene
+
+            $perSiteData{$chr}->{$pos}{$self->dbName} = [ [ $txNumber, $txInfo->getTranscriptSite($pos) ] ];
+
             $sitesCoveredByTX{$chr}{pos} = 1;
           }
 
-          if(!@$errorsAref) {
-            return;
-          }
-
-          $regionData{$chr}{$txNumber}{
-            $self->getFieldDbName($self->geneTxErrorName)
-          } = $errorsAref;
+          $regionData{$chr}{$txNumber}{ $self->getFieldDbName($self->geneTxErrorName) }
+            = $txInfo->transcriptErrors;
         }
-
-        $self->log('fatal', $self->name . " exited with code $exitCode");
-      });
-
-      $pm2->wait_all_children;
+      }
 
       undef %allData;
 
