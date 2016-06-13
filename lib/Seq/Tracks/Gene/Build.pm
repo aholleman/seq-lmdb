@@ -341,11 +341,7 @@ sub makeNearestGenes {
   
   #get the nearest gene feature name that we want to use in our database (expect some integer)
   my $nearestGeneDbName = $self->getFieldDbName( $self->regionNearestSubTrackName );
-    
-  #set a short commit, because we may be using multiple writers 
-  #per chr which can lead to runaway inflation
-  $self->commitEvery(1e2);
-
+  
   #we do this per chromosome
   my $pm = Parallel::ForkManager->new(26);
 
@@ -354,10 +350,6 @@ sub makeNearestGenes {
       #length of the database
       #assumes that the database is built using reference track at the least
       my $genomeNumberOfEntries = $self->dbGetNumberOfEntries($chr);
-
-      #we can write many sites in parallel
-      #if running one chr per file, this will lead to good use of HGCC/ amazon
-      my $pm2 = Parallel::ForkManager->new(32);
 
       #coveredGenes is either one, or an array
       my @allTranscriptStarts = sort {
