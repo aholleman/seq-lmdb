@@ -9,35 +9,13 @@ our $VERSION = '0.001';
 # ABSTRACT: A moose role for all of our file handle needs
 # VERSION
 
-=head1 DESCRIPTION
-
-  @role Seq::Role::IO
-  #TODO: Check description
-
-  @example with 'Seq::Role::IO'
-
-Used in:
-=for :list
-* Seq/Build/GeneTrack.pm
-* Seq/Build/GenomeSizedTrackStr.pm
-* Seq/Build/SnpTrack.pm
-* Seq/Build/TxTrack.pm
-* Seq/Build.pm
-* Seq/Fetch/Sql.pm
-* Seq/GenomeBin.pm
-* Seq/KCManager.pm
-* Seq/Role/ConfigFromFile.pm
-* Seq
-
-Extended by: None
-
-=cut
-
 use Moose::Role;
 
 use Carp qw/ confess /;
+
 use PerlIO::utf8_strict;
 use PerlIO::gzip;
+
 
 use Path::Tiny;
 use Try::Tiny;
@@ -80,7 +58,7 @@ has _compressExtension => (
 #@return file handle
 
 sub get_read_fh {
-  my ( $self, $file ) = @_;
+  my ( $self, $file, $mceEnabled) = @_;
   my $fh;
   
   if(ref $file ne 'Path::Tiny' ) {
@@ -97,8 +75,14 @@ sub get_read_fh {
     # to open with pipe needs something like IPC module to catch stderr
     # open ($fh, '-|', "pigz -d -c $file") or die "not a gzip file";
     open($fh, "<:gzip", $filePath) or die "Not a gzip file";
+    close($fh);
+
+
+    #The above doesn't play nicely with MCE, reads random number of lines
+    #and then exits
+    open ($fh, '-|', "pigz -d -c $file") or die "not a gzip file";
   } catch {
-    open($fh, '<', $filePath);
+    open($fh, '<:unix', $filePath);
   };
     
   #open($fh, '<', $filePath) unless $fh;
@@ -106,20 +90,6 @@ sub get_read_fh {
 
   return $fh;
 }
-
-# not used
-#version based on File::Slurper, advantage is it uses our get_read_fh to support
-#compressed files
-# sub get_file_lines {
-#   my ($self, $filename) = @_;
-  
-#   my $fh = $self->get_read_fh($filename);
-  
-#   my @buf = <$fh>;
-#   close $fh;
-#   chomp @buf;
-#   return \@buf;
-# }
 
 sub get_write_fh {
   my ( $self, $file ) = @_;

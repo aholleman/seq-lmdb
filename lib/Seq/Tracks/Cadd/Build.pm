@@ -1,177 +1,206 @@
 use 5.10.0;
 use strict;
 use warnings;
-
-#TODO: SHOULD CHECK THAT REFERENCE MATCHES INPUT
-#SINCE THIS HAS MAJOR IMPLICATIONS FOR THE SCORES
-#ESPECIALLY IN OUR WIGFIX FORMAT
-
-#NOTE: Now just takes the regular CADD file format
-#it just will take it compressed
-#I think that processing a 200G+ file into a wigFix format
-#Is something no one will do
-#And maybe a few people will want to (to be seen, trying to lower the barriers)
+  # Adds cadd data to our main database
+  # Reads CADD's bed-like format
 package Seq::Tracks::Cadd::Build;
 
 use Moose;
 extends 'Seq::Tracks::Build';
 with 'Seq::Role::DBManager';
 
-# use Parallel::ForkManager;
+use List::MoreUtils qw/first_index/;
 use DDP;
 
-#TODO: like with sparse tracks, allow users to map 
-#if other, competing predictors have similar enough formats
-# These are only needed if we read from the weird bed-like CADD tab-delim file
-# state $chrom = 'Chrom';
-# state $pos = 'Pos';
-# state $alt   = 'Alt';
-# state $reqFields = [$chrom, $pos, $alt];
-
+#TODO: like with sparse tracks, allow users to map required fields
 use MCE::Loop;
 
+# sparse track should be 1 based by default 
 has '+based' => (
   default => 1,
 );
-
-#my $pm = Parallel::ForkManager->new(26); 
-sub buildTrack {
-  my ($self) = @_;
-  # $self = $_[0]
-  # not shifting to allow goto
-
-  #there can only be ONE
-  #the one that binds them
-  my ($file) = $self->all_local_files;
-
-  my $fh = $self->get_read_fh($file);
   
-  if( ! ~index $fh->getline(), '#') {
-    close $fh;
-    goto &buildTrackFromHeaderlessWigFix;
-  }
+#if use doesn't specify a feature, give them the PHRED score
+has '+features' => (
+  default => 'PHRED',
+);
 
-  # finish for regular cadd file
-  # FH_LOOP: while (my $line = $fh->getline() ) {
-  #   chomp $line; #$_ not nec. , but more cross-language understandable
-  #   #this may be too aggressive, like a super chomp, that hits 
-  #   #leading whitespace as well; wouldn't give us undef fields
-  #   #$_ =~ s/^\s+|\s+$//g; #remove trailing, leading whitespace
-
-   
-
-  #   #TODO: Finish building the read-from-native-cadd file version,
-  #   #should that be of interest.
-    
-  # }
-    
-}
-
-sub buildTrackFromHeaderlessWigFix {
+sub buildTrack {
   my $self = shift;
 
-  #there can only be ONE
-  #the one that binds them
-  my @files = $self->all_local_files;
+  #there can only be one, one ring to rule them all
+  my ($file) = $self->allLocalFiles;
 
-  my ($file) = @files;
+  #DOESN'T WORK WITH MCE for compressed files! Maybe not
+  my $fh = $self->get_read_fh($file);
 
-  if(@files > 1) {
-    $self->log('warn', 'In Cadd/Buil more than one local_file specified. Taking first,
-      which is ' . $file);
+  # open( my $fh, "-|", "zcat", $file );
+
+  my $columnDelimiter = $self->delimiter;
+
+  my $exitStatus;
+
+  MCE::Loop::init (
+    #small chunk size to allow us to write in parallel without 
+    #inflating db much
+    #we read in groups of 3, to 
+    chunk_size => 90,
+    max_workers => 32,
+    #we could use a single writer
+    # gather => \&writeToDatabase,
+    use_slurpio => 1,
+    on_post_run => sub {
+      my ($mce, $allWorkers) = @_;
+
+      #Report only one exit code
+      for my $worker (@$allWorkers) {
+        if ($worker->{status} != 0) {
+          $self->log('warn', $self->name . " worker exited with $worker->{status}");
+          $exitStatus = $worker->{status};
+          return;
+        }
+      }
+
+      $exitStatus = 0;
+    },
+
+  );
+
+  my $versionLine = <$fh>;
+  chomp $versionLine;
+  
+  $self->log("info", "Building ". $self->name . " version: $versionLine");
+  
+  my $headerLine = <$fh>;
+  chomp $headerLine;
+
+  my @headerFields = split $columnDelimiter, $headerLine;
+
+  #whatever features the user asked for
+  my %featureIdx;
+
+  #used to check whether we're getting sets of 3
+  my $aFieldDbName;
+
+  #cache our feature names
+  my @featureNames = $self->allFeatureNames;
+
+  for my $featureName (@featureNames) {
+    my $fieldIdx = first_index { $_ eq $featureName } @headerFields;
+    
+    if($fieldIdx == -1) {
+      $self->log('fatal', "required field $featureName not present");
+    }
+
+    $featureIdx{$featureName} = $fieldIdx;
+
+    $aFieldDbName = $self->getFieldDbName($featureName);
   }
 
-  my $fh = $self->get_read_fh($file);
-  
-  my $wantedChr;
-  
-  my $count = 0;
-
-  # sparse track should be 1 based
-  # we have a method ->zeroBased, but in practice I find it more confusing to use
-  my $based = $self->based;
-
-  my $delimiter = $self->delimiter;
-
-  MCE::Loop::init {
-    chunk_size => 2e8, #read in chunks of 200MB
-    max_workers => 30,
-    gather => \&writeToDatabase,
-    user_end => sub {
-      #indicates success
-      return 1;
-    },
-  };
-
   mce_loop_f {
-    my ( $mce, $chunk_ref, $chunk_id ) = @_;
+    my ($mce, $slurp_ref, $chunk_id) = @_;
 
-    # storing
-    # chr => {
-      #pos => {
-    #    $self->dbName => [val1, val2, val3]
-    #  }
-    #}
+    my @lines;
+
+    open my $MEM_FH, '<', $slurp_ref;
+    binmode $MEM_FH, ':raw';
+    while (<$MEM_FH>) { push @lines, $_; }
+    close   $MEM_FH;
+
     my %out;
+    my $count = 0;
 
-    #count number of positions recorded for each chr  so that 
-    #we can comply with $self->commitEvery
-    my %count;
+    my $wantedChr;
+    LINE_LOOP: for my $line (@lines) {
+      chomp $line;
+      my @fields = split $columnDelimiter, $line;
 
-    LINE_LOOP: for my $line (@{$_}) {
-      #wantedChr means user has asked for just one chromosome
-      if($self->wantedChr && index($line, $self->wantedChr) == -1) {
+      my $chr = "chr$fields[0]";
+
+      # Remove the offset to get the real position
+      my $dbPosition = $fields[1] - $self->based;
+
+      if($wantedChr) {
+        if($wantedChr ne $chr) {
+          if(%out) {
+            # We ASSUME that the cadd file is sorted by chr
+            # We should NEVER have a case that we get here, and are missing
+            # one of the 3 values
+            # check this first
+            foreach (keys %out) {
+              if(@{ $out{$_}->{$self->dbName}{$aFieldDbName} } != 3) {
+                $self->log('fatal', "CADD file mis-sorted; output for $wantedChr:$_ is "
+                  . join(",", @{ $out{$_}{$aFieldDbName} } ) );
+              }
+            }
+
+            $self->dbPatchBulk($wantedChr, %out);
+
+            undef %out;
+            $count = 0;
+          }
+
+          $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+        }
+      } else {
+        $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+      }
+
+      if(!$wantedChr) {
         next LINE_LOOP;
       }
 
-      chomp $line;
-
-      my @sLine = split $delimiter, $line;
-
-      #if no single --chr is specified at run time,
-      #check against list of genome_chrs
-      if(!$self->chrIsWanted( $sLine[0] ) ) {
-        next;
-      }
-
-      if(! defined $out{ $sLine[0] } ) {
-        $out{ $sLine[0] } = {};
-        $count{ $sLine[0] } = 0;
-      }
-
       #if this chr has more than $self->commitEvery records, put it in db
-      if( $count{ $sLine[0] } == $self->commitEvery ) {
-        MCE->gather($self, { $sLine[0] => $out{ $sLine[0] } } );
-        
-        $out{ $sLine[0] } = {};
-        $count{ $sLine[0] } = 0;
+      if( $count >= $self->commitEvery ) {
+        $self->dbPatchBulk( $wantedChr, \%out );
+
+        undef %out;
+        $count = 0;
       }
 
-      $out{ $sLine[0] }{ $sLine[1] - $based } = $self->prepareData( [$sLine[2], $sLine[3], $sLine[4]] );
-      $count{ $sLine[0] }++;
+      for my $featureName (@featureNames) {
+        push @{ $out{$dbPosition}{$self->dbName}{ $self->getFieldDbName($featureName) } }, 
+          $fields[ $featureIdx{$featureName} ];
+      }
+
+      $count++;
     }
 
     # http://www.perlmonks.org/?node_id=1110235
     if(%out) {
-      MCE->gather($self, \%out);
-    }
+      if(!$wantedChr) {
+        $self->log('fatal', "out data remaining, but no wantedChr in " . $self->name);
+      }
 
-    undef %out;
-    undef %count;
+      # We should NEVER have a case that we get here, and are missing
+      # one of the 3 values, check this first
+      foreach (keys %out) {
+        if(@{ $out{$_}{$self->dbName}{$aFieldDbName} } != 3) {
+          $self->log('fatal', "CADD file mis-sorted; output for $wantedChr:$_ is "
+            . join(",", @{ $out{$_}{$self->dbName}{$aFieldDbName} } ) );
+        }
+      }
+
+      $self->dbPatchBulk($wantedChr, \%out);
+    }
   } $fh;
+
+  MCE::Loop::finish;
+  return $exitStatus; 
 }
 
-sub writeToDatabase {
-  my ($self, $resultRef) = @_;
+# Could also do synchronous writes
+# sub writeToDatabase {
+#   my ($self, $resultRef) = @_;
 
-  for my $chr (keys %$resultRef) {
-    if( %{ $resultRef->{$chr} } ) {
-      $self->dbPatchBulk($chr, $resultRef->{$chr} );
-    }
-  }
+#   for my $chr (keys %$resultRef) {
+#     if( %{ $resultRef->{$chr} } ) {
+#       $self->dbPatchBulk($chr, $resultRef->{$chr} );
+#     }
+#   }
 
-  undef $resultRef;
-}
+#   undef $resultRef;
+# }
 
 __PACKAGE__->meta->make_immutable;
 1;

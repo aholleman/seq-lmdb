@@ -426,12 +426,12 @@ sub _buildTranscriptSites {
   my %tempTXsites;
 
   #First add the annotations; note that if for some reason a codon overlaps
-  for my $chrPos (keys %$txAnnotationHref) {
-    my $siteType =  $txAnnotationHref->{$chrPos};
+  for my $pos (keys %$txAnnotationHref) {
+    my $siteType =  $txAnnotationHref->{$pos};
 
     #storing strand for now, could remove it later if we decided to 
     #just get it from the region database entry for the transcript
-    $tempTXsites{$chrPos} = [$siteType, $self->strand, undef, undef, undef];
+    $tempTXsites{$pos} = [$siteType, $self->strand, undef, undef, undef];
   }
 
   my $codingBaseCount = 0;
@@ -440,9 +440,9 @@ sub _buildTranscriptSites {
   #Example (informal test): #https://ideone.com/a9NYhb
   CODING_LOOP: for (my $i = 0; $i < length($txSequence); $i++ ) {
     #get the genomic position
-    my $chrPos = $seqPosMapAref->[$i];
+    my $pos = $seqPosMapAref->[$i];
 
-    if(defined $tempTXsites{$chrPos} ) {
+    if(defined $tempTXsites{$pos} ) {
       next CODING_LOOP;
     }
 
@@ -472,14 +472,14 @@ sub _buildTranscriptSites {
 
       $siteType = $codonPacker->siteTypeMap->codingSiteType;
 
-      $tempTXsites{ $chrPos } = [$siteType, $self->strand,
+      $tempTXsites{ $pos } = [$siteType, $self->strand,
        $codonNumber, $codonPosition, $codonSeq];
 
       $codingBaseCount++;
       next CODING_LOOP;
     }
 
-    $self->log('warn', substr($txSequence, $i, 1) . "at $chrPos in transcript "
+    $self->log('warn', substr($txSequence, $i, 1) . "at $pos in transcript "
       . $self->name . " not A|T|C|G");
   }
 
@@ -487,16 +487,16 @@ sub _buildTranscriptSites {
   #However, some sites won't be coding, and those are in our annotation href
 
   #Now compact the site details
-  for my $chrPos (keys %tempTXsites) {
+  for my $pos (keys %tempTXsites) {
     #stores the codon information as binary
     #this was "$self->add_transcript_site($site)"
     # passing args in list context 
     # https://ideone.com/By1GDW
-    my $site = $codonPacker->packCodon( @{$tempTXsites{$chrPos} } );
+    my $site = $codonPacker->packCodon( @{$tempTXsites{$pos} } );
 
     #this transcript sites are keyed on reference position
     #this is similar to what was done with Seq::Site::Gene before
-    $self->transcriptSites->{ $chrPos } = $site;
+    $self->transcriptSites->{ $pos } = $site;
   }
 }
 

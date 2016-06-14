@@ -182,9 +182,9 @@ sub BUILD {
   my @allWantedChrs = $self->allWantedChrs;
 
   if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
-    $self->log("fatal", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
-      . scalar @allWantedChrs . " chromosomes. We expect one chromosome per file."
-      . " TODO: Split file into parts automatically");
+    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
+      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
+      . "and that one chromosome isn't accounted for.");
   }
 }
 ###################Prepare Data For Database Insertion ##########################

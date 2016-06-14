@@ -222,12 +222,10 @@ sub buildTrack {
 
           my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
 
-          my %siteData;
-
           POS_DATA: for my $pos ($txInfo->allTranscriptSitePos) {
-            if(defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
-              push @{ $perSiteData{$chr}->{$pos}{$self->dbName} },
-                [$txNumber, $txInfo->getTranscriptSite($pos) ] ;
+            if( defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
+              push @{ $perSiteData{$chr}->{$pos}{$self->dbName} }, [$txNumber, $txInfo->getTranscriptSite($pos) ] ;
+              
               next;
             }
 
@@ -309,23 +307,27 @@ sub _writeMainData {
 
   for my $chr (keys %$mainDataHref) {
     $pm->start and next;
-
+      say "starting to writeMainData for $chr";
+      
       my %out;
       my $count = 0;
+      for my $pos (keys %{ $mainDataHref->{$chr} } ) {
+        $out{$pos} = $mainDataHref->{$chr}{$pos};
 
-      for my $pos (keys %{$mainDataHref->{$chr} } ) {
+        $count++;
+
         if($count >= $self->commitEvery) {
           $self->dbPatchBulk($chr, \%out);
+
           undef %out;
           $count = 0;
         }
-
-        $out{$pos} = $mainDataHref->{$chr}{$pos};
       }
 
       if(%out) {
         $self->dbPatchBulk($chr, \%out);
       }
+
     $pm->finish;
   }
   $pm->wait_all_children;
@@ -347,6 +349,8 @@ sub makeNearestGenes {
 
   for my $chr (keys %$txStartData) {
     $pm->start and next;
+
+      say "starting to nearestData for $chr";
       #length of the database
       #assumes that the database is built using reference track at the least
       my $genomeNumberOfEntries = $self->dbGetNumberOfEntries($chr);
@@ -498,5 +502,67 @@ sub makeNearestGenes {
   $pm->wait_all_children;
 }
 
+
+# attempt at concurrency for generating transcripts; giving up on this for now
+# say "txErrorDbFieldName is  $txErrorDbFieldName";
+#       MCE::Loop::init(
+#         chunk_size => 10, 
+#         max_workers => 8,
+#         user_func => \&_gatherTxSites,
+#         gather => sub {
+#           my ($chr, $txNumber, $transcriptSitesHref, $errorsAref) = @_;
+
+#           say "chr is $chr";
+#           say "txNumber is $txNumber";
+
+#           say "transcriptSiteshref is";
+#           p $transcriptSitesHref;
+
+
+#           POS_DATA: for my $pos (keys %$transcriptSitesHref) {
+#             if( defined $perSiteData{$chr}->{$pos}{$self->dbName} ) {
+#               push @{ $perSiteData{$chr}->{$pos}{$self->dbName} }, [ $txNumber, $transcriptSitesHref->{$pos} ] ;
+              
+#               next;
+#             }
+
+#             $perSiteData{$chr}->{$pos}{$self->dbName} = [ [ $txNumber, $transcriptSitesHref->{$pos} ] ];
+
+#             $sitesCoveredByTX{$chr}{pos} = 1;
+#           }
+
+#           if(@$errorsAref) {
+#             $regionData{$chr}->{$txNumber}{$txErrorDbFieldName} = $errorsAref;
+#           }
+          
+#           say "perSiteData is now";
+#           p %perSiteData;
+#         },
+#       );
+
+#       $mce->spawn;
+#       $mce->process(\%allData);
+#       $mce->shutdown;
+
+
+# sub _gatherTxSites {
+#   my ($mce, $chunk_ref, $chunk_id) = @_;
+
+#   say "in gatherTxSites with";
+#   p $chunk_ref;
+#   foreach( @{ $chunk_ref } ) {
+#     my ($chr, $dataHref) = %$_;
+
+#     my %siteData;
+
+#     for my $txNumber (keys %$dataHref ) {
+#       my $allDataHref = $dataHref->{$txNumber}{all};
+      
+#       my $txInfo = Seq::Tracks::Gene::Build::TX->new( $allDataHref );
+
+#       MCE->gather($chr, $txInfo->transcriptSites, $txInfo->transcriptErrors);
+#     }
+#   }
+# }
 __PACKAGE__->meta->make_immutable;
 1;

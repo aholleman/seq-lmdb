@@ -67,14 +67,6 @@ sub BUILD {
     @builders = $self->singletonTracks->allTrackBulders;
   }
 
-  my @chrs = $builders[0]->allWantedChrs;
-
-  if($self->debug) {
-    say "requested builders are";
-    p @builders;
-  }
-
-      
   #TODO: return error codes from the rest of the buildTrack methods
   for my $builder (@builders) {
     #we already built the refTrackBuilder
@@ -88,10 +80,10 @@ sub BUILD {
     $self->log('info', "Started building " . $builder->name );
     
     #TODO: implement errors for all tracks
-    my $err = $builder->buildTrack();
+    my ($exitStatus, $errMsg) = $builder->buildTrack();
     
-    if($err) {
-      $self->log('warn', "Failed to build " . $builder->name . " because of $err");
+    if(!defined $exitStatus || $exitStatus != 0) {
+      $self->log('warn', "Failed to build " . $builder->name);
     }
 
     $self->log('info', "Finished building " . $builder->name );

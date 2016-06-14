@@ -175,6 +175,8 @@ sub get {
   if(!$trackDataAref) {
     #if not, state that the siteType is intergenic!
     $out{$siteUnpacker->siteTypeKey} = $intergenic;
+    say "sending out as";
+    p %out;
     return \%out;
   }
 

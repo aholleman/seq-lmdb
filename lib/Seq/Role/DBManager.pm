@@ -428,7 +428,7 @@ sub dbPatchBulk {
     #trigger this only if json isn't found, save on many if calls
     #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
+      $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
     }
     #if nothing exists; then we still want to pass it on to
     #the writer, even if !overwrite is true
@@ -461,7 +461,7 @@ sub dbPut {
   #a bulk get
   #unless is apparently a bit faster than if, when looking for negative conditions
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    $self->log('warn', 'LMDB PUT ERROR: ' . $LMDB_File::last_err);
+    $self->log('warn', 'dbPut error: ' . $LMDB_File::last_err);
   }
 
   $txn->commit();
@@ -500,7 +500,7 @@ sub dbPutBulk {
     #a bulk get
     #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->log('warn', 'LMDB PUT ERROR: ' . $LMDB_File::last_err);
+      $self->log('warn', 'dbPutBulk error: ' . $LMDB_File::last_err);
     }
   }
 

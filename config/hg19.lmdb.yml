@@ -197,8 +197,10 @@ tracks:
     - chrM.phyloP100way.wigFix.gz
 - name: cadd
   type: cadd
+  features:
+    - PHRED : float
   local_files:
-    - hg19.cadd.fixed.gz
+    - whole_genome_SNVs.tsv.gz
 - name: refSeq
   type: gene
   features:

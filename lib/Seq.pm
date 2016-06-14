@@ -209,7 +209,11 @@ sub annotate_snpfile {
       if (/$taint_check_regex/) {
         chomp;
         my $line = [ split $delimiter, $_ ];
-        if($line->[$typeFieldIdx] =~ /MESS|LOW/) {
+
+        #check conditions separately, becaues faster
+        if($line->[$typeFieldIdx] =~ /MESS/) {
+          next;
+        } elsif($line->[$typeFieldIdx] =~ /LOW/) {
           next;
         }
 
