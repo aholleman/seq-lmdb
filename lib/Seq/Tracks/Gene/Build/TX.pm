@@ -214,6 +214,9 @@ sub _buildTranscript {
     #exonEnds is closed, so the actual exonEnd is - 1
     #exonStarts are open
     #http://genomewiki.ucsc.edu/index.php/Coordinate_Transforms
+
+    #transcript starts are 0-based and ends are 1-based
+    #http://genome.ucsc.edu/FAQ/FAQtracks#tracks1
     #perl range is always closed
     #https://ideone.com/AKKpfC
     # my @fragmentPositions;
