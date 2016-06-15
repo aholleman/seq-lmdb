@@ -326,6 +326,7 @@ sub dbPatch {
       # }
       # https://ideone.com/SBbfYV
       if($overwrite == 1) {
+        # Merge with righthand hash taking precedence
         $href = merge $href, $dataHref;
       } elsif ($overwrite == 2) {
         $href->{$featureID} = $dataHref->{$featureID};
@@ -398,6 +399,7 @@ sub dbPatchBulk {
         }
 
         if($overwrite == 1) {
+          # Merge with righthand hash taking precedence
           $href = merge $href, $posHref->{$pos};
         } elsif($overwrite == 2) {
           $href->{$featureID} = $posHref->{$pos}->{$featureID};
