@@ -19,8 +19,6 @@ use DDP;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 
-use MCE::Loop;
-
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO'; #all build methods need to read files
 
@@ -206,25 +204,6 @@ sub prepareData {
   }
 }
 
-sub deleteTrack {
-  my $self = shift;
-
-  MCE::Loop->init({
-    max_workers => 26,
-    chunk_size => 1,
-  });
-
-  my @err= mce_loop {
-    my $err = $self->dbDeleteKeys($_. $self->dbName);
-
-    if($err) {
-      MCE->gather($err);
-    }
-  } $self->allWantedChrs;
-
-  return @err;
-}
-
 #########################Type Conversion, Input Field Filtering #########################
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
@@ -396,6 +375,28 @@ sub _isTransformOperator {
 #   if ( $_[0]->based == 0 ) { return $_[1]; }
 #   return $_[1] - $_[0]->based;
 # }
+
+#Future API
+
+# sub deleteTrack {
+#   my $self = shift;
+
+#   MCE::Loop->init({
+#     max_workers => 26,
+#     chunk_size => 1,
+#   });
+
+#   my @err= mce_loop {
+#     my $err = $self->dbDeleteKeys($_. $self->dbName);
+
+#     if($err) {
+#       MCE->gather($err);
+#     }
+#   } $self->allWantedChrs;
+
+#   return @err;
+# }
+
 
 __PACKAGE__->meta->make_immutable;
 
