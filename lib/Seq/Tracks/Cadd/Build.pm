@@ -40,6 +40,8 @@ sub buildTrack {
   goto &buildTrackFromHeaderlessWigFix;
 }
 
+# Works, but will take days to finish, should make a faster solution.
+# TODO: split up cadd file in advance?
 sub buildTrackFromCaddFormat {
   my $self = shift;
 
@@ -59,84 +61,77 @@ sub buildTrackFromCaddFormat {
   #skip one more line, want to %3 chunk input lines
   my $headerLine = <$fh>;
 
-  MCE::Loop::init(
-    #3 chunk, because each position should have 3 values
-    chunk_size => 3,
-    max_workers => 30,
-    use_slurpio => 1,
-    on_post_run => sub {
-      my ($mce, $allWorkers) = @_;
+  #accumulate 3 lines worth of PHRED scores
+  my @score;
 
-      #Report only one exit code
-      for my $worker (@$allWorkers) {
-        if ($worker->{status} != 0) {
-          $self->log('warn', $self->name . " worker exited with $worker->{status}");
-          return;
-        }
-      }
-    },
-  );
+  my %out;
+  my $count = 0;
+  my $wantedChr;
+  while (<$fh>) {
+    chomp;
+    my @line = split "\t", $_;
 
-  mce_loop_f {
-    my ($mce, $slurpRef, $chunkID) = @_;
+    my $namedChr = "chr$line[0]";
 
-    my @lines;
+    if( ($wantedChr && $wantedChr ne $namedChr) || !$wantedChr) {
+      if(%out) {
+        $self->dbPatchBulk($wantedChr, %out);
 
-    open my $MEM_FH, '<', $slurpRef;
-    binmode $MEM_FH, ':raw';
-    while (<$MEM_FH>) { if($_ !~ /^\s*$/ ) { chomp $_; push @lines, $_; } }
-    close   $MEM_FH;
-
-    if(@lines == 3) {
-      my @score;
-      my @splitLines = map { [split $columnDelimiter, $_] } @lines;
-
-      #check that the lines are sync'd as we expect
-      my $chr = $splitLines[0]->[0];
-      my $position = $splitLines[0]->[1];
-
-      my $namedChr = "chr$chr";
-
-      if(!$self->chrIsWanted($namedChr) ) {
-        next;
+        undef %out;
+        $count = 0;
       }
 
-      my $dbPosition = $position - $self->based;
-
-      for my $lineAref (@splitLines) {
-        #cadd stores chromosomes numerically
-        if($chr != $lineAref->[0]) {
-          $self->log('warn', "consecutive lines had different chr", join(",", @lines) );
-          next;
-        }
-
-        if( $position != $lineAref->[1] ) {
-          $self->log('warn', "consecutive lines had different positions", join(",", @lines) );
-          next;
-        }
-
-        #PHRED
-        push @score, $lineAref->[5];
+      if(@score) {
+        $self->log('warn', "$namedChr != previous $wantedChr, and have un-saved score");
+        undef @score;
       }
 
-      if( @score == 3) {
-        $self->dbPatchBulk($namedChr, {
-          $dbPosition => $self->prepareData(\@score)
-        });
-      } else {
-        $self->log('warn', "Couldn't accumulate all 3 values for $chr:$position");
-      }
-    } else {
-      $self->log('warn', "Couldn't accumulate all 3 values for ". join(",", @lines) );
+      $wantedChr = $self->chrIsWanted($namedChr) ? $namedChr : undef;
     }
 
-    undef @lines;
-  } $fh;
+    if(!$wantedChr) {
+      next;
+    }
+
+    push @score, $line[5];
+
+    if(@score < 3) {
+      next;
+    }
+    
+    my $dbPosition = $line[1] - $self->based;
+
+    #copy array #https://ideone.com/m08q9V
+    $out{$dbPosition} = $self->prepareData([@score]);
+    
+    undef @score;
+
+    if($count >= $self->commitEvery) {
+      $self->dbPatchBulk($wantedChr, \%out);
+
+      undef %out;
+      undef @score;
+      $count = 0;
+    }
+
+    $count++;
+  }
+
+  # leftovers
+  if(%out) {
+    if(!$wantedChr) {
+      $self->log('fatal', "Have out but no wantedChr");
+    }
+
+    $self->dbPatchBulk($wantedChr, \%out);
+
+    undef %out;
+  }
 }
 
 sub buildTrackFromHeaderlessWigFix {
   my $self = shift;
-say "building in wigfix format";
+
   #there can only be ONE
   #the one that binds them
   my @files = $self->allLocalFiles;
@@ -162,7 +157,7 @@ say "building in wigfix format";
 
   MCE::Loop::init {
     chunk_size => 2e8, #read in chunks of 200MB
-    max_workers => 30,
+    max_workers => 32,
     use_slurpio => 1,
     gather => \&writeToDatabase,
   };

@@ -195,12 +195,6 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name: cadd
-  type: cadd
-  features:
-    - PHRED : float
-  local_files:
-    - whole_genome_SNVs.tsv.gz
 - name: refSeq
   type: gene
   features:
@@ -303,6 +297,12 @@ tracks:
     - Chromosome: chrom
     - Start: chromStart
     - Stop: chromEnd
+- name: cadd
+  type: cadd
+  features:
+    - PHRED : float
+  local_files:
+    - whole_genome_SNVs.tsv.gz
   
   
 

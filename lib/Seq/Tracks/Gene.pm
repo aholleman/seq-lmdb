@@ -21,10 +21,8 @@ our $VERSION = '0.001';
 
 use Moose 2;
 
-use Carp qw/ confess /;
 use namespace::autoclean;
 use DDP;
-
 
 extends 'Seq::Tracks::Get';
 
@@ -81,8 +79,7 @@ override 'BUILD' => sub {
   my @nearestFeatureNames = $self->allNearestFeatureNames;
   
   if(@nearestFeatureNames) {
-    $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } @nearestFeatureNames ], 
-      $self->name);
+    $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } @nearestFeatureNames ], $self->name);
   }
 
   ####Build up a list of fieldDbNames; these are called millions of times ######
@@ -90,8 +87,7 @@ override 'BUILD' => sub {
   #getFieldDbName results
   $allCachedDbNames->{$self->name} = {
     #nearest gene is a pseudo-track, stored as it's own key, outside of
-    #$self->name, but in a unique name based on $self->name that is defined
-    #by the gene track (in the future region tracks will follow this method)
+    #$self->name, but in a unique name based on $self->name, private to this class
     $self->regionNearestSubTrackName => $self->getFieldDbName($self->regionNearestSubTrackName),
   };
 
@@ -126,19 +122,19 @@ sub get {
 
   my $regionData = $geneTrackRegionHref->{$self->name}->{$chr};
 
-  # is an <ArrayRef> of [ [$referenceNumberToRegionDatabase, $siteData], ... ]
-  my $trackDataAref = $href->{$self->dbName};
-
   ####### Get all transcript numbers, and site data for this position #########
   my (@txNumbers, @siteData);
 
-  if($trackDataAref) {
-    for my $dataAref (@$trackDataAref) {
-      #$dataAref[0] is the txNumber in each pair
-      #the region database keys are txNumber(s)
-      push @txNumbers, $dataAref->[0];
-
-      push @siteData, $dataAref->[1]; 
+  # is an <ArrayRef[ArrayRef>|ArrayRef[Int]>, each Aref is [$referenceNumberToRegionDatabase, $siteData] ]
+  if( $href->{$self->dbName} ) {
+    if( ref $href->{$self->dbName}->[0] ) {
+      foreach ( @{ $href->{$self->dbName} } ) {
+        push @txNumbers, $_->[0];
+        push @siteData, $_->[1];
+      }
+    } else {
+      push @txNumbers, $href->{$self->dbName}->[0];
+      push @siteData, $href->{$self->dbName}->[1]; 
     }
   }
   
@@ -146,51 +142,38 @@ sub get {
 
   ################# Populate nearestGeneSubTrackName ##############
   if(!$self->noNearestFeatures) {
-    # nearest genes are sub tracks, stored under their own key, based on $self->name
-    # this is a reference to something stored in the gene tracks' region database
-    my $nearestGeneNumber = $href->{ $cachedDbNames->{$self->regionNearestSubTrackName} };
+    # Nearest genes are sub tracks, stored under their own key, based on $self->name
+    # <Int|ArrayRef[Int]>
+    # If we're in a gene, we won't have a nearest gene reference
+    my $nearestGeneNumber = $href->{ $cachedDbNames->{$self->regionNearestSubTrackName} } || \@txNumbers;
 
-    #may not have one at the end of a chromosome
-    #and no nearest gene reference is given for sites in a gene
     if($nearestGeneNumber) {
-      for my $nFeature ($self->allNearestFeatureNames) {
-        $out{"$nearestSubTrackName.$nFeature"} =
-          $regionData->{$nearestGeneNumber}->{ $cachedDbNames->{$nFeature} };
+      for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
+          for my $nFeature ($self->allNearestFeatureNames) {
+            push @{ $out{"$nearestSubTrackName.$nFeature"} },
+              $regionData->{$geneRef}->{ $cachedDbNames->{$nFeature} };
+          }
       }
-    } elsif(@txNumbers) {
-      #TODO: could reduce { } to unique set, to lessen chances of multiple identical sites
-      #in case of multiple transcripts covering
-      foreach (@txNumbers) {
-        for my $nFeature ($self->allNearestFeatureNames) {
-          $out{"$nearestSubTrackName.$nFeature"} = $regionData->{$_}->{ $cachedDbNames->{$nFeature} };
-        }
-      }
-    } else {
-      $self->log('warn', "no " . $self->name . " or " . $self->regionNearestSubTrackName . " found");
-    }
-  } 
+    } else { $self->log('warn', "no " . $self->name . " or " . $self->regionNearestSubTrackName . " found"); }
+  }
 
   ################# Check if this position is in a place covered by gene track #####################
     
-  if(!$trackDataAref) {
+  if(! $href->{$self->dbName} ) {
     #if not, state that the siteType is intergenic!
     $out{$siteUnpacker->siteTypeKey} = $intergenic;
-    say "sending out as";
-    p %out;
     return \%out;
   }
 
-  if( !@txNumbers || !@siteData ) {
+  if( @txNumbers == 0 || @siteData == 0 || @txNumbers != @siteData ) {
     $self->log('warn', "Position $chr:@{[$dbPosition+1]} covered a gene, but was " .
       "missing either a txNumber, or siteData. This is a database build error");
-    
     return \%out;
   }
 
   ################# Populate geneTrack's user-defined features #####################
   foreach ($self->allFeatureNames) {
     INNER: for my $txNumber (@txNumbers) {
-      #dataAref == [$txNumber, $siteData]
       push @{ $out{$_} }, $regionData->{$txNumber}{ $cachedDbNames->{$_} };
     }
   }
@@ -231,9 +214,9 @@ sub get {
   ################# Populate $transcriptEffectsKey, $refAminoAcidKey, and $newAminoAcidKey #####################
   ################# We include analysis of indels here, becuase  
   #############  we may want to know how/if they disturb genes  #####################
-  my @alleles = ref $allelesAref ? @$allelesAref : ($allelesAref);
 
-  TX_EFFECTS_LOOP: for my $allele (@alleles) {
+  # Looping over string, int, or ref: https://ideone.com/4APtzt
+  TX_EFFECTS_LOOP: for my $allele (ref $allelesAref ? @$allelesAref : $allelesAref) {
     my @accum;
 
     if(length($allele) > 1) {
@@ -261,8 +244,7 @@ sub get {
       }
 
       if(length($refCodonSequence) != 3) {
-        $self->log('warn', "The codon @ $chr: @{[$dbPosition + 1]}" .
-          " isn't 3 bases long: $refCodonSequence");
+        $self->log('warn', "Codon @ $chr: @{[$dbPosition + 1]} not 3 bases long: $refCodonSequence");
         
         push @accum, $truncated;
         push @{ $out{$newAminoAcidKey} }, undef;
@@ -344,9 +326,21 @@ sub _annotateIndel {
       next;
     }
    
-    my (@txNumbers, @siteData) = $data->{ $self->dbName };
+    ####### Get all transcript numbers, and site data for this position #########
+    my $siteData;
 
-    for my $oneSiteData (@siteData) {
+    # is an <ArrayRef[ArrayRef>|ArrayRef[Int]>, each Aref is [$referenceNumberToRegionDatabase, $siteData] ]
+    if( $data->{$self->dbName} ) {
+      if( ref $data->{$self->dbName}->[0] ) {
+        foreach ( @{ $data->{$self->dbName} } ) {
+          push @$siteData, $_->[1];
+        }
+      } else {
+        $siteData = $data->{$self->dbName}->[1]; 
+      }
+    }
+
+    for my $oneSiteData (ref $siteData ? @$siteData : $siteData) {
       my $site = $siteUnpacker->unpackCodon($oneSiteData);
 
       #Accumulate the annotation. We aren't using Seq::Output to format, because

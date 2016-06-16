@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Moose 2;
+# use Search::Elastic;
 
 use DDP;
 
@@ -45,20 +46,13 @@ sub makeOutputString {
         }
 
         CHILD: for my $child (@{ $feature->{$parent} } ) {
-          if(!defined $href->{$parent}->{$child} ) {
+          if(!defined $href->{$parent}{$child} ) {
             push @singleLineOutput, 'NA';
             next CHILD;
           }
 
           if(!ref $href->{$parent}{$child} ) {
             push @singleLineOutput, $href->{$parent}{$child};
-            next CHILD;
-          }
-
-          if(ref $href->{$parent}{$child} ne 'ARRAY') {
-            $self->log('warn', "Can\'t process non-array parent values, skipping $child");
-            
-            push @singleLineOutput, 'NA';
             next CHILD;
           }
 
@@ -70,16 +64,7 @@ sub makeOutputString {
             }
             # we could have an array of arrays, separate those by commas
             if(ref $_) {
-              $accum .= ",";
-
-              if(ref $_ ne 'ARRAY') {
-                $self->log('warn', "Can only handle array of array ref collections");
-                $accum .= "NA;";
-
-                next ACCUM;
-              }
-
-              $accum .= join(";", @$_) . ";";
+              $accum .= ',' . join(";", @$_) . ";";
 
               next ACCUM;
             }
@@ -108,12 +93,6 @@ sub makeOutputString {
         next PARENT;
       }
 
-      if(ref $href->{$feature} ne 'ARRAY') {         
-        $self->log('warn', "Can\'t process non-array parent values, skipping $feature");
-        push @singleLineOutput, 'NA';
-        next PARENT;
-      }
-
       if(! @{ $href->{$feature} } ) {
         push @singleLineOutput, 'NA';
         next PARENT;
@@ -128,18 +107,10 @@ sub makeOutputString {
           $accum .= 'NA;';
           next ACCUM;
         }
+
         # we could have an array of arrays, separate those by commas
         if(ref $_) {
-          $accum .= ",";
-
-          if(ref $_ ne 'ARRAY') {
-            $self->log('warn', "Can only handle array of array ref collections");
-            $accum .= "NA;";
-
-            next ACCUM;
-          }
-
-          $accum .= join(";", @$_) . ";";
+          $accum .= ',' . join(";", @$_) . ";";
 
           next ACCUM;
         }
