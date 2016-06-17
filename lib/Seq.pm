@@ -317,19 +317,19 @@ sub annotateLines {
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $databaseAref, $inputAref, $positionsAref, $outAref) = @_;
+  my ($self, $chr, $dataFromDbAref, $inputAref, $positionsAref, $outAref) = @_;
 
   state $refTrackName = $refTrackGetter->name;
   state $cached;
   #note, that if dataFromDbRef, and inputAref contain different numbers
   #of records, that is evidence of a programmatic bug
   for (my $i = 0; $i < @$inputAref; $i++) {
-    if(!defined $databaseAref->[$i] ) {
+    if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
         You may have chosen the wrong assembly.");
     }
 
-    $outAref->[$i]{$refTrackName} = $refTrackGetter->get($databaseAref->[$i]);
+    $outAref->[$i]{$refTrackName} = $refTrackGetter->get($dataFromDbAref->[$i]);
 
     my $givenRef = $inputAref->[$i][$referenceFieldIdx];
 
@@ -371,7 +371,8 @@ sub finishAnnotatingLines {
     #some tracks may also want the alternative alleles, so give those as last arg
     #example: cadd track needs this
     foreach(@$trackGettersExceptReference) {
-      $outAref->[$i]->{$_->name} = $_->get($databaseAref->[$i], $chr, 
+      #we pass: dataFromDatabase, chromosome, position, real reference, alleles
+      $outAref->[$i]->{$_->name} = $_->get($dataFromDbAref->[$i], $chr, 
         $positionsAref->[$i], $outAref->[$i]{$refTrackName}, $allelesAref) 
     };
 

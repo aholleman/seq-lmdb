@@ -131,6 +131,34 @@ ok($geneData->{'siteType'} eq 'Intergenic', 'Intergenic ok at boundary Intronic 
 say "geneData is";
 p $geneData;
 
+say "reading position 51238065";
+$dataHref = $tracks->dbRead('chr22', 51238065 - 1);
+
+say "dataHref is";
+p $dataHref;
+
+$ref = $refTrack->get($dataHref);
+
+$geneData = $geneTrack->get($dataHref, 'chr22', 51238065 - 1, $ref, 'C');
+ok( join(',', @{$geneData->{'siteType'} } ) eq 'NonCodingRNA, NonCodingRNA', 'Exonic non-coding ok @ last exon');
+
+say "geneData is";
+p $geneData;
+
+say "reading position 51238066";
+$dataHref = $tracks->dbRead('chr22', 51238066 - 1);
+
+say "dataHref is";
+p $dataHref;
+
+$ref = $refTrack->get($dataHref);
+
+$geneData = $geneTrack->get($dataHref, 'chr22', 51238066 - 1, $ref, 'C');
+ok( $geneData->{'siteType'} eq 'Intergenic', 'Intergenic non-coding ok after last exon');
+ok( join(",", $geneData->{'nearest.name'} ) eq join(",", ('NR_026981','NR_026982') ), 'Intergenic non-coding ok after last exon');
+say "geneData is";
+p $geneData;
+
 # $dataHref = $tracks->dbRead('chr21', 48e6);
 
 # say "dataHref is";

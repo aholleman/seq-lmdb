@@ -9,8 +9,6 @@ our $VERSION = '0.001';
 # ABSTRACT: A base class for Tracks::*:BUILD classes
 # VERSION
 
-#TODO: BEFORE BUILDING ANY DATABASE, CHECK THAT THE REFERENCE HAS BEEN MADE
-
 use Moose 2;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
@@ -21,6 +19,16 @@ use Scalar::Util qw/looks_like_number/;
 
 extends 'Seq::Tracks::Base';
 with 'Seq::Role::IO'; #all build methods need to read files
+
+use Seq::Tracks::Build::CompletionMeta;
+
+has completionMeta => (
+  is => 'ro',
+  isa => 'Seq::Tracks::Build::CompletionMeta',
+  init_arg => undef,
+  lazy => 1,
+  default => sub { my $self = shift; Seq::Tracks::Build::CompletionMeta->new({ name => $self->name })}
+);
 
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
@@ -77,7 +85,7 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 #the default is "," because this is what UCSC specifies in the bed format
 #and we only accept bed or wigfix formats
 #wigfix files don't have any features, and therefore this is meaningless to them
-#We could think about removing this from BUILD and making a BedTrack.pm base
+#We could think about removing this from BUILD and making a SparseTrack base
 #to avoid option overload
 #could also make this private, and not allow it to change, but I don't like
 #the lack of flexibility, since the goal is to help people avoid having to
@@ -111,21 +119,35 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
-# some tracks may have required fields
-# we allow users to map these to whatever the equivalent field is called
-# in their file, so that they don't have to open huge source files to edit headers
-#this config field is called required_field_map
-#we don't actually need to instantiate it as a property
-#instead, around BUIDLARGS, we will make a bunch of properties based
-#on the mappings
-#as long as the consuming class defined them, they'll be used
-#example:
-#required_field_map:
-## - source_file_name : we_require_name
+sub BUILD {
+  my $self = shift;
+
+  my @allLocalFiles = $self->allLocalFiles;
+
+  #exported by Seq::Tracks::Base
+  my @allWantedChrs = $self->allWantedChrs;
+
+  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
+    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
+      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
+      . "and that one chromosome isn't accounted for.");
+  }
+}
+
+# some tracks may have required fields (defined by the Readme)
+# For instance: SparseTracks require bed format chrom\tchromStart\tchromEnd
+# We allow users to tell us what the corresponding fields are called in their files
+# So that they don't have to open huge source files to edit headers
+# In their config file, they specify: required_field_map : nameInHeader: <Str> requiredFieldName
+# At BUIDLARGS, we make a bunch of properties based on the mappings
+# As long as the consuming class defined them, they'll be used
+# example:
+# In config: 
+#  required_field_map:
 ## - Chromosome : chrom
-##
-##this will result in a Moose attribute called chrom_field_name
-#local files are given as relative paths, relative to the files_dir
+# We pass on to classes that extend this: 
+#   chrom_field_name with value "Chromosome"
+# @param <Str> local_files expected relative paths, relative to the files_dir
 around BUILDARGS => sub {
   my ($orig, $class, $href) = @_;
 
@@ -154,37 +176,10 @@ around BUILDARGS => sub {
   }
 
   $data{local_files} = \@localFiles;
-
-
-  if(defined $data{genome_chrs} &&  ref $data{genome_chrs} eq 'ARRAY') {
-    my %genome_chrs = map { $_ => 1 } @{$data{genome_chrs} };
-    $data{genome_chrs} = \%genome_chrs;
-  }
-
-  if(defined $data{wantedChr} ) {
-    if (exists $data{genome_chrs}->{$data{wantedChr} } ) {
-      $data{genome_chrs} = {
-        $data{wantedChr} => 1,
-      };
-    } else {
-      die 'Wanted chromosome not listed in genome_chrs in YAML config';
-    }
-  }
+  
   return $class->$orig(\%data);
 };
 
-sub BUILD {
-  my $self = shift;
-
-  my @allLocalFiles = $self->allLocalFiles;
-  my @allWantedChrs = $self->allWantedChrs;
-
-  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
-    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
-      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
-      . "and that one chromosome isn't accounted for.");
-  }
-}
 ###################Prepare Data For Database Insertion ##########################
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
@@ -231,6 +226,7 @@ sub coerceFeatureType {
       return \@vals;
     }
 
+    # Function convert is exported by Seq::Tracks::Base
     #http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
     #modifying the value here actually modifies the value in the array
     for my $val (@vals) {
@@ -363,18 +359,6 @@ sub _isTransformOperator {
   }
   return 0;
 }
-#Not currently used; I find it simpler to read to just subtract $self->based
-#where that is needed, and that also saves sub call overhead
-#takes a potentially non-0 based thing, makes it 0 based
-#called via $self->toZeroBased;
-#@param $_[1] == the base  . This is the only argument: $self->zeroBased($base) 
-#@param $_[0] == $self : class instance;
-#this can be called billions of times, so trying to reduce performance overhead
-#of assignment
-# sub zeroBased {
-#   if ( $_[0]->based == 0 ) { return $_[1]; }
-#   return $_[1] - $_[0]->based;
-# }
 
 #Future API
 

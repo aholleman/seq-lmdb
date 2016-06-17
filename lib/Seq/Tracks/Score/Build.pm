@@ -86,7 +86,7 @@ sub buildTrack{
               }
 
               #so let's write whatever we have for the previous chr
-              $self->dbPatchBulk($wantedChr, \%data );
+              $self->dbPatchBulk($wantedChr, \%data);
 
               #since this is new, let's reset our data and count
               #we've already updated the chrPosition above

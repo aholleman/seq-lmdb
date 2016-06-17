@@ -10,6 +10,8 @@ extends 'Seq::Tracks::Build';
 with 'Seq::Role::DBManager';
 
 use List::MoreUtils qw/first_index/;
+use Scalar::Util qw/looks_like_number/;
+
 use DDP;
 
 #TODO: like with sparse tracks, allow users to map required fields
@@ -67,22 +69,36 @@ sub buildTrackFromCaddFormat {
   my %out;
   my $count = 0;
   my $wantedChr;
+
+  my $numericalChr = $self->wantedChr ? substr($self->wantedChr, 3) : undef;
+  if(!looks_like_number($numericalChr) ) { $numericalChr = undef; }
+
+  # We assume the file is sorted by chr
   while (<$fh>) {
+    # If we only want 1 chromosome, save time by avoiding split
+    if($numericalChr) {
+      my $chr = substr($_, 0, index($_, "\t") );
+      if( looks_like_number($chr) && $chr > $numericalChr ) { last; }
+    }
+
     chomp;
+
     my @line = split "\t", $_;
 
     my $namedChr = "chr$line[0]";
 
     if( ($wantedChr && $wantedChr ne $namedChr) || !$wantedChr) {
       if(%out) {
+        if(!$wantedChr) {
+          $self->log('fatal', "Changed chr on line $_; have out, but no wantedChr");
+        }
+        
         $self->dbPatchBulk($wantedChr, %out);
-
-        undef %out;
-        $count = 0;
+        undef %out; $count = 0;
       }
 
       if(@score) {
-        $self->log('warn', "$namedChr != previous $wantedChr, and have un-saved score");
+        $self->log('fatal', "Skipping $namedChr post-chomp, have un-saved scores: " . join(',', @score) );
         undef @score;
       }
 
@@ -98,7 +114,10 @@ sub buildTrackFromCaddFormat {
     if(@score < 3) {
       next;
     }
+
+    #We have all 3 scores accumulated
     
+    #CADD trcks are 1-indexed
     my $dbPosition = $line[1] - $self->based;
 
     #copy array #https://ideone.com/m08q9V
@@ -122,11 +141,14 @@ sub buildTrackFromCaddFormat {
     if(!$wantedChr) {
       $self->log('fatal', "Have out but no wantedChr");
     }
+    if(@score) {
+      $self->log('fatal', "Finished reading file, but have uncommited scores");
+    }
 
     $self->dbPatchBulk($wantedChr, \%out);
-
-    undef %out;
   }
+
+  return 0;
 }
 
 sub buildTrackFromHeaderlessWigFix {

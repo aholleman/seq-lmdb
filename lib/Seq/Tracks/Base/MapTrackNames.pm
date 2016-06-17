@@ -9,14 +9,14 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Base::MapTrackNames;
-use Moose::Role;
+use Moose 2;
 use List::Util qw/max/;
 use DDP;
 
 with 'Seq::Role::Message', 'Seq::Role::DBManager';
 
-#the feature name
-requires 'name';
+# The name of the track is required
+has name => ( is => 'ro', isa => 'Str', required => 1 );
 
 #Unlike MapFieldNames, this class stores meta for all tracks
 #We may move MapFieldNames to a similar system if it proves more efficient
@@ -133,5 +133,6 @@ sub _addTrackNameMeta {
   $trackNamesMap->{$self->name} = $nameNumber;
   $trackDbNamesMap->{$nameNumber} = $self->name;
 }
-no Moose::Role;
+
+__PACKAGE__->meta->make_immutable;
 1;
