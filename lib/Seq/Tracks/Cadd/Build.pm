@@ -75,19 +75,16 @@ sub buildTrackFromCaddFormat {
 
   # We assume the file is sorted by chr
   while (<$fh>) {
+    my $chr = substr($_, 0, index($_, "\t") );
     # If we only want 1 chromosome, save time by avoiding split
     if($numericalChr) {
-      my $chr = substr($_, 0, index($_, "\t") );
+      # Will still hit the # leftovers writer after the loop
       if( looks_like_number($chr) && $chr > $numericalChr ) { last; }
     }
 
-    chomp;
+    $chr = "chr$chr";
 
-    my @line = split "\t", $_;
-
-    my $namedChr = "chr$line[0]";
-
-    if( ($wantedChr && $wantedChr ne $namedChr) || !$wantedChr) {
+    if( ($wantedChr && $wantedChr ne $chr) || !$wantedChr) {
       if(%out) {
         if(!$wantedChr) {
           $self->log('fatal', "Changed chr on line $_; have out, but no wantedChr");
@@ -98,16 +95,20 @@ sub buildTrackFromCaddFormat {
       }
 
       if(@score) {
-        $self->log('fatal', "Skipping $namedChr post-chomp, have un-saved scores: " . join(',', @score) );
+        $self->log('fatal', "Skipping $chr post-chomp, have un-saved scores: " . join(',', @score) );
         undef @score;
       }
 
-      $wantedChr = $self->chrIsWanted($namedChr) ? $namedChr : undef;
+      $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
     }
 
     if(!$wantedChr) {
       next;
     }
+
+    chomp;
+
+    my @line = split "\t", $_;
 
     push @score, $line[5];
 
@@ -129,7 +130,6 @@ sub buildTrackFromCaddFormat {
       $self->dbPatchBulk($wantedChr, \%out);
 
       undef %out;
-      undef @score;
       $count = 0;
     }
 
