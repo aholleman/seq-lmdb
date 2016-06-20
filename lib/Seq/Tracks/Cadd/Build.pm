@@ -84,7 +84,7 @@ sub buildTrackFromCaddFormat {
 
     $chr = "chr$chr";
 
-    if( ($wantedChr && $wantedChr ne $chr) || !$wantedChr) {
+    if( !$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
       if(%out) {
         if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         

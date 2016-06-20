@@ -155,9 +155,14 @@ sub buildTrack{
 
         #now we're done with the process, and memory gets freed
       }
+
     $pm->finish;
   }
+  
   $pm->wait_all_children;
+
+  # FINISH THIS; should only return this if it truly did finish all chr 
+  return 0;
 };
 
 __PACKAGE__->meta->make_immutable;

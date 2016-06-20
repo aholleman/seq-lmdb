@@ -206,6 +206,8 @@ sub buildTrack {
   }
 
   $pm->wait_all_children;
+
+  return 0;
 }
 
 __PACKAGE__->meta->make_immutable;

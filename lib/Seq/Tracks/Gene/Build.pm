@@ -248,6 +248,9 @@ sub buildTrack {
   }
 
   $pm->wait_all_children;
+
+  #TODO: Finish, only return 0 if truly succeeded;
+  return 0;
 }
 
 sub _writeRegionData {

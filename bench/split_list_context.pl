@@ -8,7 +8,7 @@ my $chrLength = length($chr);
 sub listContext    { my (undef, undef, $length, undef, undef, $score) = split "\t", $line; }
 sub array       { my @out = split "\t", $line;  }
 sub justChr       { my $chr = substr($line, 0, index($line, "\t") );  }
-sub justChrWithLength       { my $chr = substr($line, 0, $chrLength);  }
+sub justChrWithLength       { my $chr = substr($line, 0, $chrLength ? $chrLength : index($line, "\t") );  }
 
 timethese (4_000_000, {
   listContext => \&listContext,
