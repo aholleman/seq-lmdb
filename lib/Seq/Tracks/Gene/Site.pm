@@ -64,8 +64,14 @@ sub allSiteKeys {
 #some default value that is less than 0, which is a valid idx
 state $missingNumber = -9;
 
-#TODO: take a closer look at not packing at all, but storing an array of 
-#array references. May be faster since MessagePack already packs the array of data
+#pack strands as small integers, save a byte in messagepack
+state $strandMap = { '-' => 0, '+' => 1, };
+state $strandMapInverse = ['-', '+'];
+
+# Cost to pack an array using messagePack (which happens by default)
+# Should be the same as the overhead for messagePack storing a string
+# Unless the Perl messagePack implementation isn't good
+# So store as array to save pack / unpack overhead
 sub packCodon {
   my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
@@ -86,11 +92,11 @@ sub packCodon {
   push @outArray, $siteTypeNum;
 
   if( $strand ) {
-    if( $strand ne '-' && $strand ne '+') {
+    if( ! defined $strandMap->{$strand} ) {
       $self->log('fatal', "Strand strand should be a + or -, got $strand");
     }
 
-    push @outArray, $strand;
+    push @outArray, $strandMap->{$strand};
   }
 
   if(defined $codonNumber || defined $codonPosition || defined $codonSeq) {
@@ -121,36 +127,22 @@ sub packCodon {
     push @outArray, $codonSeqNumber;
   }
 
-  #c = signed char; A = ASCII string space padded, l = signed long
-  #usign signed values to allow for missing data
-  #https://ideone.com/TFGjte
-
-  if(@outArray == 1) {
-    #siteTypeNum only
-    return pack('c', @outArray);
-  }
-
-  if(@outArray == 2) {
-    #siteTypeNum and $strand only
-    return pack('cA', @outArray);
-  }
-
-  #all
-  return pack('cAlcc', @outArray);
+  return \@outArray;
 }
 #@param <Seq::Tracks::Gene::Site> $self
-#@param <String> $packedCodon
+#@param <ArrayRef> $codon
 sub unpackCodon {
-  #here $_[1] is the packedCodon string
-  my @codon = unpack('cAlcc', $_[1]);
-
+  #$_[1] is an array ref, containing the codon of interest
   return {
-    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[0]),
-    $strandKey => $codon[1],
+    #site types are always required
+    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($_[1]->[0]),
+    #so are strands, but later I can imagine relaxing this
+    $strandKey => defined $_[1]->[1] ? $strandMapInverse->[ $_[1]->[1] ] : undef,
     #optional; values that may not exist (say a non-coding site)
-    $codonNumberKey => $codon[2],
-    $codonPositionKey => $codon[3],
-    $codonSequenceKey => $codon[4] && $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
+    $codonNumberKey => $_[1]->[2],
+    $codonPositionKey => $_[1]->[3],
+    $codonSequenceKey => defined $_[1]->[4] && $_[1]->[4] > $missingNumber 
+      ? $codonMap->num2Codon( $_[1]->[4] ) : undef,
   };
 }
 
