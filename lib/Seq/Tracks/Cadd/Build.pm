@@ -72,30 +72,28 @@ sub buildTrackFromCaddFormat {
 
   my $numericalChr = $self->wantedChr ? substr($self->wantedChr, 3) : undef;
   if(!looks_like_number($numericalChr) ) { $numericalChr = undef; }
-
+  my $nChrLength = length($numericalChr);
+  
   # We assume the file is sorted by chr
   while (<$fh>) {
-    my $chr = substr($_, 0, index($_, "\t") );
-    # If we only want 1 chromosome, save time by avoiding split
-    if($numericalChr) {
-      # Will still hit the # leftovers writer after the loop
-      if( looks_like_number($chr) && $chr > $numericalChr ) { last; }
-    }
+    my $chr = substr($_, 0, $nChrLength ? $nChrLength : index($_, "\t") );
+
+    # If we only want 1 chromosome, save time by avoiding split 
+    # any remaining %out will still be written by the last %out check
+    if( $numericalChr && looks_like_number($chr) && $chr > $numericalChr ) { last; } 
 
     $chr = "chr$chr";
 
     if( ($wantedChr && $wantedChr ne $chr) || !$wantedChr) {
       if(%out) {
-        if(!$wantedChr) {
-          $self->log('fatal', "Changed chr on line $_; have out, but no wantedChr");
-        }
+        if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         
-        $self->dbPatchBulk($wantedChr, %out);
+        $self->dbPatchBulk($wantedChr, \%out);
         undef %out; $count = 0;
       }
 
       if(@score) {
-        $self->log('fatal', "Skipping $chr post-chomp, have un-saved scores: " . join(',', @score) );
+        $self->log('fatal', "Changed chr @ $_: un-saved scores: " . join(',', @score) );
         undef @score;
       }
 
@@ -121,7 +119,8 @@ sub buildTrackFromCaddFormat {
     #CADD trcks are 1-indexed
     my $dbPosition = $line[1] - $self->based;
 
-    #copy array #https://ideone.com/m08q9V
+    # copy array #https://ideone.com/m08q9V
+    # https://ideone.com/dZ6RGj
     $out{$dbPosition} = $self->prepareData([@score]);
     
     undef @score;
@@ -138,12 +137,8 @@ sub buildTrackFromCaddFormat {
 
   # leftovers
   if(%out) {
-    if(!$wantedChr) {
-      $self->log('fatal', "Have out but no wantedChr");
-    }
-    if(@score) {
-      $self->log('fatal', "Finished reading file, but have uncommited scores");
-    }
+    if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
+    if(@score) { $self->log('fatal', "Finished reading file, have uncommited scores"); }
 
     $self->dbPatchBulk($wantedChr, \%out);
   }
