@@ -313,8 +313,6 @@ sub _writeMainData {
 
     # Let's store array only when we need to, to save space
     if( @{ $mainDataHref->{$pos} } == 1) {
-      say "mainData has 1 entry";
-      p $mainDataHref->{$pos};
       $out{$pos} = $self->prepareData( $mainDataHref->{$pos}->[0] );
     } else {
       $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
