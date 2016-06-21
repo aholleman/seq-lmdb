@@ -199,7 +199,7 @@ sub get {
         #if it's not a full transcript, let the user know
         #note that will mean codon2aa returns undef, which is what is wanted
         #since all undefined values become NA
-        if(length( $site->${key} ) != 3) {
+        if(length( $site->{$key} ) != 3) {
           push @{ $out{$key} }, $truncated;
           next CODON_LOOP;
         }
@@ -234,6 +234,7 @@ sub get {
 
     ### We only populate newAminoAcidKey for snps ###
     SNP_LOOP: for (my $i = 0; $i < @unpackedSites; $i++ ) {
+
       my $refCodonSequence = $unpackedSites[$i]->{ $siteUnpacker->codonSequenceKey };
 
       if(!$refCodonSequence) {

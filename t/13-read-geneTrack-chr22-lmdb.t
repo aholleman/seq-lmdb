@@ -140,7 +140,7 @@ p $dataHref;
 $ref = $refTrack->get($dataHref);
 
 $geneData = $geneTrack->get($dataHref, 'chr22', 51238065 - 1, $ref, 'C');
-ok( join(',', @{$geneData->{'siteType'} } ) eq 'NonCodingRNA, NonCodingRNA', 'Exonic non-coding ok @ last exon');
+ok( join(',', @{$geneData->{'siteType'} } ) eq 'NonCodingRNA,NonCodingRNA', 'Exonic non-coding ok @ last exon');
 
 say "geneData is";
 p $geneData;
@@ -155,10 +155,27 @@ $ref = $refTrack->get($dataHref);
 
 $geneData = $geneTrack->get($dataHref, 'chr22', 51238066 - 1, $ref, 'C');
 ok( $geneData->{'siteType'} eq 'Intergenic', 'Intergenic non-coding ok after last exon');
-ok( join(",", $geneData->{'nearest.name'} ) eq join(",", ('NR_026981','NR_026982') ), 'Intergenic non-coding ok after last exon');
+ok( join(",", @{ $geneData->{'nearest.name'} } ) eq 'NR_026981,NR_026982', 'Intergenic non-coding ok after last exon');
+say "nearest.name is " . join(",", @{ $geneData->{'nearest.name'} });
 say "geneData is";
 p $geneData;
 
+
+
+say "reading a coding site 39629481";
+
+$dataHref = $tracks->dbRead('chr22', 39629481 - 1);
+
+say "dataHref is";
+p $dataHref;
+
+$ref = $refTrack->get($dataHref);
+
+$geneData = $geneTrack->get($dataHref, 'chr22', 39629481 - 1, $ref, 'A');
+ok( join(',', @{ $geneData->{'siteType'} } ) eq 'Coding,Coding', 'Coding ok after in PDGFB');
+ok( join(',', @{ $geneData->{'geneSymbol'} } ) eq 'PDGFB,PDGFB', 'Gene symbol of all transcripts is PDGFB');
+
+p $geneData;
 # $dataHref = $tracks->dbRead('chr21', 48e6);
 
 # say "dataHref is";

@@ -229,12 +229,12 @@ sub buildTrack {
             $self->log('info', "Finished making transcript \#$txNumber for $chr");
           }
 
-          undef $allData{$chr};
+          delete $allData{$chr};
 
           $self->log('info', "Finished  to build transcript for $file");
           
           $self->_writeRegionData( $chr, $regionData{$chr} );
-          undef $regionData{$chr};
+          delete $regionData{$chr};
 
           $self->_writeMainData( $chr, \%siteData );
           undef %siteData;
@@ -243,7 +243,7 @@ sub buildTrack {
             $self->_writeNearestGenes( $chr, $txStartData{$chr}, \%sitesCoveredByTX );
           }
 
-          undef $txStartData{$chr}; undef %sitesCoveredByTX; 
+          delete $txStartData{$chr}; undef %sitesCoveredByTX; 
 
         $pm2->finish;
       }
