@@ -220,11 +220,15 @@ sub buildTrack {
 
             my $txInfo = Seq::Tracks::Gene::Build::TX->new($txData);
 
-            # Store the txNumber, txInfo in pairs of two
-            INNER: for my $pos ( keys %{$txInfo->transcriptSites} ){
+            # Store the data # To save space, both memory and later db, store as scalar if possible
+            # uses 1/3rd the bytes in the container: http://perlmaven.com/how-much-memory-do-perl-variables-use
+            INNER: for my $pos ( keys %{$txInfo->transcriptSites} ) {
               if(!defined $siteData{$pos} ) {
                 $siteData{$pos} = $txInfo->transcriptSites->{$pos};
               } else {
+                # make it an array
+                if(! ref $siteData{$pos} ) { $siteData{$pos} = [ $siteData{$pos} ]; }
+                # push it!
                 push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
               }
               
