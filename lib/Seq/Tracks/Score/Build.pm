@@ -86,7 +86,7 @@ sub buildTrack{
               }
 
               #so let's write whatever we have for the previous chr
-              $self->dbPatchBulk($wantedChr, \%data);
+              $self->dbPatchBulkAsArray($wantedChr, \%data);
 
               #since this is new, let's reset our data and count
               #we've already updated the chrPosition above
@@ -135,7 +135,7 @@ sub buildTrack{
 
         $count++;
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulk($wantedChr, \%data );
+          $self->dbPatchBulkAsArray($wantedChr, \%data );
           %data = ();
           $count = 0;
 
@@ -151,7 +151,7 @@ sub buildTrack{
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
-        $self->dbPatchBulk($wantedChr, \%data );
+        $self->dbPatchBulkAsArray($wantedChr, \%data );
 
         #now we're done with the process, and memory gets freed
       }

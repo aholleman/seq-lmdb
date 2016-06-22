@@ -1,9 +1,3 @@
-#TODO: needs to return errors if they're really errors and not
-#"something was missing" during patch operations for instance
-#but that may be difficult with the currrent LMDB_File API
-#I've had very bad performance returning errors from transactions
-#which are exposed in the C api
-#but I may have mistook one issue for another
 use 5.10.0;
 use strict;
 use warnings;
@@ -15,19 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Manages Database connection
 # VERSION
 
-=head1 DESCRIPTION
-
-  @class B<Seq::DBManager>
-  #TODO: Check description
-
-  @example
-# A singleton role; must be configured by some process before use
-Used in:
-=for :list
-
-
-
-=cut
+#TODO: Better errors; Seem to get bad perf if copy error after each db call
 
 use Moose::Role;
 with 'Seq::Role::Message';
@@ -40,12 +22,11 @@ use Scalar::Util qw/looks_like_number/;
 use DDP;
 use Hash::Merge::Simple qw/ merge /;
 
-#weird error handling in LMDB_FILE for the low level api
-#the most common errors mean nothign bad (ex: not found for get operations)
+# Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
-#needed so that we can initialize DBManager onces
+
+#needed so that we can initialize DBManager once
 state $databaseDir;
-#we'll make the database_dir if it doesn't exist in the buid step
 has database_dir => (
   is => 'ro',
   isa => AbsPath,
@@ -81,11 +62,12 @@ state $metaDbNamePart = '_meta';
 has commitEvery => (
   is => 'rw',
   init_arg => undef,
-  default => 5e3,
+  default => 1e4,
   lazy => 1,
 );
 
 #0, 1, 2
+#TODO: make singleton
 has overwrite => (
   is => 'ro',
   isa => 'Int',
@@ -93,13 +75,17 @@ has overwrite => (
   lazy => 1,
 );
 
+state $dbReadOnly;
 has dbReadOnly => (
   is => 'ro',
   isa => 'Bool',
-  default => 0,
+  default => $dbReadOnly,
   lazy => 1,
-  writer => "setDbReadOnly",
 );
+
+sub setDbReadOnly {
+  $dbReadOnly = $_[1];
+}
 
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
@@ -116,8 +102,7 @@ sub _getDbi {
   
   my $dbPath = $self->database_dir->child($name);
 
-  #don't create the database folder, which will prevent the environment 
-  #from being created if it doesn't exist
+  #create database unless dontCreate flag set
   if(!$dontCreate) {
     if(!$self->database_dir->child($name)->is_dir) {
       $self->database_dir->child($name)->mkpath;
@@ -174,22 +159,7 @@ sub _getDbi {
   return $dbis->{$name};
 }
 
-# I think this is too simple to warrant a function,
-# also only used in 2 places, above and in readAll (readAll open may go away)
-# sub _openDB {
-#  # my ($self, $txn) = @_;
-#  # 
-#   my $DB = $txn->OpenDB();
-
-#   #by doing this, we get zero-copy db reads (we take the data from memory)
-#   $DB->ReadMode(1);
-
-#   return $DB;
-# }
-
-#We could use the static method; not sure which is faster
-#But goal is to make sure we treat strings that look like integers as integers
-#Avoid weird dynamic typing issues that impact space
+# Our packing function
 my $mp = Data::MessagePack->new();
 $mp->prefer_integer(); #treat "1" as an integer, save more space
 
@@ -271,8 +241,6 @@ sub dbPatch {
   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  my $cnt = 0;
-
   my $json; #zero-copy
   my $href;
 
@@ -297,7 +265,7 @@ sub dbPatch {
     #can't modify $json, read-only value, from memory map
     $href = $mp->unpack($json);
 
-    my ($featureID) = %{$dataHref};
+    my ($featureID, $featureValue) = %{$dataHref};
 
     # don't overwrite if the user doesn't want it
     # just mark to skip
@@ -305,36 +273,18 @@ sub dbPatch {
       if(!$overwrite) {
         return
       }
-      # else we want to overwrite
-      # We take one of two very simple approaches
-      # The first: At one feature ID, both things are hashes
-      # In this case merge them, with right-hand precedence
-      # Imagine:
-      # gene: {
-      #  ref: 0,
-      #  site: 1,
-      #}
-      # gene: {
-      #   ref: [0, 1, 2],
-      #   ngene: 0,
-      # }
-      #result:
-      #gene: {
-      #   ref: [0, 1, 2],
-      #   ngene: 0,
-      #   site: 1,
-      # }
+
       # https://ideone.com/SBbfYV
       if($overwrite == 1) {
         # Merge with righthand hash taking precedence
         $href = merge $href, $dataHref;
       } elsif ($overwrite == 2) {
-        $href->{$featureID} = $dataHref->{$featureID};
+        $href->{$featureID} = $featureValue;
       } else {
         $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
       }
     } else {
-      $href->{$featureID} = $dataHref->{$featureID};
+      $href->{$featureID} = $featureValue;
     }
     
     #update the stack copy of data to include everything found at the pos (key)
@@ -353,16 +303,22 @@ sub dbPatch {
 #expects one track per call ; each posHref should have {pos => {trackName => trackData} }
 #Note::posHref is modified with the representation of the full dataset
 #as found in the db, after merging with the stuff in the database already
-sub dbPatchBulk {
-  #don't modify stack for re-use
+#@param <HashRef> $posHref : a hash reference in the form of
+# {
+#   Int : {
+#     Int: <Any>
+#   }
+# }
+# The top Int is the position in the genome
+# The 2nd level Int is the track index.
+# If we are given out-of-order track indices
+# We expect that each position has only one hash ref
+sub dbPatchBulkAsArray {
   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-  #remove from stack to allow us to re-assign $_[3] without read-only errors when
-  #a literal is passed for $overrideOverwrite (ex: dbPatchBulk($chr, $posHref, 1))
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   
-  #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my $cnt = 0;
@@ -377,68 +333,49 @@ sub dbPatchBulk {
 
   for my $pos ( @$sortedPositionsAref) { #want sequential
     my $json; #zero-copy
-    my $href;
+
+    my ($featureIndex, $featureValue) = %{ $posHref->{$pos} };
 
     $txn->get($dbi, $pos, $json);
 
-    #if json is defined, we modify what $PosHref contains
-    #otherwise, we don't care and goto &putBulk
-    if($json) {
-      my ($featureID) = %{$posHref->{$pos} };
-      #can't modify $json, read-only value, from memory map
-      $href = $mp->unpack($json);
-
-      if(defined $href->{$featureID} ) {
-        if(!$overwrite) {
-          #since we already have this feature, no need to write it
-          #since we don't want to overwrite
-          #requires us to check if $posHref->{$pos} is defined in 
-          delete $posHref->{$pos};
-
-          next;
-        }
-
-        if($overwrite == 1) {
-          # Merge with righthand hash taking precedence
-          $href = merge $href, $posHref->{$pos};
-        } elsif($overwrite == 2) {
-          $href->{$featureID} = $posHref->{$pos}->{$featureID};
-        } else {
-          $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
-        }
-      } else {
-        $href->{$featureID} = $posHref->{$pos}->{$featureID};
-      }
-
-      # if($self->debug) {
-      #   say "data we're trying to insert at position $pos is ";
-      #   p $posHref->{$pos};
-      #   say "after merging, or overwriting we have for this position";
-      #   p $href;
-      # }
-      
-      #update the stack data to include everything found at the key
-      #this allows us to reuse the stack in a goto,
-      $posHref->{$pos} = $href;
-
-      # say "after trying to overwrite, we have";
-      # p $href;
-      #deep merge is much more robust, but I'm worried about performance, so trying alternative
-      #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
-      next;
-    }
     #trigger this only if json isn't found, save on many if calls
     #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
     }
-    #if nothing exists; then we still want to pass it on to
-    #the writer, even if !overwrite is true
 
-    #Undecided whether DBManager should throttle writes; in principle yes
-    #but hashes passed to DBManager get ridiculously large,
-    #unless Seq::Tracks::Build throttles them (and declares commitEvery)
+    my $aref = [];
+
+    if($json) {
+      #can't modify $json, read-only value, from memory map
+      $aref = $mp->unpack($json);
+
+      if(defined $aref->[$featureIndex] ) {
+        if(!$overwrite) {
+          delete $posHref->{$pos};
+          next;
+        }
+
+        $aref->[$featureIndex] = $featureValue;
+        $posHref->{$pos} = $aref;
+
+        next;
+      }
+    }
+
+    # Nothing defined at this pos, or featureIndex isn't defined
+    # Array can't be sparse
+    for (my $i = @$aref; $i < $featureIndex; $i++) {
+      push @$aref, undef;
+    }
+
+    push @$aref, $featureValue;
+
+    $posHref->{$pos} = $aref;
   }
+
+  # say "about to put";
+  # p $posHref;
 
   $txn->commit();
 
@@ -483,7 +420,6 @@ sub dbPutBulk {
     $sortedPosAref = xsort( [keys %{$posHref} ] );
   }
 
-  my $cnt = 0;
   for my $pos (@$sortedPosAref) { #want sequential
     #by checking for defined, we can avoid having to re-sort
     #which may be slow than N if statements
@@ -512,130 +448,6 @@ sub dbPutBulk {
   $LMDB_File::last_err = 0;
 }
 
-# @param $nameOfKeyToDelete
-# sub dbDeleteKeys {
-#   my ( $self, $chr, $nameOfKeyToDelete) = @_;
-  
-#   my $db = $self->_getDbi($chr);
-#   my $dbi = $db->{dbi};
-#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-#   my $DB = $txn->OpenDB();
-#   #https://metacpan.org/pod/LMDB_File
-#   #avoids memory copy on get operation
-#   $DB->ReadMode(1);
-
-#   my $cursor = $DB->Cursor;
-
-#   my @err;
-
-#   my ($key, $value, %out);
-#   while(1) {
-#     $cursor->get($key, $value, MDB_NEXT);
-
-#     #because this error is generated right after the get
-#     #we want to capture it before the next iteration 
-#     #hence this is not inside while( )
-#     if($LMDB_File::last_err == MDB_NOTFOUND) {
-#       last;
-#     }
-
-#     if($LMDB_FILE::last_err) {
-#       $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
-#         $LMDB_FILE::last_err );
-#       push @err, $LMDB_FILE::last_err;
-#       $LMDB_FILE::last_err = 0;
-#       next;
-#     }
-
-#     $txn->commit();
-#   }
-# }
-
-#TODO: Finish; should go over every record in the requested database
-#and write single commit size 
-#we don't care terribly much about performance here, this happens once in a great while,
-#so we use our public function dbPutBulk
-sub dbWriteCleanCopy {
-  #for every... $self->dbPutBulk
-  #dbRead N records, divide dbGetLength by some reasonable size, like 1M
-  my ( $self, $chr ) = @_;
-
-  if($self->dbGetNumberOfEntries($chr) == 0) {
-    $self->log('fatal', "Database $chr is empty, canceling clean copy command");
-  }
-
-  my $db = $self->_getDbi($chr);
-  my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-  my $db2 = $self->_getDbi("$chr\_clean_copy");
-  my $dbi2 = $db2->{dbi};
-  
-
-  my $DB = $txn->OpenDB();
-  #https://metacpan.org/pod/LMDB_File
-  #avoids memory copy on get operation
-  $DB->ReadMode(1);
-
-  my $cursor = $DB->Cursor;
-
-  my ($key, $value, %out);
-  while(1) {
-    $cursor->get($key, $value, MDB_NEXT);
-
-    #because this error is generated right after the get
-    #we want to capture it before the next iteration 
-    #hence this is not inside while( )
-    if($LMDB_File::last_err == MDB_NOTFOUND) {
-      last;
-    }
-
-    if($LMDB_FILE::last_err) {
-      $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
-        $LMDB_FILE::last_err );
-      next;
-    }
-
-    my $txn2 = $db2->{env}->BeginTxn();
-      $txn2->put($dbi2, $key, $value);
-      
-      if($LMDB_FILE::last_err) {
-        $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
-        next;
-      }
-    $txn2->commit();
-
-    if($LMDB_FILE::last_err) {
-      $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
-    }
-  }
-
-  $txn->commit();
-
-  if($LMDB_File::last_error == MDB_NOTFOUND) {
-    my $return = system("mv $db->{path} $db->{path}.bak");
-    if(!$return) {
-      $return = system("mv $db2->{path} $db->{path}");
-
-      if(!$return) {
-        $return = system("rm -rf $db->{path}.bak");
-        if($return) {
-          $self->log('warn', "Error deleting $db->{path}.bak");
-        }
-      } else {
-        $self->log('fatal', "Error moving $db2->{path} to $db->{path}");
-      }
-    } else {
-      $self->log('fatal', "Error moving $db->{path} to $db->{path}.bak");
-    }
-  } else {
-    $self->log('fatal', "Error copying the $chr database: $LMDB_File::last_error");
-  }
-  #reset the class error variable, to avoid crazy error reporting later
-  $LMDB_File::last_err = 0;
-}
-
 #TODO: check if this works
 sub dbGetNumberOfEntries {
   my ( $self, $chr ) = @_;
@@ -645,54 +457,6 @@ sub dbGetNumberOfEntries {
 
   return $db ? $db->{env}->stat->{entries} : 0;
 }
-
-#if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]
-#but we don't always expect keys to be numeric
-#and am not certain this is meaningfully slower
-#only difference is overhead for checking whether txn is alive in LMDB_File
-
-#TODO: Not sure which is faster, the cursor version or the numerical one
-
-# sub dbReadAll {
-#   my ( $self, $chr ) = @_;
-
-#   my $db = $self->_getDbi($chr);
-#   my $dbi = $db->{dbi};
-#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-#   #unfortunately if we close the transaction, cursors stop working
-#   #a limitation of the current API
-#   #and since dbi wouldn't be available to the rest of this package unless
-#   #that transaction was comitted
-#   #we need to re-open the database for dbReadAll transactions
-#   #my $DB = $self->_openDB($txn);
-#   #my $cursor = $DB->Cursor;
-
-#   my ($key, %out, $json);
-
-#   #assumes all keys are numeric
-#   $key = 0;
-#   while(1) {
-#     $txn->get($dbi, $key, $json);
-#     #because this error is generated right after the get
-#     #we want to capture it before the next iteration 
-#     #hence this is not inside while( )
-#     if($LMDB_File::last_err == MDB_NOTFOUND) {
-#       last;
-#     }
-#     #perl always gives us a reference to the item in the array
-#     #so we can just re-assign it
-#     $out{$key} = $mp->unpack($json);
-#     $key++
-#   }
-#     #$cursor->get($key, $value, MDB_NEXT);
-      
-#   $txn->commit();
-#   #reset the class error variable, to avoid crazy error reporting later
-#   $LMDB_File::last_err = 0;
-
-#   return \%out;
-# }
 
 #cursor version
 sub dbReadAll {
@@ -763,13 +527,287 @@ sub dbReadMeta {
  # a.k.a the top-level key in that meta database, what type of meta data this is 
 #@param <HashRef> $dataHref : {someField => someValue}
 sub dbPatchMeta {
-  my ( $self, $databaseName, $metaType, $dataHref ) = @_;
+  my ( $self, $databaseName, $metaType, $dataHref, $overrideOverwrite ) = @_;
   
-  # 0 in last position to always overwrite, regardless of self->overwrite
-  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref, 0);
+  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref,
+    $overrideOverwrite);
+
   return;
 }
 
 no Moose::Role;
 
 1;
+
+
+# Removed in favor of array-based
+# sub dbPatchBulk {
+#   #don't modify stack for re-use
+#   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
+#   #remove from stack to allow us to re-assign $_[3] without read-only errors when
+#   #a literal is passed for $overrideOverwrite (ex: dbPatchBulk($chr, $posHref, 1))
+
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+  
+#   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   my $cnt = 0;
+
+#   #https://ideone.com/Y0C4tX
+#   #$self->overwrite can take 0, 1, 2
+#   my $overwrite = $overrideOverwrite || $self->overwrite;
+
+#   #modifies the stack, but hopefully a smaller change than a full
+#   #new stack + function call (look to goto below)
+#   my $sortedPositionsAref = xsort( [ keys %$posHref ] );
+
+#   for my $pos ( @$sortedPositionsAref) { #want sequential
+#     my $json; #zero-copy
+#     my $href;
+
+#     $txn->get($dbi, $pos, $json);
+
+#     #if json is defined, we modify what $PosHref contains
+#     #otherwise, we don't care and goto &putBulk
+#     if($json) {
+#       my ($featureID) = %{$posHref->{$pos} };
+#       #can't modify $json, read-only value, from memory map
+#       $href = $mp->unpack($json);
+
+#       if(defined $href->{$featureID} ) {
+#         if(!$overwrite) {
+#           #since we already have this feature, no need to write it
+#           #since we don't want to overwrite
+#           #requires us to check if $posHref->{$pos} is defined in 
+#           delete $posHref->{$pos};
+
+#           next;
+#         }
+
+#         if($overwrite == 1) {
+#           # Merge with righthand hash taking precedence
+#           $href = merge $href, $posHref->{$pos};
+#         } elsif($overwrite == 2) {
+#           $href->{$featureID} = $posHref->{$pos}->{$featureID};
+#         } else {
+#           $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
+#         }
+#       } else {
+#         $href->{$featureID} = $posHref->{$pos}->{$featureID};
+#       }
+
+#       # if($self->debug) {
+#       #   say "data we're trying to insert at position $pos is ";
+#       #   p $posHref->{$pos};
+#       #   say "after merging, or overwriting we have for this position";
+#       #   p $href;
+#       # }
+      
+#       #update the stack data to include everything found at the key
+#       #this allows us to reuse the stack in a goto,
+#       $posHref->{$pos} = $href;
+
+#       # say "after trying to overwrite, we have";
+#       # p $href;
+#       #deep merge is much more robust, but I'm worried about performance, so trying alternative
+#       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
+#       next;
+#     }
+#     #trigger this only if json isn't found, save on many if calls
+#     #unless is apparently a bit faster than if, when looking for negative conditions
+#     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+#       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
+#     }
+#     #if nothing exists; then we still want to pass it on to
+#     #the writer, even if !overwrite is true
+
+#     #Undecided whether DBManager should throttle writes; in principle yes
+#     #but hashes passed to DBManager get ridiculously large,
+#     #unless Seq::Tracks::Build throttles them (and declares commitEvery)
+#   }
+
+#   $txn->commit();
+
+#   #reset the class error variable, to avoid crazy error reporting later
+#   $LMDB_File::last_err = 0;
+
+#   $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
+# }
+
+# Potentially valuable numerical approach to dbReadAll
+
+#if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]
+#but we don't always expect keys to be numeric
+#and am not certain this is meaningfully slower
+#only difference is overhead for checking whether txn is alive in LMDB_File
+
+#TODO: Not sure which is faster, the cursor version or the numerical one
+
+# sub dbReadAll {
+#   my ( $self, $chr ) = @_;
+
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   #unfortunately if we close the transaction, cursors stop working
+#   #a limitation of the current API
+#   #and since dbi wouldn't be available to the rest of this package unless
+#   #that transaction was comitted
+#   #we need to re-open the database for dbReadAll transactions
+#   #my $DB = $self->_openDB($txn);
+#   #my $cursor = $DB->Cursor;
+
+#   my ($key, %out, $json);
+
+#   #assumes all keys are numeric
+#   $key = 0;
+#   while(1) {
+#     $txn->get($dbi, $key, $json);
+#     #because this error is generated right after the get
+#     #we want to capture it before the next iteration 
+#     #hence this is not inside while( )
+#     if($LMDB_File::last_err == MDB_NOTFOUND) {
+#       last;
+#     }
+#     #perl always gives us a reference to the item in the array
+#     #so we can just re-assign it
+#     $out{$key} = $mp->unpack($json);
+#     $key++
+#   }
+#     #$cursor->get($key, $value, MDB_NEXT);
+      
+#   $txn->commit();
+#   #reset the class error variable, to avoid crazy error reporting later
+#   $LMDB_File::last_err = 0;
+
+#   return \%out;
+# }
+
+# @param $nameOfKeyToDelete
+# sub dbDeleteKeys {
+#   my ( $self, $chr, $nameOfKeyToDelete) = @_;
+  
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   my $DB = $txn->OpenDB();
+#   #https://metacpan.org/pod/LMDB_File
+#   #avoids memory copy on get operation
+#   $DB->ReadMode(1);
+
+#   my $cursor = $DB->Cursor;
+
+#   my @err;
+
+#   my ($key, $value, %out);
+#   while(1) {
+#     $cursor->get($key, $value, MDB_NEXT);
+
+#     #because this error is generated right after the get
+#     #we want to capture it before the next iteration 
+#     #hence this is not inside while( )
+#     if($LMDB_File::last_err == MDB_NOTFOUND) {
+#       last;
+#     }
+
+#     if($LMDB_FILE::last_err) {
+#       $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+#         $LMDB_FILE::last_err );
+#       push @err, $LMDB_FILE::last_err;
+#       $LMDB_FILE::last_err = 0;
+#       next;
+#     }
+
+#     $txn->commit();
+#   }
+# }
+
+# Not in use cursor
+#TODO: Use cursor for txn2, don't commit every, may be faster
+#and write single commit size 
+#we don't care terribly much about performance here, this happens once in a great while,
+#so we use our public function dbPutBulk
+# sub dbWriteCleanCopy {
+#   #for every... $self->dbPutBulk
+#   #dbRead N records, divide dbGetLength by some reasonable size, like 1M
+#   my ( $self, $chr ) = @_;
+
+#   if($self->dbGetNumberOfEntries($chr) == 0) {
+#     $self->log('fatal', "Database $chr is empty, canceling clean copy command");
+#   }
+
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   my $db2 = $self->_getDbi("$chr\_clean_copy");
+#   my $dbi2 = $db2->{dbi};
+  
+
+#   my $DB = $txn->OpenDB();
+#   #https://metacpan.org/pod/LMDB_File
+#   #avoids memory copy on get operation
+#   $DB->ReadMode(1);
+
+#   my $cursor = $DB->Cursor;
+
+#   my ($key, $value, %out);
+#   while(1) {
+#     $cursor->get($key, $value, MDB_NEXT);
+
+#     #because this error is generated right after the get
+#     #we want to capture it before the next iteration 
+#     #hence this is not inside while( )
+#     if($LMDB_File::last_err == MDB_NOTFOUND) {
+#       last;
+#     }
+
+#     if($LMDB_FILE::last_err) {
+#       $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
+#         $LMDB_FILE::last_err );
+#       next;
+#     }
+
+#     my $txn2 = $db2->{env}->BeginTxn();
+#       $txn2->put($dbi2, $key, $value);
+      
+#       if($LMDB_FILE::last_err) {
+#         $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
+#         next;
+#       }
+#     $txn2->commit();
+
+#     if($LMDB_FILE::last_err) {
+#       $self->log('warn', "LMDB_FILE error adding $key: " . $LMDB_FILE::last_err );
+#     }
+#   }
+
+#   $txn->commit();
+
+#   if($LMDB_File::last_error == MDB_NOTFOUND) {
+#     my $return = system("mv $db->{path} $db->{path}.bak");
+#     if(!$return) {
+#       $return = system("mv $db2->{path} $db->{path}");
+
+#       if(!$return) {
+#         $return = system("rm -rf $db->{path}.bak");
+#         if($return) {
+#           $self->log('warn', "Error deleting $db->{path}.bak");
+#         }
+#       } else {
+#         $self->log('fatal', "Error moving $db2->{path} to $db->{path}");
+#       }
+#     } else {
+#       $self->log('fatal', "Error moving $db->{path} to $db->{path}.bak");
+#     }
+#   } else {
+#     $self->log('fatal', "Error copying the $chr database: $LMDB_File::last_error");
+#   }
+#   #reset the class error variable, to avoid crazy error reporting later
+#   $LMDB_File::last_err = 0;
+# }
+

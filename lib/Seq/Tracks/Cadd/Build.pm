@@ -88,7 +88,7 @@ sub buildTrackFromCaddFormat {
       if(%out) {
         if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         
-        $self->dbPatchBulk($wantedChr, \%out);
+        $self->dbPatchBulkAsArray($wantedChr, \%out);
         undef %out; $count = 0;
       }
 
@@ -126,7 +126,7 @@ sub buildTrackFromCaddFormat {
     undef @score;
 
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulk($wantedChr, \%out);
+      $self->dbPatchBulkAsArray($wantedChr, \%out);
 
       undef %out;
       $count = 0;
@@ -140,7 +140,7 @@ sub buildTrackFromCaddFormat {
     if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
     if(@score) { $self->log('fatal', "Finished reading file, have uncommited scores"); }
 
-    $self->dbPatchBulk($wantedChr, \%out);
+    $self->dbPatchBulkAsArray($wantedChr, \%out);
   }
 
   return 0;
@@ -254,7 +254,7 @@ sub writeToDatabase {
 
   for my $chr (keys %$resultRef) {
     if( %{ $resultRef->{$chr} } ) {
-      $self->dbPatchBulk($chr, $resultRef->{$chr} );
+      $self->dbPatchBulkAsArray($chr, $resultRef->{$chr} );
     }
   }
 

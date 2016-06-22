@@ -47,7 +47,7 @@ has nonCodingBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 0,
+  default => 1,
 );
 
 has codingBase => (
@@ -55,7 +55,7 @@ has codingBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 1,
+  default => 2,
 );
 
 has fivePrimeBase => (
@@ -63,7 +63,7 @@ has fivePrimeBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 2,
+  default => 3,
 );
 
 has threePrimeBase => (
@@ -71,7 +71,7 @@ has threePrimeBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 3,
+  default => 4,
 );
 
 has spliceAcBase => (
@@ -79,7 +79,7 @@ has spliceAcBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 4,
+  default => 5,
 );
 
 has spliceDonBase => (
@@ -87,7 +87,7 @@ has spliceDonBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 5,
+  default => 6,
 );
 
 has intronicBase => (
@@ -95,7 +95,7 @@ has intronicBase => (
   isa => 'Int',
   init_arg => undef,
   lazy => 1,
-  default => 6,
+  default => 7,
 );
 
 #TODO: should constrain values to GeneSiteType

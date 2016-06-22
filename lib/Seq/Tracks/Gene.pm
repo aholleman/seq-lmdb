@@ -29,9 +29,10 @@ extends 'Seq::Tracks::Get';
 use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
+use Seq::Tracks::Region::NearestTrackName;
 
-#exports regionTrackPath, regionNearestSubTrackName
-with 'Seq::Tracks::Region::Definition',
+#exports regionTrackPath
+with 'Seq::Tracks::Region::RegionTrackPath',
 #allUCSCgeneFeatures
 'Seq::Tracks::Gene::Definition',
 #dbReadAll
@@ -69,6 +70,8 @@ has '+features' => (
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
 
+state $nearestSubTrackDbName;
+
 #### Add our other "features", everything we find for this site ####
 override 'BUILD' => sub {
   my $self = shift;
@@ -76,28 +79,25 @@ override 'BUILD' => sub {
   $self->addFeaturesToHeader([$siteUnpacker->allSiteKeys, $txEffectsKey, 
     $refAminoAcidKey, $newAminoAcidKey], $self->name);
 
-  my @nearestFeatureNames = $self->allNearestFeatureNames;
-  
-  if(@nearestFeatureNames) {
-    $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } @nearestFeatureNames ], $self->name);
-  }
+  $allCachedDbNames->{$self->name} = {};
 
-  ####Build up a list of fieldDbNames; these are called millions of times ######
-  #Doing this before $self->get, which may be threaded, allows us to also memoize
-  #getFieldDbName results
-  $allCachedDbNames->{$self->name} = {
-    #nearest gene is a pseudo-track, stored as it's own key, outside of
-    #$self->name, but in a unique name based on $self->name, private to this class
-    $self->regionNearestSubTrackName => $self->getFieldDbName($self->regionNearestSubTrackName),
-  };
+  if($self->nearest) {
+    #nearest genes are pseudo-tracks, stored under their own track names, but based on $self->name
+    #Must be run at build time, to ensure all threads get same name
+    my $nearestNames = Seq::Tracks::Region::NearestTrackName->new({baseName => $self->name});
+  
+    $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $nearestNames->nearestSubTrackDbName;
+  
+    $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } $self->allNearestFeatureNames ], $self->name);
+
+    #the features specified in the region database which we want for nearest gene records
+    for my $nearestFeatureName ($self->allNearestFeatureNames) {
+      $allCachedDbNames->{$self->name}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
+    }
+  }
 
   for my $featureName ($self->allFeatureNames) {
-    $allCachedDbNames->{$self->name}->{$featureName} = $self->getFieldDbName($featureName);
-  }
-
-  #the features specified in the region database which we want for nearest gene records
-  for my $nearestFeatureName ($self->allNearestFeatureNames) {
-    $allCachedDbNames->{$self->name}->{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
+    $allCachedDbNames->{$self->name}{$featureName} = $self->getFieldDbName($featureName);
   }
 
   super();
@@ -125,18 +125,18 @@ sub get {
   ####### Get all transcript numbers, and site data for this position #########
   my (@txNumbers, @siteData);
 
-  # is an <ArrayRef[ArrayRef>|ArrayRef[Int]>, each Aref is [$referenceNumberToRegionDatabase, $siteData] ]
-  if( $href->{$self->dbName} ) {
-    if( ref $href->{$self->dbName}->[0] ) {
-      foreach ( @{ $href->{$self->dbName} } ) {
-        push @txNumbers, $_->[0];
-        push @siteData, $_->[1];
-      }
-    } else {
-      push @txNumbers, $href->{$self->dbName}->[0];
-      push @siteData, $href->{$self->dbName}->[1]; 
+  # is an <ArrayRef>, where every other element is siteData
+  if( $href->[$self->dbName] ) {
+    for (my $i = 0; $i < @{ $href->[$self->dbName] }; $i+=2 ) {
+      push @txNumbers, $href->[$self->dbName][$i];
+      push @siteData, $href->[$self->dbName][$i + 1];
     }
   }
+
+  say "txNumbers are";
+  p @txNumbers;
+  say "siteData are";
+  p @siteData;
   
   my %out;
 
@@ -145,21 +145,21 @@ sub get {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
-    my $nearestGeneNumber = $href->{ $cachedDbNames->{$self->regionNearestSubTrackName} } || \@txNumbers;
+    my $nearestGeneNumber = $href->[$cachedDbNames->{$nearestSubTrackName}] || \@txNumbers;
 
     if($nearestGeneNumber) {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
           for my $nFeature ($self->allNearestFeatureNames) {
             push @{ $out{"$nearestSubTrackName.$nFeature"} },
-              $regionData->{$geneRef}->{ $cachedDbNames->{$nFeature} };
+              $regionData->{$geneRef}->[ $cachedDbNames->{$nFeature} ];
           }
       }
-    } else { $self->log('warn', "no " . $self->name . " or " . $self->regionNearestSubTrackName . " found"); }
+    } else { $self->log('warn', "no " . $self->name . " or " . $nearestSubTrackName . " found"); }
   }
 
   ################# Check if this position is in a place covered by gene track #####################
     
-  if(! $href->{$self->dbName} ) {
+  if(! $href->[$self->dbName] ) {
     #if not, state that the siteType is intergenic!
     $out{$siteUnpacker->siteTypeKey} = $intergenic;
     return \%out;
@@ -174,7 +174,9 @@ sub get {
   ################# Populate geneTrack's user-defined features #####################
   foreach ($self->allFeatureNames) {
     INNER: for my $txNumber (@txNumbers) {
-      push @{ $out{$_} }, $regionData->{$txNumber}{ $cachedDbNames->{$_} };
+      say "regionData for txNumber $txNumber is";
+      p $regionData->{$txNumber};
+      push @{ $out{$_} }, $regionData->{$txNumber}[ $cachedDbNames->{$_} ];
     }
   }
 
@@ -301,14 +303,12 @@ sub _annotateIndel {
   my $type = substr($allele, 0, 1);
   #### Check if insertion or deletion ###
   if($type eq '+') {
-    #insetion
     $beginning = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) . "[";
 
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
     $dbDataAref = $self->dbRead( $chr, [ $dbPosition + 1 ] );
   } elsif($type eq '-') {
-    #deletion
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
     #get everything including the current dbPosition, in order to simplify code

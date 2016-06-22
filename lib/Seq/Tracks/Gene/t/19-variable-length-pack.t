@@ -16,6 +16,9 @@ my $packedData = $siteHandler->packCodon(
   ('Intronic', '-')
 );
 
+say "Packed data for '(Intronic, -)' is ";
+p $packedData;
+
 my $unpackedData = $siteHandler->unpackCodon($packedData);
 
 ok($unpackedData->{$siteHandler->siteTypeKey} eq 'Intronic', 'reads site type ok from shortened site');
@@ -28,12 +31,15 @@ ok(scalar keys %$unpackedData == 5, 'shortened site has 5 keys');
 p $unpackedData;
 
 $packedData = $siteHandler->packCodon(
-  ('Coding', '+')
+  ('NonCodingRNA', '+')
 );
+
+say "Packed data for '(NonCodingRNA, +)' is ";
+p $packedData;
 
 $unpackedData = $siteHandler->unpackCodon($packedData);
 
-ok($unpackedData->{$siteHandler->siteTypeKey} eq 'Coding', 'site type ok from 2nd shortened site');
+ok($unpackedData->{$siteHandler->siteTypeKey} eq 'NonCodingRNA', 'site type ok from 2nd shortened site');
 ok($unpackedData->{$siteHandler->strandKey} eq '+', 'reads strand ok from 2nd shortened site');
 
 p $unpackedData;
@@ -41,6 +47,9 @@ p $unpackedData;
 $packedData = $siteHandler->packCodon(
   ('Coding', '+', 1, 2, 'ATG')
 );
+
+say "Packed data for ('Coding', '+', 1, 2, 'ATG') is ";
+p $packedData;
 
 $unpackedData = $siteHandler->unpackCodon($packedData);
 

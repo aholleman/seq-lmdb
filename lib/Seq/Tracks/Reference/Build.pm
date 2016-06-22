@@ -13,10 +13,14 @@ use Moose 2;
 use namespace::autoclean;
 extends 'Seq::Tracks::Build';
 
+use Seq::Tracks::Reference::MapBases;
+
 use Parallel::ForkManager;
 use DDP;
 
 my $pm = Parallel::ForkManager->new(26);
+
+my $baseMapper = Seq::Tracks::Reference::MapBases->new();
 
 sub buildTrack {
   my $self = shift;
@@ -25,7 +29,7 @@ sub buildTrack {
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
   my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
-
+  
   for my $file ( $self->allLocalFiles ) {
     # Expects 1 chr per file for n+1 files, or all chr in 1 file
     # Single writer to reduce copy-on-write db inflation
@@ -66,7 +70,7 @@ sub buildTrack {
               }
 
               #so let's write whatever we have for the previous chr
-              $self->dbPatchBulk($wantedChr, \%data );
+              $self->dbPatchBulkAsArray($wantedChr, \%data );
 
               #since this is new, let's reset our data and count
               #we've already updated the chrPosition above
@@ -103,14 +107,14 @@ sub buildTrack {
         if( $_ =~ $dataRegex ) {
           # Store the uppercase bases; how UCSC does it, how people likely expect it
           for my $char ( split '', uc($1) ) {
-            $data{$chrPosition} = $self->prepareData($char);
+            $data{$chrPosition} = $self->prepareData( $baseMapper->baseMap->{$char} );
 
             #must come after, to not be 1 off; assumes fasta file is sorted ascending contiguous 
             $chrPosition++; 
 
             #Count number of entries recorded; write to DB if it's over the limit
             if($count >= $self->commitEvery) {
-              $self->dbPatchBulk($wantedChr, \%data);
+              $self->dbPatchBulkAsArray($wantedChr, \%data);
               
               undef %data;
               $count = 0;
@@ -131,7 +135,7 @@ sub buildTrack {
          return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
 
-        $self->dbPatchBulk($wantedChr, \%data );
+        $self->dbPatchBulkAsArray($wantedChr, \%data );
       }
 
       foreach ( keys %visitedChrs ) {

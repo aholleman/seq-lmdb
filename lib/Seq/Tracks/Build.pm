@@ -22,12 +22,17 @@ with 'Seq::Role::IO'; #all build methods need to read files
 
 use Seq::Tracks::Build::CompletionMeta;
 
+has overwrite => (is => 'ro', required => 0, lazy => 1, default => 0);
+
 has completionMeta => (
   is => 'ro',
   isa => 'Seq::Tracks::Build::CompletionMeta',
   init_arg => undef,
   lazy => 1,
-  default => sub { my $self = shift; Seq::Tracks::Build::CompletionMeta->new({ name => $self->name })}
+  default => sub { 
+    my $self = shift; 
+    Seq::Tracks::Build::CompletionMeta->new({ name => $self->name, overwrite => $self->overwrite } )
+  },
 );
 
 #anything with an underscore comes from the config format

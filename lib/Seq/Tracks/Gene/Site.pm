@@ -65,8 +65,8 @@ sub allSiteKeys {
 state $missingNumber = -9;
 
 #pack strands as small integers, save a byte in messagepack
-state $strandMap = { '-' => 0, '+' => 1, };
-state $strandMapInverse = ['-', '+'];
+state $strandMap = { '-' => 1, '+' => 2, };
+state $strandMapInverse = ['', '-', '+'];
 
 # Cost to pack an array using messagePack (which happens by default)
 # Should be the same as the overhead for messagePack storing a string
@@ -127,22 +127,35 @@ sub packCodon {
     push @outArray, $codonSeqNumber;
   }
 
-  return \@outArray;
+  #C= unsigned char; A = ASCII string space padded, l = signed long
+  #https://ideone.com/TFGjte
+
+  if(@outArray == 1) {
+    #siteTypeNum only
+    return pack('C', @outArray);
+  }
+
+  if(@outArray == 2) {
+    #siteTypeNum and $strand only
+    return pack('CC', @outArray);
+  }
+
+  #all
+  return pack('CClCc', @outArray);
 }
 #@param <Seq::Tracks::Gene::Site> $self
 #@param <ArrayRef> $codon
 sub unpackCodon {
-  #$_[1] is an array ref, containing the codon of interest
+  #here $_[1] is the packedCodon string
+  my @codon = unpack('CClCc', $_[1]);
+
   return {
-    #site types are always required
-    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($_[1]->[0]),
-    #so are strands, but later I can imagine relaxing this
-    $strandKey => defined $_[1]->[1] ? $strandMapInverse->[ $_[1]->[1] ] : undef,
+    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[0]),
+    $strandKey => defined $codon[1] ? $strandMapInverse->[ $codon[1] ] : undef,
     #optional; values that may not exist (say a non-coding site)
-    $codonNumberKey => $_[1]->[2],
-    $codonPositionKey => $_[1]->[3],
-    $codonSequenceKey => defined $_[1]->[4] && $_[1]->[4] > $missingNumber 
-      ? $codonMap->num2Codon( $_[1]->[4] ) : undef,
+    $codonNumberKey => $codon[2],
+    $codonPositionKey => $codon[3],
+    $codonSequenceKey => $codon[4] && $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
   };
 }
 

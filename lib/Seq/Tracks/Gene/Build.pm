@@ -19,15 +19,16 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 
 use Seq::Tracks::Gene::Build::TX;
-use DDP;
-use List::Util qw/reduce/;
+use Seq::Tracks::Region::NearestTrackName;
 
 extends 'Seq::Tracks::Build';
 
-#exports regionTrackPath, regionNearestSubTrackName
-with 'Seq::Tracks::Region::Definition',
+#exports regionTrackPath
+with 'Seq::Tracks::Region::RegionTrackPath',
 #exports allUCSCgeneFeatures
 'Seq::Tracks::Gene::Definition';
+
+use DDP;
 
 # Unlike original GeneTrack, we don't remap field names 
 # It's easier to remember the real names than real names + our domain-specific names
@@ -43,18 +44,23 @@ has '+features' => (
   default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
 );
 
+state $nearestTrackDbName;
 sub BUILD {
   my $self = shift;
 
   #normal features are mapped at build time
-  #We have some extras, so make sure those are mapped before we start 
-  #any parallel processing
+  #We have some extras, so make sure those are mapped before we start any parallel processing
 
-  #nearest genes are pseudo-tracks, stored under their own track names, but based on $self->name
-  #which is guaranteed to be unique at run time
-  $self->getFieldDbName($self->regionNearestSubTrackName);
+  # Nearest genes are pseudo-tracks, stored under their own track names
+  # This creates a unique track identifier for a nearest sub track;
+  # Should not be created unless we really have a nearest sub track defined
+  # Because that will inflate the database size (since stored array will need to be sparse)
+  if($self->nearest) {
+    my $nearestNames = Seq::Tracks::Region::NearestTrackName->new({baseName => $self->name});
+    $nearestTrackDbName = $nearestNames->nearestSubTrackDbName;
+  }
 
-  # geneTxErrorName isn'ta default feature, initializing here to make sure 
+  # geneTxErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
   $self->getFieldDbName($self->geneTxErrorName);
 }
@@ -212,12 +218,9 @@ sub buildTrack {
 
             my $txInfo = Seq::Tracks::Gene::Build::TX->new(  $allData{$chr}->{$txNumber} );
 
+            # Store the txNumber, txInfo in pairs of two
             INNER: for my $pos ( keys %{$txInfo->transcriptSites} ){
-              if( defined $siteData{$pos} ) {
-                push @{ $siteData{$pos} }, [ $txNumber, $txInfo->transcriptSites->{$pos} ];
-                next INNER;
-              }
-              $siteData{$pos} = [ [ $txNumber, $txInfo->transcriptSites->{$pos} ] ];
+              push @{ $siteData{$pos} }, $txNumber, $txInfo->transcriptSites->{$pos};
             }
 
             if( @{$txInfo->transcriptErrors} ) {
@@ -273,7 +276,7 @@ sub _writeRegionData {
 
   for my $txNumber (@txNumbers) {
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulk($dbName, \%out);
+      $self->dbPatchBulkAsArray($dbName, \%out);
 
       undef %out;
       $count = 0;
@@ -287,7 +290,7 @@ sub _writeRegionData {
   }
 
   if(%out) {
-    $self->dbPatchBulk($dbName, \%out);
+    $self->dbPatchBulkAsArray($dbName, \%out);
 
     undef %out;
   }
@@ -305,24 +308,20 @@ sub _writeMainData {
   for my $pos ( keys %$mainDataHref ) {
     
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulk($chr, \%out);
+      $self->dbPatchBulkAsArray($chr, \%out);
 
       undef %out;
       $count = 0;
     }
 
     # Let's store array only when we need to, to save space
-    if( @{ $mainDataHref->{$pos} } == 1) {
-      $out{$pos} = $self->prepareData( $mainDataHref->{$pos}->[0] );
-    } else {
-      $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
-    }
+    $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
 
     $count += 1;
   }
 
   if(%out) {
-    $self->dbPatchBulk($chr, \%out);
+    $self->dbPatchBulkAsArray($chr, \%out);
 
     undef %out;
   }
@@ -336,9 +335,6 @@ sub _writeMainData {
 # http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
 sub _writeNearestGenes {
   my ($self, $chr, $txStartData, $coveredSitesHref) = @_;
-  
-  # Where we store the data
-  my $nearestGeneDbName = $self->getFieldDbName( $self->regionNearestSubTrackName );
   
   $self->log('info', "Starting _writeNearestGenes for $chr");      
   
@@ -475,7 +471,7 @@ sub _writeNearestGenes {
 
     for my $pos (keys %out) {
       if($count >= $self->commitEvery) {
-        $self->dbPatchBulk($chr, \%outAccumulator);
+        $self->dbPatchBulkAsArray($chr, \%outAccumulator);
 
         undef %outAccumulator;
         $count = 0;
@@ -483,9 +479,9 @@ sub _writeNearestGenes {
 
       #Let's store only an array if we have multiple sites
       if( @{ $out{$pos} } == 1) {
-        $outAccumulator{$pos} = { $nearestGeneDbName => $out{$pos}->[0] };
+        $outAccumulator{$pos} = { $nearestTrackDbName => $out{$pos}->[0] };
       } else {
-        $outAccumulator{$pos} = { $nearestGeneDbName => $out{$pos} };
+        $outAccumulator{$pos} = { $nearestTrackDbName => $out{$pos} };
       }
       
       $count += 1;
@@ -493,7 +489,7 @@ sub _writeNearestGenes {
 
     # leftovers
     if(%outAccumulator) {
-      $self->dbPatchBulk($chr, \%outAccumulator);
+      $self->dbPatchBulkAsArray($chr, \%outAccumulator);
 
       undef %outAccumulator; #force free memory, though shouldn't be needed
     }
