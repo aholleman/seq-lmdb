@@ -13,10 +13,10 @@ use Seq::Tracks::Gene::Site;
 my $siteHandler = Seq::Tracks::Gene::Site->new();
 
 my $packedData = $siteHandler->packCodon(
-  ('Intronic', '-')
+  (0, 'Intronic', '-')
 );
 
-say "Packed data for '(Intronic, -)' is ";
+say "Packed data for '(0, Intronic, -)' is ";
 p $packedData;
 
 my $unpackedData = $siteHandler->unpackCodon($packedData);
@@ -26,33 +26,35 @@ ok($unpackedData->{$siteHandler->strandKey} eq '-', 'reads strand ok from shorte
 ok(!defined $unpackedData->{$siteHandler->codonNumberKey}, 'reads codon number ok from shortened site');
 ok(!defined $unpackedData->{$siteHandler->codonPositionKey}, 'reads codon position ok from shortened site');
 ok(!defined $unpackedData->{$siteHandler->codonSequenceKey}, 'reads codon position ok from shortened site');
-ok(scalar keys %$unpackedData == 5, 'shortened site has 5 keys');
+ok(scalar keys %$unpackedData == 6, 'shortened site has 5 keys');
 
 p $unpackedData;
 
 $packedData = $siteHandler->packCodon(
-  ('NonCodingRNA', '+')
+  (1541, 'NonCodingRNA', '+')
 );
 
-say "Packed data for '(NonCodingRNA, +)' is ";
+say "Packed data for '(1541, NonCodingRNA, +)' is ";
 p $packedData;
 
 $unpackedData = $siteHandler->unpackCodon($packedData);
 
+ok($unpackedData->{$siteHandler->txNumberKey} == 1541, 'txNumber ok from 2nd shortened site');
 ok($unpackedData->{$siteHandler->siteTypeKey} eq 'NonCodingRNA', 'site type ok from 2nd shortened site');
 ok($unpackedData->{$siteHandler->strandKey} eq '+', 'reads strand ok from 2nd shortened site');
 
 p $unpackedData;
 
 $packedData = $siteHandler->packCodon(
-  ('Coding', '+', 1, 2, 'ATG')
+  (65000,'Coding', '+', 1, 2, 'ATG')
 );
 
-say "Packed data for ('Coding', '+', 1, 2, 'ATG') is ";
+say "Packed data for (65000, 'Coding', '+', 1, 2, 'ATG') is ";
 p $packedData;
 
 $unpackedData = $siteHandler->unpackCodon($packedData);
 
+ok($unpackedData->{$siteHandler->txNumberKey} == 65000, 'txNumber ok from full site');
 ok($unpackedData->{$siteHandler->siteTypeKey} eq 'Coding', 'site type ok from full site');
 ok($unpackedData->{$siteHandler->strandKey} eq '+', 'reads strand ok from full site');
 ok($unpackedData->{$siteHandler->codonNumberKey} == 1, 'reads codon number ok from full site');

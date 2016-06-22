@@ -41,6 +41,11 @@ has codonMap => (
   default => sub{ return $codonMap },
 );
 
+#To which region this belongs
+state $txNumberKey = 'txNumber';
+has txNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $txNumberKey);
+
+#These describe the site
 state $siteTypeKey = 'siteType';
 has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
 state $strandKey = 'strand';
@@ -56,6 +61,7 @@ has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $c
 #trying to stay away from use of moose methods for items declared within the package
 #it adds overhead, and absolutely no clearity imo
 #Moose should be used for the public facing API
+#No txNumber key involved; since that doesn't constitute a site feature, but a site reference
 sub allSiteKeys {
   return ($siteTypeKey, $strandKey, $codonNumberKey,
     $codonPositionKey, $codonSequenceKey);
@@ -73,12 +79,18 @@ state $strandMapInverse = ['', '-', '+'];
 # Unless the Perl messagePack implementation isn't good
 # So store as array to save pack / unpack overhead
 sub packCodon {
-  my ($self, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
+  my ($self, $txNumber, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   my @outArray;
 
+  if( !defined $txNumber || !looks_like_number($txNumber) ) {
+    $self->log('fatal', 'packCodon requires txNumber');
+  }
+
+  push @outArray, $txNumber;
+
   #used to require strand too, but that may go away
-  if( !$siteType ) {
+  if( !defined $siteType ) {
     $self->log('fatal', 'packCodon requires site type');
   }
 
@@ -108,54 +120,60 @@ sub packCodon {
       $self->log('fatal', 'codonPosition & codonNumber must be numeric');
     }
 
-    my $codonSeqNumber;
-
-    if(defined $codonSeq) {
-      $codonSeqNumber = $codonMap->codon2Num($codonSeq);
-
-      #warning for now, this mimics the original codebase
-      #TODO: do we want to store this as an error in the TX?
-      if(!$codonSeqNumber) {
-        $self->log('warn', "couldn\'t convert codon sequence $codonSeq to a number");
-
-        $codonSeqNumber = $missingNumber;
-      }
-    }
-
     push @outArray, $codonNumber;
     push @outArray, $codonPosition;
-    push @outArray, $codonSeqNumber;
+
+    my $codonSeqNumber  = $codonMap->codon2Num($codonSeq);
+
+    #warning for now, this mimics the original codebase
+    #TODO: do we want to store this as an error in the TX?
+    if(!$codonSeqNumber) {
+      $self->log('warn', "couldn\'t convert codon sequence $codonSeq to a number");
+    } else {
+      push @outArray, $codonSeqNumber;
+    }
   }
 
-  #C= unsigned char; A = ASCII string space padded, l = signed long
+  #C= unsigned char; A = ASCII string space padded, L = unsigned long
   #https://ideone.com/TFGjte
 
   if(@outArray == 1) {
-    #siteTypeNum only
-    return pack('C', @outArray);
+    #txNumber only
+    return pack('S', @outArray);
   }
 
   if(@outArray == 2) {
-    #siteTypeNum and $strand only
-    return pack('CC', @outArray);
+    #txNumber and siteTypeNum
+    return pack('SC', @outArray);
+  }
+
+  if(@outArray == 3) {
+    #txNumber and siteTypeNum and $strand 
+    return pack('SCC', @outArray);
+  }
+
+  if(@outArray == 5) {
+    #missing codonSeqNumber only
+    return pack('SCCLC', @outArray);
   }
 
   #all
-  return pack('CClCc', @outArray);
+  return pack('SCCLCC', @outArray);
 }
 #@param <Seq::Tracks::Gene::Site> $self
 #@param <ArrayRef> $codon
 sub unpackCodon {
   #here $_[1] is the packedCodon string
-  my @codon = unpack('CClCc', $_[1]);
+  my @codon = unpack('SCCLCC', $_[1]);
 
   return {
-    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[0]),
-    $strandKey => defined $codon[1] ? $strandMapInverse->[ $codon[1] ] : undef,
+    $txNumberKey => $codon[0],
+    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[1]),
+    $strandKey => defined $codon[2] ? $strandMapInverse->[ $codon[2] ] : undef,
     #optional; values that may not exist (say a non-coding site)
-    $codonNumberKey => $codon[2],
-    $codonPositionKey => $codon[3],
-    $codonSequenceKey => $codon[4] && $codon[4] > $missingNumber ? $codonMap->num2Codon( $codon[4] ) : undef,
+    $codonNumberKey => $codon[3],
+    $codonPositionKey => $codon[4],
+    $codonSequenceKey => defined $codon[5] ? $codonMap->num2Codon( $codon[5] ) : undef,
   };
 }
 

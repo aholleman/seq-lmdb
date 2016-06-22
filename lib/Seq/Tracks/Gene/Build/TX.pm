@@ -116,6 +116,13 @@ has strand => (
   isa => 'Str',
   required => 1,
 );
+
+has txNumber => (
+  is => 'ro',
+  isa => 'Int',
+  required => 1,
+);
+
 ##End required arguments
 #purely for debug
 #not the same as the Track name
@@ -434,7 +441,7 @@ sub _buildTranscriptSites {
 
     #storing strand for now, could remove it later if we decided to 
     #just get it from the region database entry for the transcript
-    $tempTXsites{$pos} = [$siteType, $self->strand, undef, undef, undef];
+    $tempTXsites{$pos} = [$self->txNumber, $siteType, $self->strand, undef, undef, undef];
   }
 
   my $codingBaseCount = 0;
@@ -464,18 +471,13 @@ sub _buildTranscriptSites {
       $codonPosition = $codingBaseCount % 3;
 
       my $codonStart = $i - $codonPosition;
-      #I think this is more efficient, also clearer (to me) because the 3 
-      #is explicit, rather than implict through the +2 and for loop and 0 offset substr
-      #compared to
-      #for ( my $j = $codonStart; $j <= $codonEnd; $j++ ) {
-        #TODO: account for messed up transcripts that are truncated
-        #$referenceCodonSeq .= $self->getTranscriptBases( $j, 1 );
-      #}
+     
+      # Replaces: #for ( my $j = $codonStart; $j <= $codonEnd; $j++ ) {  #$referenceCodonSeq .= $self->getTranscriptBases( $j, 1 ); #}
       $codonSeq = substr( $txSequence, $codonStart, 3 );
 
       $siteType = $codonPacker->siteTypeMap->codingSiteType;
 
-      $tempTXsites{ $pos } = [$siteType, $self->strand,
+      $tempTXsites{ $pos } = [$self->txNumber, $siteType, $self->strand,
        $codonNumber, $codonPosition, $codonSeq];
 
       $codingBaseCount++;

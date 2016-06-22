@@ -187,9 +187,9 @@ sub buildTrack {
           $txStartData{$wantedChr}{$txStart} = [ [$txNumber, $txEnd] ];
         }
 
-        #store all the data we can find in the input file,
-        #for use later in generating transcripts
-        $allData{$wantedChr}{$txNumber} = $allDataHref;
+        $allDataHref->{txNumber} = $txNumber;
+
+        push @{ $allData{$wantedChr} }, $allDataHref;
 
         $txNumbers{$wantedChr} += 1;
       }
@@ -213,14 +213,16 @@ sub buildTrack {
 
           $self->log('info', "Starting to build transcript for $file");
 
-          for my $txNumber (keys %{ $allData{$chr} } ) {
+          for my $txData ( @{ $allData{$chr} } ) {
+            my $txNumber = $txData->{txNumber};
+
             $self->log('info', "Starting to make transcript \#$txNumber for $chr");
 
-            my $txInfo = Seq::Tracks::Gene::Build::TX->new(  $allData{$chr}->{$txNumber} );
+            my $txInfo = Seq::Tracks::Gene::Build::TX->new($txData);
 
             # Store the txNumber, txInfo in pairs of two
             INNER: for my $pos ( keys %{$txInfo->transcriptSites} ){
-              push @{ $siteData{$pos} }, $txNumber, $txInfo->transcriptSites->{$pos};
+              push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
             }
 
             if( @{$txInfo->transcriptErrors} ) {
@@ -315,7 +317,11 @@ sub _writeMainData {
     }
 
     # Let's store array only when we need to, to save space
-    $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
+    if( @{ $mainDataHref->{$pos} } == 1) {
+      $out{$pos} = $self->prepareData( $mainDataHref->{$pos}[0] );
+    } else {
+      $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
+    }
 
     $count += 1;
   }
