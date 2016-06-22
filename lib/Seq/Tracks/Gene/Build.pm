@@ -222,14 +222,18 @@ sub buildTrack {
 
             # Store the txNumber, txInfo in pairs of two
             INNER: for my $pos ( keys %{$txInfo->transcriptSites} ){
-              push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
+              if(!defined $siteData{$pos} ) {
+                $siteData{$pos} = $txInfo->transcriptSites->{$pos};
+              } else {
+                push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
+              }
+              
+              $sitesCoveredByTX{$pos} = 1;
             }
 
             if( @{$txInfo->transcriptErrors} ) {
               $regionData{$chr}->{$txNumber}{$txErrorDbname} = $txInfo->transcriptErrors;
             }
-
-            $sitesCoveredByTX{$chr} = 1;
 
             $self->log('info', "Finished making transcript \#$txNumber for $chr");
           }
@@ -317,11 +321,7 @@ sub _writeMainData {
     }
 
     # Let's store array only when we need to, to save space
-    if( @{ $mainDataHref->{$pos} } == 1) {
-      $out{$pos} = $self->prepareData( $mainDataHref->{$pos}[0] );
-    } else {
-      $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
-    }
+    $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
 
     $count += 1;
   }
@@ -409,6 +409,7 @@ sub _writeNearestGenes {
         # We expect intergenic, if not log
         if(defined $coveredSitesHref->{$pos} ) {
           $self->log("warn", "Covered by gene: $chr:$pos, skipping");
+          delete $coveredSitesHref->{$pos};
           next POS_LOOP;
         }
 
@@ -463,6 +464,7 @@ sub _writeNearestGenes {
         if(defined $coveredSitesHref->{$pos} ) {
           #this would be an issue with main db gene track entries
           $self->log("warn", "End covered by gene @ $chr:$pos, skipping");
+          delete $coveredSitesHref->{$pos};
           next END_LOOP;
         }
 
@@ -500,6 +502,7 @@ sub _writeNearestGenes {
       undef %outAccumulator; #force free memory, though shouldn't be needed
     }
 
+    undef %out;
     #TXSTART_LOOP
   }
 

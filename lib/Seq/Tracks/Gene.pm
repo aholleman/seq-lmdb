@@ -123,8 +123,7 @@ sub get {
   my $regionData = $geneTrackRegionHref->{$self->name}->{$chr};
 
   ####### Get all transcript numbers, and site data for this position #########
-  #includes txNumber
-  my @siteData;
+  my (@txNumbers, @siteData);
 
   # is an <ArrayRef>, where every other element is siteData
   if( $href->[$self->dbName] ) {
