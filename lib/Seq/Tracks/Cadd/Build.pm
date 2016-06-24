@@ -7,15 +7,16 @@ package Seq::Tracks::Cadd::Build;
 
 use Moose;
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::DBManager';
 
 use List::MoreUtils qw/first_index/;
-use Scalar::Util qw/looks_like_number/;
 
 use DDP;
 
 #TODO: like with sparse tracks, allow users to map required fields
 use MCE::Loop;
+
+use Seq::Tracks::Score::Build::Round;
+my $rounder = Seq::Tracks::Score::Build::Round->new();
 
 # sparse track should be 1 based by default 
 has '+based' => (
@@ -88,7 +89,7 @@ sub buildTrackFromCaddFormat {
       if(%out) {
         if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         
-        $self->dbPatchBulkAsArray($wantedChr, \%out);
+        $self->dbPatchBulk($wantedChr, \%out);
         undef %out; $count = 0;
       }
 
@@ -108,8 +109,10 @@ sub buildTrackFromCaddFormat {
 
     my @line = split "\t", $_;
 
-    push @score, $line[5];
-
+    #specify 2 significant figures
+    #store as strings because Data::MessagePack seems to store all floats in 9 bytes
+    push @score, $rounder->roundToString($line[5]);
+    
     if(@score < 3) {
       next;
     }
@@ -126,7 +129,7 @@ sub buildTrackFromCaddFormat {
     undef @score;
 
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulkAsArray($wantedChr, \%out);
+      $self->dbPatchBulk($wantedChr, \%out);
 
       undef %out;
       $count = 0;
@@ -138,9 +141,9 @@ sub buildTrackFromCaddFormat {
   # leftovers
   if(%out) {
     if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
-    if(@score) { $self->log('fatal', "Finished reading file, have uncommited scores"); }
+    if(@score) { $self->log('fatal', "At end of $file have uncommited scores"); }
 
-    $self->dbPatchBulkAsArray($wantedChr, \%out);
+    $self->dbPatchBulk($wantedChr, \%out);
   }
 
   return 0;
@@ -254,7 +257,7 @@ sub writeToDatabase {
 
   for my $chr (keys %$resultRef) {
     if( %{ $resultRef->{$chr} } ) {
-      $self->dbPatchBulkAsArray($chr, $resultRef->{$chr} );
+      $self->dbPatchBulk($chr, $resultRef->{$chr} );
     }
   }
 

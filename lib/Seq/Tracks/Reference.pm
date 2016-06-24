@@ -22,7 +22,7 @@ extends 'Seq::Tracks::Get';
 
 sub get {
   # $_[0] == $self; $_[1] = dbDataAref
-  return $baseMapper->baseMapInverse->{ $_[1]->[ $_[0]->dbName ] };
+  return $baseMapper->baseMapInverse->{ $_[1]->{ $_[0]->dbName } };
 }
 
 __PACKAGE__->meta->make_immutable;

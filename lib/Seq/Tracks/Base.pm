@@ -25,6 +25,12 @@ has name => ( is => 'ro', isa => 'Str', required => 1);
 # Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
 has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
 
+# Some tracks may have a nearest property; these are stored as their own track, but
+# conceptually are a sub-track, 
+has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
+
+has nearestDbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setNearestDbName', default => -9, );
+
 # Exports getFieldName and getFieldDbName , requires name
 # TODO: move this to a class instead of role
 with 'Seq::Tracks::Base::MapFieldNames';
@@ -71,6 +77,7 @@ has nearest => (
     noNearestFeatures => 'is_empty',
     allNearestFeatureNames => 'elements',
   },
+  predicate => 'hasNearest',
   lazy => 1,
   default => sub{ [] },
 );
@@ -91,6 +98,22 @@ sub BUILD {
   $dbNameBuilder->buildDbName();
 
   $self->_setDbName($dbNameBuilder->dbName);
+
+  if($self->debug) {
+    say "track name is " . $self->name; say "track dbName is " . $self->dbName;
+  }
+  
+  if($self->hasNearest) {
+    my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name . '.nearest'});
+
+    $dbNameBuilder->buildDbName();
+
+    $self->_setNearestDbName($dbNameBuilder->dbName);
+
+    if($self->debug) {
+      say "set " . $self->name . ' nearest dbName as ' . $self->nearestDbName;
+    }
+  }
 }
 
 

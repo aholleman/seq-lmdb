@@ -14,10 +14,13 @@ use Moose 2;
 use namespace::autoclean;
 use Parallel::ForkManager;
 use DDP;
+use POSIX qw/abs/;
 
 extends 'Seq::Tracks::Build';
-with 'Seq::Role::IO';
-  
+
+use Seq::Tracks::Score::Build::Round;
+
+my $rounder = Seq::Tracks::Score::Build::Round->new();
 # score track could potentially be 0 based
 # http://www1.bioinf.uni-leipzig.de/UCSC/goldenPath/help/wiggle.html
 # if it is the BED format version of the WIG format.
@@ -77,37 +80,25 @@ sub buildTrack{
             return $self->log('fatal', 'variable step not currently supported');
           }
 
-          if($wantedChr) {
-            #ok, we found something new, 
-            if($wantedChr ne $chr){
-              if(!$chrPerFile) {
-                $self->log('fatal', "found a multi-chr bearing input file " .
-                  " but expected one chr per file, since multiple files given");
-              }
+          if(!$wantedChr || ( $wantedChr && $wantedChr ne $chr) ) {
+            if($wantedChr){  $self->log('fatal', "Expected one chr per file, but found > 1 chr"); }
 
-              #so let's write whatever we have for the previous chr
-              $self->dbPatchBulkAsArray($wantedChr, \%data);
+            # we found something new, so let's write if we have reason
+            if(%data) {
+              $self->dbPatchBulk($wantedChr, \%data);
+            }
+             
+            #since this is new, let's reset our data and count
+            undef %data;
+            $count = 0;
 
-              #since this is new, let's reset our data and count
-              #we've already updated the chrPosition above
-              undef %data;
-              $count = 0;
-
-              #and figure out if we want the current chromosome
-              $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+            #and figure out if we want the current chromosome
+            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
               # TODO: check if we've built this already, as done with reference
               # if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
               #   undef $wantedChr;
               # }
-            }
-          } else {
-            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
-
-            # TODO: check if we've built this already, as done with reference
-            # if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
-            #   undef $wantedChr;
-            # }
           }
 
           #use may give us one or many files
@@ -120,6 +111,9 @@ sub buildTrack{
 
           # take the offset into account
           $chrPosition = $start - $based;
+
+          #don't store the header in the database
+          next;
         }
 
         # there could be more than one chr defined per file, just skip 
@@ -128,14 +122,14 @@ sub buildTrack{
           next;
         }
         
-        $data{$chrPosition} = $self->prepareData($_);
+        $data{$chrPosition} = $self->prepareData( $rounder->roundToString($_) );
 
         #this must come AFTER we store the position, since we have a starting pos
         $chrPosition += $step;
 
         $count++;
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulkAsArray($wantedChr, \%data );
+          $self->dbPatchBulk($wantedChr, \%data );
           %data = ();
           $count = 0;
 
@@ -151,7 +145,7 @@ sub buildTrack{
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
-        $self->dbPatchBulkAsArray($wantedChr, \%data );
+        $self->dbPatchBulk($wantedChr, \%data );
 
         #now we're done with the process, and memory gets freed
       }

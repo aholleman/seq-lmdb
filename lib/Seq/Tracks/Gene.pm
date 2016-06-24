@@ -29,7 +29,6 @@ extends 'Seq::Tracks::Get';
 use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
-use Seq::Tracks::Region::NearestTrackName;
 
 #exports regionTrackPath
 with 'Seq::Tracks::Region::RegionTrackPath',
@@ -46,7 +45,6 @@ state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 ### Additional "features" that we will add to our output ###
 state $refAminoAcidKey = 'referenceAminoAcid';
 state $newAminoAcidKey = 'newAminoAcid';
-state $nearestSubTrackName = 'nearest';
 state $txEffectsKey = 'proteinEffect';
 
 ### Positions that aren't covered by a refSeq record are intergenic ###
@@ -70,7 +68,7 @@ has '+features' => (
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
 
-state $nearestSubTrackDbName;
+state $nearestSubTrackName;
 
 #### Add our other "features", everything we find for this site ####
 override 'BUILD' => sub {
@@ -81,12 +79,10 @@ override 'BUILD' => sub {
 
   $allCachedDbNames->{$self->name} = {};
 
-  if($self->nearest) {
-    #nearest genes are pseudo-tracks, stored under their own track names, but based on $self->name
-    #Must be run at build time, to ensure all threads get same name
-    my $nearestNames = Seq::Tracks::Region::NearestTrackName->new({baseName => $self->name});
-  
-    $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $nearestNames->nearestSubTrackDbName;
+  if($self->hasNearest) {
+    $nearestSubTrackName = $self->nearestName;
+
+    $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $self->nearestDbName;
   
     $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } $self->allNearestFeatureNames ], $self->name);
 
@@ -126,10 +122,10 @@ sub get {
   my (@txNumbers, @siteData);
 
   # is an <ArrayRef>, where every other element is siteData
-  if( $href->[$self->dbName] ) {
-    for (my $i = 0; $i < @{ $href->[$self->dbName] }; $i+=2 ) {
-      push @txNumbers, $href->[$self->dbName][$i];
-      push @siteData, $href->[$self->dbName][$i + 1];
+  if( $href->{$self->dbName} ) {
+    for (my $i = 0; $i < @{ $href->{$self->dbName} }; $i+=2 ) {
+      push @txNumbers, $href->{$self->dbName}[$i];
+      push @siteData, $href->{$self->dbName}[$i + 1];
     }
   }
 
@@ -151,7 +147,7 @@ sub get {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
           for my $nFeature ($self->allNearestFeatureNames) {
             push @{ $out{"$nearestSubTrackName.$nFeature"} },
-              $regionData->{$geneRef}->[ $cachedDbNames->{$nFeature} ];
+              $regionData->{$geneRef}->{ $cachedDbNames->{$nFeature} };
           }
       }
     } else { $self->log('warn', "no " . $self->name . " or " . $nearestSubTrackName . " found"); }
@@ -159,7 +155,7 @@ sub get {
 
   ################# Check if this position is in a place covered by gene track #####################
     
-  if(! $href->[$self->dbName] ) {
+  if(! $href->{$self->dbName} ) {
     #if not, state that the siteType is intergenic!
     $out{$siteUnpacker->siteTypeKey} = $intergenic;
     return \%out;
@@ -176,7 +172,7 @@ sub get {
     INNER: for my $txNumber (@txNumbers) {
       say "regionData for txNumber $txNumber is";
       p $regionData->{$txNumber};
-      push @{ $out{$_} }, $regionData->{$txNumber}[ $cachedDbNames->{$_} ];
+      push @{ $out{$_} }, $regionData->{$txNumber}{ $cachedDbNames->{$_} };
     }
   }
 

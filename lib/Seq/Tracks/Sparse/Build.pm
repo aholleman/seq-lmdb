@@ -137,7 +137,7 @@ sub buildTrack {
         if($wantedChr ) {
           if($wantedChr ne $chr) {
             if (%data) {
-              $self->dbPatchBulkAsArray($wantedChr, \%data);
+              $self->dbPatchBulk($wantedChr, \%data);
 
               undef %data;
               $count = 0;
@@ -187,7 +187,7 @@ sub buildTrack {
         }
 
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulkAsArray($wantedChr, \%data);
+          $self->dbPatchBulk($wantedChr, \%data);
 
           undef %data;
           $count = 0;
@@ -199,7 +199,7 @@ sub buildTrack {
           return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
 
-        $self->dbPatchBulkAsArray($wantedChr, \%data);
+        $self->dbPatchBulk($wantedChr, \%data);
       }
 
     $pm->finish;

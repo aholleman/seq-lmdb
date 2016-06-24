@@ -19,7 +19,6 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 
 use Seq::Tracks::Gene::Build::TX;
-use Seq::Tracks::Region::NearestTrackName;
 
 extends 'Seq::Tracks::Build';
 
@@ -44,22 +43,10 @@ has '+features' => (
   default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
 );
 
-state $nearestTrackDbName;
 sub BUILD {
   my $self = shift;
 
   #normal features are mapped at build time
-  #We have some extras, so make sure those are mapped before we start any parallel processing
-
-  # Nearest genes are pseudo-tracks, stored under their own track names
-  # This creates a unique track identifier for a nearest sub track;
-  # Should not be created unless we really have a nearest sub track defined
-  # Because that will inflate the database size (since stored array will need to be sparse)
-  if($self->nearest) {
-    my $nearestNames = Seq::Tracks::Region::NearestTrackName->new({baseName => $self->name});
-    $nearestTrackDbName = $nearestNames->nearestSubTrackDbName;
-  }
-
   # geneTxErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
   $self->getFieldDbName($self->geneTxErrorName);
@@ -286,7 +273,9 @@ sub _writeRegionData {
 
   for my $txNumber (@txNumbers) {
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulkAsArray($dbName, \%out);
+      # We put instead of patch, because we don't store the data identified by
+      # its track dbName
+      $self->dbPutBulk($dbName, \%out);
 
       undef %out;
       $count = 0;
@@ -300,7 +289,7 @@ sub _writeRegionData {
   }
 
   if(%out) {
-    $self->dbPatchBulkAsArray($dbName, \%out);
+    $self->dbPutBulk($dbName, \%out);
 
     undef %out;
   }
@@ -318,7 +307,7 @@ sub _writeMainData {
   for my $pos ( keys %$mainDataHref ) {
     
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulkAsArray($chr, \%out);
+      $self->dbPatchBulk($chr, \%out);
 
       undef %out;
       $count = 0;
@@ -331,7 +320,7 @@ sub _writeMainData {
   }
 
   if(%out) {
-    $self->dbPatchBulkAsArray($chr, \%out);
+    $self->dbPatchBulk($chr, \%out);
 
     undef %out;
   }
@@ -483,7 +472,7 @@ sub _writeNearestGenes {
 
     for my $pos (keys %out) {
       if($count >= $self->commitEvery) {
-        $self->dbPatchBulkAsArray($chr, \%outAccumulator);
+        $self->dbPatchBulk($chr, \%outAccumulator);
 
         undef %outAccumulator;
         $count = 0;
@@ -491,9 +480,9 @@ sub _writeNearestGenes {
 
       #Let's store only an array if we have multiple sites
       if( @{ $out{$pos} } == 1) {
-        $outAccumulator{$pos} = { $nearestTrackDbName => $out{$pos}->[0] };
+        $outAccumulator{$pos} = { $self->nearestDbName => $out{$pos}->[0] };
       } else {
-        $outAccumulator{$pos} = { $nearestTrackDbName => $out{$pos} };
+        $outAccumulator{$pos} = { $self->nearestDbName => $out{$pos} };
       }
       
       $count += 1;
@@ -501,7 +490,7 @@ sub _writeNearestGenes {
 
     # leftovers
     if(%outAccumulator) {
-      $self->dbPatchBulkAsArray($chr, \%outAccumulator);
+      $self->dbPatchBulk($chr, \%outAccumulator);
 
       undef %outAccumulator; #force free memory, though shouldn't be needed
     }

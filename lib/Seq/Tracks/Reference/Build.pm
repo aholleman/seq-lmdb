@@ -70,7 +70,7 @@ sub buildTrack {
               }
 
               #so let's write whatever we have for the previous chr
-              $self->dbPatchBulkAsArray($wantedChr, \%data );
+              $self->dbPatchBulk($wantedChr, \%data );
 
               #since this is new, let's reset our data and count
               #we've already updated the chrPosition above
@@ -97,13 +97,16 @@ sub buildTrack {
           # Restart chrPosition count at 0, since assemblies are zero-based ($self->based defaults to 0)
           # (or something else if the user based: allows non-reference fasta-formatted sources)
           $chrPosition = $self->based;
+
+          #don't store the header line
+          next;
         }
 
         # If !$wantedChr we're likely in a mult-fasta file; could warn, but that spoils multi-threaded reads
         if ( !$wantedChr ) {
           next;
         }
-        
+
         if( $_ =~ $dataRegex ) {
           # Store the uppercase bases; how UCSC does it, how people likely expect it
           for my $char ( split '', uc($1) ) {
@@ -114,7 +117,7 @@ sub buildTrack {
 
             #Count number of entries recorded; write to DB if it's over the limit
             if($count >= $self->commitEvery) {
-              $self->dbPatchBulkAsArray($wantedChr, \%data);
+              $self->dbPatchBulk($wantedChr, \%data);
               
               undef %data;
               $count = 0;
@@ -135,7 +138,7 @@ sub buildTrack {
          return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
 
-        $self->dbPatchBulkAsArray($wantedChr, \%data );
+        $self->dbPatchBulk($wantedChr, \%data );
       }
 
       foreach ( keys %visitedChrs ) {

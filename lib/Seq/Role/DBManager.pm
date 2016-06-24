@@ -235,154 +235,118 @@ sub dbRead {
 sub dbPatch {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
+  if(ref $dataHref ne 'HASH') {
+    $self->log('fatal', "dbPatch requires a 1-element hash of a hash");
+  }
+
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  
-  #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-  my $json; #zero-copy
-  my $href;
 
   my $overwrite = $overrideOverwrite || $self->overwrite;
 
-  #First get the old data,
+  #First get the old data, using zero-copy mode
+  my $json; 
   $txn->get($dbi, $pos, $json);
-  #commit, because we don't want db inflation during the write stage
+  #commit, to avoid db inflation during write
   $txn->commit();
 
-  #trigger this only if json isn't found, save on many if calls
-  #unless is apparently a bit faster than if, when looking for negative conditions
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
   }
-    
-  #If we have data, unpack it to get the hash ref treats
-  #And then replace the old data with $dataHref
+
   if($json) {
-    #takes the key name of the data href
-    #expects only one, since this is not a bulk method
-    #can't modify $json, read-only value, from memory map
-    $href = $mp->unpack($json);
+    my $href = $mp->unpack($json);
 
-    my ($featureID, $featureValue) = %{$dataHref};
+    my ($trackIndex, $trackValue) = %{$dataHref};
 
-    # don't overwrite if the user doesn't want it
-    # just mark to skip
-    if( defined $href->{$featureID} ) {
+    if( defined $href->{$trackIndex} ) {
       if(!$overwrite) {
-        return
+        #skip since we already have it
+        return;
       }
 
-      # https://ideone.com/SBbfYV
-      if($overwrite == 1) {
-        # Merge with righthand hash taking precedence
-        $href = merge $href, $dataHref;
-      } elsif ($overwrite == 2) {
-        $href->{$featureID} = $featureValue;
-      } else {
-        $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
-      }
-    } else {
-      $href->{$featureID} = $featureValue;
+      # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
+      if($overwrite == 1) { $dataHref->{$trackIndex} = merge $href, $dataHref; }
     }
-    
-    #update the stack copy of data to include everything found at the pos (key)
-    #_[3] == $dataHref, but the actual reference to it
+    $dataHref->{'something'} = 1;
+
+    $href->{$trackIndex} = $trackValue;
+    #modify the stack in place, can't just set $dataHref
     $_[3] = $href;
   }
+
+  #Else we don't modify dataHref, and it gets passed on as is to dbPut
   
   #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
   
-  #Then write the new data
-  #re-use the stack for efficiency
+  #Then write the new data, re-using the stack for efficiency
   goto &dbPut;
 }
 
-#expects one track per call ; each posHref should have {pos => {trackName => trackData} }
-#Note::posHref is modified with the representation of the full dataset
-#as found in the db, after merging with the stuff in the database already
-#@param <HashRef> $posHref : a hash reference in the form of
-# {
-#   Int : {
-#     Int: <Any>
-#   }
-# }
-# The top Int is the position in the genome
-# The 2nd level Int is the track index.
-# If we are given out-of-order track indices
-# We expect that each position has only one hash ref
-sub dbPatchBulkAsArray {
+# Write database entries in bulk
+# Expects one track per call ; each posHref should have {pos => {trackName => trackData} }
+# @param <HashRef> $posHref : form of {pos => {trackName => trackData} }, modified in place
+sub dbPatchBulk {
   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-
+    
   my $db = $self->_getDbi($chr);
-  my $dbi = $db->{dbi};
-  
+  my $dbi = $db->{dbi}; 
+  #separate read and write transacions, hopefully helps with db inflation due to locks
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-  my $cnt = 0;
-
   #https://ideone.com/Y0C4tX
-  #$self->overwrite can take 0, 1, 2
   my $overwrite = $overrideOverwrite || $self->overwrite;
 
-  #modifies the stack, but hopefully a smaller change than a full
-  #new stack + function call (look to goto below)
-  my $sortedPositionsAref = xsort( [ keys %$posHref ] );
+  for my $pos ( keys %$posHref ) {
+    if(ref $posHref->{$pos} ne 'HASH') {
+      $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
+    }
 
-  for my $pos ( @$sortedPositionsAref) { #want sequential
+    my ($trackIndex) = %{ $posHref->{$pos} };
+    
     my $json; #zero-copy
-
-    my ($featureIndex, $featureValue) = %{ $posHref->{$pos} };
-
     $txn->get($dbi, $pos, $json);
 
     #trigger this only if json isn't found, save on many if calls
-    #unless is apparently a bit faster than if, when looking for negative conditions
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
     }
 
-    my $aref = [];
-
     if($json) {
       #can't modify $json, read-only value, from memory map
-      $aref = $mp->unpack($json);
+      my $href = $mp->unpack($json);
 
-      if(defined $aref->[$featureIndex] ) {
-        if(!$overwrite) {
-          delete $posHref->{$pos};
-          next;
-        }
-
-        $aref->[$featureIndex] = $featureValue;
-        $posHref->{$pos} = $aref;
-
+      if(defined $href->{$trackIndex} && !$overwrite) {
+        #skip this position (we pass posHref to dbPutBulk)
+        delete $posHref->{$pos};
         next;
       }
+
+      if($overwrite == 1) {
+        $posHref->{$pos} = merge( $href, $posHref->{$pos} );
+        next;
+      }
+
+      #overwrite > 1
+      $href->{$trackIndex} = $posHref->{$pos}{$trackIndex};
+      #this works because it modifies the stack's reference
+      $posHref->{$pos} = $href;
+      next;
     }
 
-    # Nothing defined at this pos, or featureIndex isn't defined
-    # Array can't be sparse
-    for (my $i = @$aref; $i < $featureIndex; $i++) {
-      push @$aref, undef;
-    }
-
-    push @$aref, $featureValue;
-
-    $posHref->{$pos} = $aref;
+    #posHref is unchanged, we write it as is
+    next;
   }
-
-  # say "about to put";
-  # p $posHref;
 
   $txn->commit();
 
-  #reset the class error variable, to avoid crazy error reporting later
+  #reset the class error variable
   $LMDB_File::last_err = 0;
 
-  $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
+  #Then write the new data, re-using the stack for efficiency
+  goto &dbPutBulk;
 }
 
 sub dbPut {
@@ -393,13 +357,7 @@ sub dbPut {
 
   $txn->put($db->{dbi}, $pos, $mp->pack( $dataHref ) );
 
-  #should move logging to async
-  #have the MDB_NOTFOUND thing becaues this could follow a get operation
-  #which could generate and MDB_NOTFOUND
-  #to short circuit, speed the if, set $LMDB_FILE::last_err to 0 after
-  #a bulk get
-  #unless is apparently a bit faster than if, when looking for negative conditions
-  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+  if($LMDB_File::last_err) {
     $self->log('warn', 'dbPut error: ' . $LMDB_File::last_err);
   }
 
@@ -410,34 +368,19 @@ sub dbPut {
 }
 
 sub dbPutBulk {
-  my ( $self, $chr, $posHref, $sortedPosAref) = @_;
+  my ( $self, $chr, $posHref) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
-  if(!$sortedPosAref) {
-    $sortedPosAref = xsort( [keys %{$posHref} ] );
-  }
+  #Enforce putting in ascending lexical or numerical order
+  my $sortedPosAref = xsort( [keys %{$posHref} ] );
 
-  for my $pos (@$sortedPosAref) { #want sequential
-    #by checking for defined, we can avoid having to re-sort
-    #which may be slow than N if statements
-    #and unless is faster than if(!)
-    #(since in dbPatchBulk we may delete positions if !overwrite)
-    unless(exists $posHref->{$pos} ) {
-      next;
-    }
-
+  for my $pos (@$sortedPosAref) {
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
-    #should move logging to async
-    #have the MDB_NOTFOUND thing becaues this could follow a get operation
-    #which could generate and MDB_NOTFOUND
-    #to short circuit, speed the if, set $LMDB_FILE::last_err to 0 after
-    #a bulk get
-    #unless is apparently a bit faster than if, when looking for negative conditions
-    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    if($LMDB_File::last_err) {
       $self->log('warn', 'dbPutBulk error: ' . $LMDB_File::last_err);
     }
   }
@@ -527,10 +470,9 @@ sub dbReadMeta {
  # a.k.a the top-level key in that meta database, what type of meta data this is 
 #@param <HashRef> $dataHref : {someField => someValue}
 sub dbPatchMeta {
-  my ( $self, $databaseName, $metaType, $dataHref, $overrideOverwrite ) = @_;
+  my ( $self, $databaseName, $metaType, $dataHref ) = @_;
   
-  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref,
-    $overrideOverwrite);
+  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref, 1);
 
   return;
 }
@@ -540,102 +482,7 @@ no Moose::Role;
 1;
 
 
-# Removed in favor of array-based
-# sub dbPatchBulk {
-#   #don't modify stack for re-use
-#   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-#   #remove from stack to allow us to re-assign $_[3] without read-only errors when
-#   #a literal is passed for $overrideOverwrite (ex: dbPatchBulk($chr, $posHref, 1))
-
-#   my $db = $self->_getDbi($chr);
-#   my $dbi = $db->{dbi};
-  
-#   #I've confirmed setting MDB_RDONLY works, by trying with $txn->put;
-#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-#   my $cnt = 0;
-
-#   #https://ideone.com/Y0C4tX
-#   #$self->overwrite can take 0, 1, 2
-#   my $overwrite = $overrideOverwrite || $self->overwrite;
-
-#   #modifies the stack, but hopefully a smaller change than a full
-#   #new stack + function call (look to goto below)
-#   my $sortedPositionsAref = xsort( [ keys %$posHref ] );
-
-#   for my $pos ( @$sortedPositionsAref) { #want sequential
-#     my $json; #zero-copy
-#     my $href;
-
-#     $txn->get($dbi, $pos, $json);
-
-#     #if json is defined, we modify what $PosHref contains
-#     #otherwise, we don't care and goto &putBulk
-#     if($json) {
-#       my ($featureID) = %{$posHref->{$pos} };
-#       #can't modify $json, read-only value, from memory map
-#       $href = $mp->unpack($json);
-
-#       if(defined $href->{$featureID} ) {
-#         if(!$overwrite) {
-#           #since we already have this feature, no need to write it
-#           #since we don't want to overwrite
-#           #requires us to check if $posHref->{$pos} is defined in 
-#           delete $posHref->{$pos};
-
-#           next;
-#         }
-
-#         if($overwrite == 1) {
-#           # Merge with righthand hash taking precedence
-#           $href = merge $href, $posHref->{$pos};
-#         } elsif($overwrite == 2) {
-#           $href->{$featureID} = $posHref->{$pos}->{$featureID};
-#         } else {
-#           $self->log('fatal', "Don't konw how to interpret an overwrite value of $overwrite");
-#         }
-#       } else {
-#         $href->{$featureID} = $posHref->{$pos}->{$featureID};
-#       }
-
-#       # if($self->debug) {
-#       #   say "data we're trying to insert at position $pos is ";
-#       #   p $posHref->{$pos};
-#       #   say "after merging, or overwriting we have for this position";
-#       #   p $href;
-#       # }
-      
-#       #update the stack data to include everything found at the key
-#       #this allows us to reuse the stack in a goto,
-#       $posHref->{$pos} = $href;
-
-#       # say "after trying to overwrite, we have";
-#       # p $href;
-#       #deep merge is much more robust, but I'm worried about performance, so trying alternative
-#       #$previous_href = merge $previous_href, $posHref->{$pos}; #righthand merge
-#       next;
-#     }
-#     #trigger this only if json isn't found, save on many if calls
-#     #unless is apparently a bit faster than if, when looking for negative conditions
-#     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-#       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
-#     }
-#     #if nothing exists; then we still want to pass it on to
-#     #the writer, even if !overwrite is true
-
-#     #Undecided whether DBManager should throttle writes; in principle yes
-#     #but hashes passed to DBManager get ridiculously large,
-#     #unless Seq::Tracks::Build throttles them (and declares commitEvery)
-#   }
-
-#   $txn->commit();
-
-#   #reset the class error variable, to avoid crazy error reporting later
-#   $LMDB_File::last_err = 0;
-
-#   $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
-# }
-
+### WIP NOT USED CURRENTLY ####
 # Potentially valuable numerical approach to dbReadAll
 
 #if we expect numeric keys we could get first, last and just $self->dbRead[first .. last]
@@ -811,3 +658,79 @@ no Moose::Role;
 #   $LMDB_File::last_err = 0;
 # }
 
+# Works, but not currently used; this wastes a bunch of space, for any track
+# that doesn't cover a particular position.
+# sub dbPatchBulkAsArray {
+#   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
+
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi};
+  
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   my $cnt = 0;
+
+#   #https://ideone.com/Y0C4tX
+#   my $overwrite = $overrideOverwrite || $self->overwrite;
+
+#   #sorts either ascending integer or lexical ascending order
+#   my $sortedPositionsAref = xsort( [ keys %$posHref ] );
+
+#   for my $pos ( @$sortedPositionsAref) {
+#     if(ref $posHref->{$pos} ne 'HASH') {
+#       $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
+#     }
+
+#     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
+    
+#     my $json; #zero-copy
+#     $txn->get($dbi, $pos, $json);
+
+#     #trigger this only if json isn't found, save on many if calls
+#     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+#       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
+#     }
+
+#     my $aref = [];
+
+#     if($json) {
+#       #can't modify $json, read-only value, from memory map
+#       $aref = $mp->unpack($json);
+
+#       if(defined $aref->[$trackIndex] ) {
+#         #skip this position (we pass posHref to dbPutBulk)
+#         if(!$overwrite) {
+#           delete $posHref->{$pos};
+#           next;
+#         }
+#       }
+#     }
+
+#     # array is at least as long; but could be sparse (undefined values)
+#     if(@$aref > $trackIndex) {
+#       $aref->[$trackIndex] = $trackValue;
+#     } else { 
+#       #array is not as long; could be 0 to $trackIndex in length
+#       #for every element that doesn't exist, make it "sparse"
+#       #https://ideone.com/SdwXgu
+#       for (my $i = @$aref; $i < $trackIndex; $i++) {
+#         push @$aref, undef;
+#       }
+
+#       push @$aref, $trackValue;
+#     }
+
+#     $posHref->{$pos} = $aref;
+#   }
+
+#   say "about to put";
+#   p $posHref;
+
+#   $txn->commit();
+
+#   return;
+#   #reset the class error variable, to avoid crazy error reporting later
+#   $LMDB_File::last_err = 0;
+
+#   $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
+# }

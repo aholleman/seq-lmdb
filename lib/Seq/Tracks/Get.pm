@@ -55,7 +55,7 @@ sub get {
 
   #we do this to save space in the database, by a huge number of bytes
   #dbName defined in Seq::Tracks::Base
-  if(!exists $_[1]->[ $_[0]->dbName ] ) {
+  if(!defined $_[1]->{ $_[0]->dbName } ) {
     #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
     #if undef is not explicitly returned
     return undef;
@@ -64,7 +64,7 @@ sub get {
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->noFeatures) {
-    return $_[1]->[ $_[0]->dbName ];
+    return $_[1]->{ $_[0]->dbName };
   }
 
   # We have features, so let's find those and return them
@@ -75,7 +75,7 @@ sub get {
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
   return {
-    map { $_ => $_[1]->[ $_[0]->dbName ]{ $_[0]->getFieldDbName($_) } } $_[0]->allFeatureNames 
+    map { $_ => $_[1]->{ $_[0]->dbName }{ $_[0]->getFieldDbName($_) } } $_[0]->allFeatureNames 
   }
 }
 
