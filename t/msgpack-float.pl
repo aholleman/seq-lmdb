@@ -64,3 +64,82 @@ say "-2.243 stored as";
 p $packed2;
 
 say "length of -2.243 is : " . length($packed2) . " bytes";
+
+
+##array vs perl pack
+
+my $array = 1500;
+
+my $packedByPerl = pack('S', $array);
+my $packedByMsg = $mp->pack($array);
+my $packedByMsgInArray = $mp->pack([ $array ]);
+my $aIna = [$array];
+p $aIna;
+my $asHash = {0 => 30, 1 => 1, 2 => 6};
+my $asHashWithArray = {0 => 30, 1 => 1, 2 => 6, 3 => $array};
+my $hashPackedByMsg = $mp->pack($asHash);
+my $hashPackedByMsgWithArray = $mp->pack($asHashWithArray);
+
+say "length of perl array $packedByPerl is " . length($packedByPerl);
+p $packedByPerl;
+say "length of msgpacked perl string " . length($mp->pack($packedByPerl));
+my $mps = $mp->pack($packedByPerl);
+p $mps;
+say "length of msgpack array $packedByMsg is" . length($packedByMsg);
+say "length of msgpack array in array $packedByMsgInArray is" . length($packedByMsgInArray);
+say "length of msgpack hash is" . length ($hashPackedByMsg);
+say "length of msgpack hash with array is" . length ($hashPackedByMsgWithArray);
+
+$array = [30,0];
+
+
+my $value = 255;
+$packed = $mp->pack($value);
+
+say "255 represented in " . length($packed) . ' bytes';
+
+$value = -32;
+$packed = $mp->pack($value);
+
+say "-32 represented in " . length($packed) . ' bytes';
+
+my $hash = {0 => 1, 1 => 2};
+$packed = $mp->pack($hash);
+
+say "2 member hash represented in " . length($packed). ' bytes';
+
+$array = [1,2];
+$packed = $mp->pack($array);
+
+say "2 member array represented in " . length($packed). ' bytes';
+my $unpacked = $mp->unpack($packed);
+p $unpacked;
+
+$hash = {0 => 1, 1 => 2, 2 => 3, 3 => 4, 4 => 5, 5 => 6, 6 => 7, 7 => 8};
+$packed = $mp->pack($hash);
+
+say "8 member hash represented in " . length($packed). ' bytes';
+
+$array = [1,2,3,4,5,6,7,8];
+$packed = $mp->pack($array);
+
+say "8 member array represented in " . length($packed). ' bytes';
+$unpacked = $mp->unpack($packed);
+p $unpacked;
+
+$hash = {0 => 1, 1 => 2, 2 => 3, 3 => 4, 4 => 5};
+$packed = $mp->pack($hash);
+
+say "5 member hash represented in " . length($packed). ' bytes';
+
+$array = [1,2,3,4,5];
+$packed = $mp->pack($array);
+
+say "5 member array represented in " . length($packed). ' bytes';
+$unpacked = $mp->unpack($packed);
+p $unpacked;
+
+$hash = {0 => 1, 1 => 2, 2 => 3, 4 => 5};
+$packed = $mp->pack($hash);
+
+say "4 member hash represented in " . length($packed). ' bytes';

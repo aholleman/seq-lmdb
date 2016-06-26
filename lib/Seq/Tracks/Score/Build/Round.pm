@@ -7,7 +7,7 @@ use Moose 2;
 use POSIX qw/abs/;
 
 #TODO: Combined this with Tracks::Build::MapTypes other conversion functions
-sub roundToString {
+sub round {
   #my ($self, $value) = @_;
   # $value == $_[1]
 

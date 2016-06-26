@@ -29,6 +29,7 @@ has '+based' => (
 );
 
 my $pm = Parallel::ForkManager->new(26);
+
 sub buildTrack{
   my $self = shift;
 
@@ -57,8 +58,6 @@ sub buildTrack{
 
       my $based = $self->based;
 
-      my $firstLine = <$fh>;
-
       FH_LOOP: while ( <$fh> ) {
         #super chomp; #trim both ends, but not what's in between
         $_ =~ s/^\s+|\s+$//g; 
@@ -85,7 +84,7 @@ sub buildTrack{
 
             # we found something new, so let's write if we have reason
             if(%data) {
-              $self->dbPatchBulk($wantedChr, \%data);
+              $self->dbPatchBulkArray($wantedChr, \%data);
             }
              
             #since this is new, let's reset our data and count
@@ -122,14 +121,14 @@ sub buildTrack{
           next;
         }
         
-        $data{$chrPosition} = $self->prepareData( $rounder->roundToString($_) );
+        $data{$chrPosition} = $self->prepareData( $rounder->round($_) );
 
         #this must come AFTER we store the position, since we have a starting pos
         $chrPosition += $step;
 
         $count++;
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulk($wantedChr, \%data );
+          $self->dbPatchBulkArray($wantedChr, \%data );
           %data = ();
           $count = 0;
 
@@ -145,7 +144,7 @@ sub buildTrack{
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
-        $self->dbPatchBulk($wantedChr, \%data );
+        $self->dbPatchBulkArray($wantedChr, \%data );
 
         #now we're done with the process, and memory gets freed
       }

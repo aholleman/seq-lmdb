@@ -45,6 +45,11 @@ sub makeOutputString {
           next PARENT;
         }
 
+        if(!ref $href->{$parent}) {
+          push @singleLineOutput, $href->{$parent};
+          next PARENT;
+        }
+
         CHILD: for my $child (@{ $feature->{$parent} } ) {
           if(!defined $href->{$parent}{$child} ) {
             push @singleLineOutput, 'NA';

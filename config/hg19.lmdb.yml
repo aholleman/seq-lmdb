@@ -85,6 +85,48 @@ tracks:
     - chrM.fa.gz
     - chrX.fa.gz
     - chrY.fa.gz
+- name: refSeq
+  type: gene
+  features:
+    - kgID
+    - mRNA
+    - spID
+    - spDisplayID
+    - geneSymbol
+    - refseq
+    - protAcc
+    - description
+    - rfamAcc
+    - name
+  nearest:
+    - name
+    - geneSymbol
+  local_files:
+    - hg19.refGene.chr1.txt
+    - hg19.refGene.chr2.txt
+    - hg19.refGene.chr3.txt
+    - hg19.refGene.chr4.txt
+    - hg19.refGene.chr5.txt
+    - hg19.refGene.chr6.txt
+    - hg19.refGene.chr7.txt
+    - hg19.refGene.chr8.txt
+    - hg19.refGene.chr9.txt
+    - hg19.refGene.chr10.txt
+    - hg19.refGene.chr11.txt
+    - hg19.refGene.chr12.txt
+    - hg19.refGene.chr13.txt
+    - hg19.refGene.chr14.txt
+    - hg19.refGene.chr15.txt
+    - hg19.refGene.chr16.txt
+    - hg19.refGene.chr17.txt
+    - hg19.refGene.chr18.txt
+    - hg19.refGene.chr19.txt
+    - hg19.refGene.chr20.txt
+    - hg19.refGene.chr21.txt
+    - hg19.refGene.chr22.txt
+    - hg19.refGene.chrX.txt
+    - hg19.refGene.chrY.txt
+  sql_statement: SELECT features FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq = hg19.refGene.name
 - name: phastCons
   type: score
   local_files:
@@ -195,48 +237,12 @@ tracks:
     - chrX.phyloP100way.wigFix.gz
     - chrY.phyloP100way.wigFix.gz
     - chrM.phyloP100way.wigFix.gz
-- name: refSeq
-  type: gene
+- name: cadd
+  type: cadd
   features:
-    - kgID
-    - mRNA
-    - spID
-    - spDisplayID
-    - geneSymbol
-    - refseq
-    - protAcc
-    - description
-    - rfamAcc
-    - name
-  nearest:
-    - name
-    - geneSymbol
+    - PHRED : float
   local_files:
-    - hg19.refGene.chr1.txt
-    - hg19.refGene.chr2.txt
-    - hg19.refGene.chr3.txt
-    - hg19.refGene.chr4.txt
-    - hg19.refGene.chr5.txt
-    - hg19.refGene.chr6.txt
-    - hg19.refGene.chr7.txt
-    - hg19.refGene.chr8.txt
-    - hg19.refGene.chr9.txt
-    - hg19.refGene.chr10.txt
-    - hg19.refGene.chr11.txt
-    - hg19.refGene.chr12.txt
-    - hg19.refGene.chr13.txt
-    - hg19.refGene.chr14.txt
-    - hg19.refGene.chr15.txt
-    - hg19.refGene.chr16.txt
-    - hg19.refGene.chr17.txt
-    - hg19.refGene.chr18.txt
-    - hg19.refGene.chr19.txt
-    - hg19.refGene.chr20.txt
-    - hg19.refGene.chr21.txt
-    - hg19.refGene.chr22.txt
-    - hg19.refGene.chrX.txt
-    - hg19.refGene.chrY.txt
-  sql_statement: SELECT features FROM hg19.refGene LEFT JOIN hg19.kgXref ON hg19.kgXref.refseq = hg19.refGene.name
+    - whole_genome_SNVs.tsv
 - name: snp142
   type: sparse
   features:
@@ -297,12 +303,3 @@ tracks:
     - Chromosome: chrom
     - Start: chromStart
     - Stop: chromEnd
-- name: cadd
-  type: cadd
-  features:
-    - PHRED : float
-  local_files:
-    - whole_genome_SNVs.tsv.gz
-  
-  
-

@@ -232,7 +232,7 @@ sub dbRead {
 #$pos can be any string, identifies a key within the kv database
 #dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 #i.e some key in the hash found at the key in the kv database
-sub dbPatch {
+sub dbPatchHash {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
   if(ref $dataHref ne 'HASH') {
@@ -288,12 +288,12 @@ sub dbPatch {
 # Write database entries in bulk
 # Expects one track per call ; each posHref should have {pos => {trackName => trackData} }
 # @param <HashRef> $posHref : form of {pos => {trackName => trackData} }, modified in place
-sub dbPatchBulk {
+sub dbPatchBulkArray {
   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-    
+
   my $db = $self->_getDbi($chr);
-  my $dbi = $db->{dbi}; 
-  #separate read and write transacions, hopefully helps with db inflation due to locks
+  my $dbi = $db->{dbi};
+  
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   #https://ideone.com/Y0C4tX
@@ -304,7 +304,7 @@ sub dbPatchBulk {
       $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
     }
 
-    my ($trackIndex) = %{ $posHref->{$pos} };
+    my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
     
     my $json; #zero-copy
     $txn->get($dbi, $pos, $json);
@@ -314,38 +314,49 @@ sub dbPatchBulk {
       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
     }
 
+    my $aref = [];
+
     if($json) {
       #can't modify $json, read-only value, from memory map
-      my $href = $mp->unpack($json);
+      $aref = $mp->unpack($json);
 
-      if(defined $href->{$trackIndex} && !$overwrite) {
+      if(defined $aref->[$trackIndex] ) {
         #skip this position (we pass posHref to dbPutBulk)
-        delete $posHref->{$pos};
+        if(!$overwrite) {
+          delete $posHref->{$pos};
+          next;
+        }
+
+        #else we simply replace the value
+        $aref->[$trackIndex] = $trackValue;
+        $posHref->{$pos} = $aref;
         next;
       }
-
-      if($overwrite == 1) {
-        $posHref->{$pos} = merge( $href, $posHref->{$pos} );
-        next;
-      }
-
-      #overwrite > 1
-      $href->{$trackIndex} = $posHref->{$pos}{$trackIndex};
-      #this works because it modifies the stack's reference
-      $posHref->{$pos} = $href;
-      next;
     }
 
-    #posHref is unchanged, we write it as is
-    next;
+    # array is at least as long; but could be sparse (undefined values)
+    if(@$aref > $trackIndex) {
+      $aref->[$trackIndex] = $trackValue;
+    } else {
+      #array is not as long; could be 0 to $trackIndex in length
+      #for every element that doesn't exist, make it "sparse"
+      #https://ideone.com/SdwXgu
+      for (my $i = @$aref; $i < $trackIndex; $i++) {
+        push @$aref, undef;
+      }
+
+      #push into the $trackIndex
+      push @$aref, $trackValue;
+    }
+
+    $posHref->{$pos} = $aref;
   }
 
   $txn->commit();
 
-  #reset the class error variable
+  #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  #Then write the new data, re-using the stack for efficiency
   goto &dbPutBulk;
 }
 
@@ -472,7 +483,7 @@ sub dbReadMeta {
 sub dbPatchMeta {
   my ( $self, $databaseName, $metaType, $dataHref ) = @_;
   
-  $self->dbPatch($databaseName . $metaDbNamePart, $metaType, $dataHref, 1);
+  $self->dbPatchHash($databaseName . $metaDbNamePart, $metaType, $dataHref, 1);
 
   return;
 }
@@ -660,28 +671,24 @@ no Moose::Role;
 
 # Works, but not currently used; this wastes a bunch of space, for any track
 # that doesn't cover a particular position.
-# sub dbPatchBulkAsArray {
+
+# sub dbPatchBulk {
 #   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-
+    
 #   my $db = $self->_getDbi($chr);
-#   my $dbi = $db->{dbi};
-  
+#   my $dbi = $db->{dbi}; 
+#   #separate read and write transacions, hopefully helps with db inflation due to locks
 #   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-#   my $cnt = 0;
 
 #   #https://ideone.com/Y0C4tX
 #   my $overwrite = $overrideOverwrite || $self->overwrite;
 
-#   #sorts either ascending integer or lexical ascending order
-#   my $sortedPositionsAref = xsort( [ keys %$posHref ] );
-
-#   for my $pos ( @$sortedPositionsAref) {
+#   for my $pos ( keys %$posHref ) {
 #     if(ref $posHref->{$pos} ne 'HASH') {
 #       $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
 #     }
 
-#     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
+#     my ($trackIndex) = %{ $posHref->{$pos} };
     
 #     my $json; #zero-copy
 #     $txn->get($dbi, $pos, $json);
@@ -691,46 +698,37 @@ no Moose::Role;
 #       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
 #     }
 
-#     my $aref = [];
-
 #     if($json) {
 #       #can't modify $json, read-only value, from memory map
-#       $aref = $mp->unpack($json);
+#       my $href = $mp->unpack($json);
 
-#       if(defined $aref->[$trackIndex] ) {
+#       if(defined $href->{$trackIndex} && !$overwrite) {
 #         #skip this position (we pass posHref to dbPutBulk)
-#         if(!$overwrite) {
-#           delete $posHref->{$pos};
-#           next;
-#         }
-#       }
-#     }
-
-#     # array is at least as long; but could be sparse (undefined values)
-#     if(@$aref > $trackIndex) {
-#       $aref->[$trackIndex] = $trackValue;
-#     } else { 
-#       #array is not as long; could be 0 to $trackIndex in length
-#       #for every element that doesn't exist, make it "sparse"
-#       #https://ideone.com/SdwXgu
-#       for (my $i = @$aref; $i < $trackIndex; $i++) {
-#         push @$aref, undef;
+#         delete $posHref->{$pos};
+#         next;
 #       }
 
-#       push @$aref, $trackValue;
+#       if($overwrite == 1) {
+#         $posHref->{$pos} = merge( $href, $posHref->{$pos} );
+#         next;
+#       }
+
+#       #overwrite > 1
+#       $href->{$trackIndex} = $posHref->{$pos}{$trackIndex};
+#       #this works because it modifies the stack's reference
+#       $posHref->{$pos} = $href;
+#       next;
 #     }
 
-#     $posHref->{$pos} = $aref;
+#     #posHref is unchanged, we write it as is
+#     next;
 #   }
-
-#   say "about to put";
-#   p $posHref;
 
 #   $txn->commit();
 
-#   return;
-#   #reset the class error variable, to avoid crazy error reporting later
+#   #reset the class error variable
 #   $LMDB_File::last_err = 0;
 
-#   $self->dbPutBulk($chr, $posHref, $sortedPositionsAref);
+#   #Then write the new data, re-using the stack for efficiency
+#   goto &dbPutBulk;
 # }

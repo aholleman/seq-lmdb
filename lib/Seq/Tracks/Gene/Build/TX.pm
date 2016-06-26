@@ -497,7 +497,7 @@ sub _buildTranscriptSites {
     #this was "$self->add_transcript_site($site)"
     # passing args in list context 
     # https://ideone.com/By1GDW
-    my $site = $codonPacker->packCodon( @{$tempTXsites{$pos} } );
+    my $site = $codonPacker->pack( @{$tempTXsites{$pos} } );
 
     #this transcript sites are keyed on reference position
     #this is similar to what was done with Seq::Site::Gene before

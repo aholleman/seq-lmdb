@@ -41,44 +41,52 @@ has codonMap => (
   default => sub{ return $codonMap },
 );
 
-#To which region this belongs
-state $txNumberKey = 'txNumber';
-has txNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $txNumberKey);
-
 #These describe the site
+has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
+has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
+has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
+has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
+has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
+
 state $siteTypeKey = 'siteType';
-has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
 state $strandKey = 'strand';
-has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
 state $codonNumberKey = 'referenceCodonNumber';
-has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
 state $codonPositionKey = 'referenceCodonPosition';
-has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
 state $codonSequenceKey = 'referenceCodon';
+
+has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
+has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
+has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
+has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
 has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
 
-#the reason I'm not calling self here, is like in most other packages I'm writing
-#trying to stay away from use of moose methods for items declared within the package
-#it adds overhead, and absolutely no clearity imo
-#Moose should be used for the public facing API
-#No txNumber key involved; since that doesn't constitute a site feature, but a site reference
-sub allSiteKeys {
-  return ($siteTypeKey, $strandKey, $codonNumberKey,
-    $codonPositionKey, $codonSequenceKey);
+sub allSiteAnnotationKeys { 
+  return ($siteTypeKey, $strandKey, $codonNumberKey, $codonPositionKey, $codonSequenceKey); 
 }
 
-#some default value that is less than 0, which is a valid idx
-state $missingNumber = -9;
+state $keysMap = { 0 => $siteTypeKey, 1 => $strandKey, 2 => $codonNumberKey, 
+  3 => $codonPositionKey, 4 => $codonSequenceKey };
+
+has keysMap => ( is => 'ro', init_arg => undef, lazy => 1, default => sub{ $keysMap } );
 
 #pack strands as small integers, save a byte in messagepack
-state $strandMap = { '-' => 1, '+' => 2, };
-state $strandMapInverse = ['', '-', '+'];
+state $strandMap = { '-' => 0, '+' => 1, };
+
+#combine strands with siteTypes #'-' will be a 0, '+' will be a 1;
+state $combinedMap;
+if(!$combinedMap) {
+  foreach (keys %{$siteTypeMap->siteTypeMap}) {
+    for my $num (0, 1) {
+      $combinedMap->{$_ - $num} = [$num ? '+' : '-', $siteTypeMap->siteTypeMap->{$_}];
+    }
+  }
+}
 
 # Cost to pack an array using messagePack (which happens by default)
 # Should be the same as the overhead for messagePack storing a string
 # Unless the Perl messagePack implementation isn't good
 # So store as array to save pack / unpack overhead
-sub packCodon {
+sub pack {
   my ($self, $txNumber, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   my @outArray;
@@ -89,27 +97,18 @@ sub packCodon {
 
   push @outArray, $txNumber;
 
-  #used to require strand too, but that may go away
-  if( !defined $siteType ) {
-    $self->log('fatal', 'packCodon requires site type');
-  }
-
   my $siteTypeNum = $siteTypeMap->getSiteTypeNum( $siteType );
 
   if(!defined $siteTypeNum) {
     $self->log('fatal', "site type $siteType not recognized");
   }
 
-  #We only require siteTypeNum
-  push @outArray, $siteTypeNum;
-
-  if( $strand ) {
-    if( ! defined $strandMap->{$strand} ) {
-      $self->log('fatal', "Strand strand should be a + or -, got $strand");
-    }
-
-    push @outArray, $strandMap->{$strand};
+  if( ! defined $strandMap->{$strand} ) {
+    $self->log('fatal', "Strand strand should be a + or -, got $strand");
   }
+
+  #combines the strand and site type
+  push @outArray, $siteTypeNum - $strandMap->{$strand};
 
   if(defined $codonNumber || defined $codonPosition || defined $codonSeq) {
     if(!defined $codonNumber && !defined $codonPosition && !defined $codonSeq) {
@@ -125,6 +124,10 @@ sub packCodon {
 
     my $codonSeqNumber  = $codonMap->codon2Num($codonSeq);
 
+    if(length($codonSeq) != 3) {
+      $self->log('debug', "codonSeqNumber for truncated is $codonSeqNumber");
+    }
+
     #warning for now, this mimics the original codebase
     #TODO: do we want to store this as an error in the TX?
     if(!$codonSeqNumber) {
@@ -134,47 +137,37 @@ sub packCodon {
     }
   }
 
-  #C= unsigned char; A = ASCII string space padded, L = unsigned long
-  #https://ideone.com/TFGjte
-
-  if(@outArray == 1) {
-    #txNumber only
-    return pack('S', @outArray);
-  }
-
-  if(@outArray == 2) {
-    #txNumber and siteTypeNum
-    return pack('SC', @outArray);
-  }
-
-  if(@outArray == 3) {
-    #txNumber and siteTypeNum and $strand 
-    return pack('SCC', @outArray);
-  }
-
-  if(@outArray == 5) {
-    #missing codonSeqNumber only
-    return pack('SCCLC', @outArray);
-  }
-
-  #all
-  return pack('SCCLCC', @outArray);
+  return \@outArray;
 }
 #@param <Seq::Tracks::Gene::Site> $self
 #@param <ArrayRef> $codon
-sub unpackCodon {
+sub unpack {
   #here $_[1] is the packedCodon string
-  my @codon = unpack('SCCLCC', $_[1]);
+  # my @codon = unpack('SCCLCC', $_[1]);
+  # a single item
+  if(!ref $_[1]->[0] ) {
+    if( @{$_[1] } == 2) {
+      return ( $_[1]->[0], [ @{ $combinedMap->{ $_[1]->[1] } } ] );
+    }
+    
+    return ( $_[1]->[0], [ @{ $combinedMap->{ $_[1]->[1] } }, $_[1]->[2], $_[1]->[3],
+      $codonMap->num2Codon( $_[1]->[4] ) ] );
+  }
 
-  return {
-    $txNumberKey => $codon[0],
-    $siteTypeKey => $siteTypeMap->getSiteTypeFromNum($codon[1]),
-    $strandKey => defined $codon[2] ? $strandMapInverse->[ $codon[2] ] : undef,
-    #optional; values that may not exist (say a non-coding site)
-    $codonNumberKey => $codon[3],
-    $codonPositionKey => $codon[4],
-    $codonSequenceKey => defined $codon[5] ? $codonMap->num2Codon( $codon[5] ) : undef,
-  };
+  my (@site, @txNumbers);
+  foreach (@{ $_[1] }) {
+    push @txNumbers, $_->[0];
+
+    if( @{$_} == 2) {
+      push @site, [ @{ $combinedMap->{ $_->[1] } } ];
+      next;
+    }
+
+    push @site, [ @{ $combinedMap->{ $_->[1] } }, $_->[2], $_->[3],
+      $codonMap->num2Codon( $_->[4] ) ];
+  }
+
+  return (\@txNumbers, \@site);
 }
 
 #Future API

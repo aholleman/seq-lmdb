@@ -60,7 +60,7 @@ has out_file => (
   documentation => qq{Where you want your output.},
 );
 
-has configfile => (
+has config => (
   is          => 'ro',
   isa         => AbsFile,
   coerce      => 1,
@@ -69,7 +69,6 @@ has configfile => (
     configfilePath => 'stringify',
   },
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/config configfile/],
   documentation => qq{Yaml config file path.},
 );
 
@@ -174,7 +173,7 @@ sub _buildLogPath {
 sub _buildAnnotator {
   my $self = shift;
   return Seq->new_with_config({
-    configfile => $self->configfilePath,
+    config => $self->configfilePath,
     snpfile => $self->snpfilePath,
     out_file => $self->output_path,
     debug => $self->debug,

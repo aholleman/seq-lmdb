@@ -63,7 +63,7 @@ $wantedName || 'allTracks', $wantedChr || 'allChr',
 my $logPath = path(".")->child($log_name)->absolute->stringify;
 
 my $builder_options_href = {
-  configfile   => $yaml_config,
+  config   => $yaml_config,
   wantedChr    => $wantedChr,
   wantedType   => $wantedType,
   wantedName   => $wantedName,

@@ -17,6 +17,11 @@ use DDP;
 
 use Test::More;
 use List::Util qw/reduce/;
+
+use Seq::Tracks::Score::Build::Round;
+
+my $rounder = Seq::Tracks::Score::Build::Round->new();
+
 plan tests => 27;
 
 my $tracks = MockAnnotationClass->new_with_config(
@@ -81,13 +86,23 @@ ok($refBase eq 'A', 'ref track ok at chr22:40100000');
 $dataAref = $tracks->dbRead('chr22', 16050001-1 );
 my $phastConsVal = $phastConsTrack->get($dataAref);
 p $dataAref;
-ok($phastConsVal == 0.106, 'phastCons track ok at chr22:16050001');
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.106), 'phastCons track ok at chr22:16050001');
 
+$dataAref = $tracks->dbRead('chr22', 16050001 + 1 -1 );
+$phastConsVal = $phastConsTrack->get($dataAref);
+p $dataAref;
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.099), 'phastCons track ok at chr22:16050001');
 
 $dataAref = $tracks->dbRead('chr22', 16050001 + 8 -1 );
 $phastConsVal = $phastConsTrack->get($dataAref);
 p $dataAref;
-ok($phastConsVal == 0.055, "phastCons track ok at chr22:@{[16050001 + 8]}");
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.055), "phastCons track ok at chr22:@{[16050001 + 8]}");
 
 
 #last header entry (tail -n 10000)
@@ -126,17 +141,23 @@ ok($phastConsVal == 0.055, "phastCons track ok at chr22:@{[16050001 + 8]}");
 $dataAref = $tracks->dbRead('chr22', 51239213 + 0 -1 );
 $phastConsVal = $phastConsTrack->get($dataAref);
 p $dataAref;
-ok($phastConsVal == 0.007, "phastCons track ok at chr22:@{[51239213 + 0]}");
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.007), "phastCons track ok at chr22:@{[51239213 + 0]}");
 
 $dataAref = $tracks->dbRead('chr22', 51239213 + 6 -1 );
 $phastConsVal = $phastConsTrack->get($dataAref);
 p $dataAref;
-ok($phastConsVal == 0.042, "phastCons track ok at chr22:@{[51239213 + 6]}");
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.042), "phastCons track ok at chr22:@{[51239213 + 6]}");
 
 $dataAref = $tracks->dbRead('chr22', 51239213 + 29 -1 );
 $phastConsVal = $phastConsTrack->get($dataAref);
 p $dataAref;
-ok($phastConsVal == 0.116, "phastCons track ok at chr22:@{[51239213 + 29]}");
+say "phastConsVal is";
+p $phastConsVal;
+ok($phastConsVal == $rounder->round(0.116), "phastCons track ok at chr22:@{[51239213 + 29]}");
 
 
 #phyloP testing
@@ -159,17 +180,26 @@ ok($phastConsVal == 0.116, "phastCons track ok at chr22:@{[51239213 + 29]}");
 $dataAref = $tracks->dbRead('chr22', 16050001-1 );
 my $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == 0.132, 'phyloP track ok at chr22:16050001');
+ok($phyloPval == $rounder->round(0.132), 'phyloP track ok at chr22:16050001');
+
+$dataAref = $tracks->dbRead('chr22', 16050001 + 1 -1 );
+my $phyloPval = $phyloPTrack->get($dataAref);
+p $dataAref;
+ok($phyloPval == $rounder->round(0.127), 'phyloP track ok at chr22:16050001');
 
 $dataAref = $tracks->dbRead('chr22', 16050001 + 2 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == 0.114, "phyloP track ok at chr22:@{[16050001 + 2]}");
+say "phyloP is";
+p $phyloPval;
+ok($phyloPval == $rounder->round(0.114), "phyloP track ok at chr22:@{[16050001 + 2]}");
 
 $dataAref = $tracks->dbRead('chr22', 16050001 + 11 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == -1.691, "phyloP track ok at chr22:@{[16050001 + 11]}");
+say "phyloP is";
+p $phyloPval;
+ok($phyloPval == $rounder->round(-1.691), "phyloP track ok at chr22:@{[16050001 + 11]}");
 
 #now testing entries after the last header
 #fixedStep chrom=chr22 start=51239213 step=1
@@ -200,28 +230,28 @@ ok($phyloPval == -1.691, "phyloP track ok at chr22:@{[16050001 + 11]}");
 $dataAref = $tracks->dbRead('chr22', 51239213 + 0 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == 0.065, "phyloP track ok at chr22:@{[51239213 + 0]}");
+ok($phyloPval == $rounder->round(0.065), "phyloP track ok at chr22:@{[51239213 + 0]}");
 
 $dataAref = $tracks->dbRead('chr22', 51239213 + 7 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == 0.064, "phyloP track ok at chr22:@{[51239213 + 7]}");
+ok($phyloPval == $rounder->round(0.064), "phyloP track ok at chr22:@{[51239213 + 7]}");
 
 $dataAref = $tracks->dbRead('chr22', 51239213 + 22 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == -1.937, "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
+ok($phyloPval == $rounder->round(-1.937), "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 
 #now testing sparse track (with snp142)
 $dataAref = $tracks->dbRead('chr22', 51239213 + 22 -1 );
 $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
-ok($phyloPval == -1.937, "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
+ok($phyloPval == $rounder->round(-1.937), "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 
 ##snp testing
 say "Starting snp testing";
 $dataAref = $tracks->dbRead('chr22', [16049824 .. 16050325 - 1] );
-p $dataAref;
+# p $dataAref;
 
 exit;
 my $snpValHref = $snpTrack->get($dataAref);

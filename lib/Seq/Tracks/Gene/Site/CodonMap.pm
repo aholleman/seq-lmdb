@@ -8,7 +8,9 @@ package Seq::Tracks::Gene::Site::CodonMap;
 use DDP;
 use Moose 2;
 use namespace::autoclean;
-#{ codonSeq => Number}
+
+# Store both normal and truncated AA, to remove ambiguity for consumers
+# 0 to 64 and 0 to 32 take 1 byte in msgpack
 state $codonMap = {
   AAA => 1, AAC => 2, AAG => 3, AAT => 4, ACA => 5, ACC => 6, ACG => 7, ACT => 8,
   AGA => 9, AGC => 10, AGG => 11, AGT => 12, ATA => 13, ATC => 14, ATG => 15, ATT => 16,
@@ -17,8 +19,12 @@ state $codonMap = {
   GAA => 33, GAC => 34, GAG => 35, GAT => 36, GCA => 37, GCC => 38, GCG => 39, GCT => 40,
   GGA => 41, GGC => 42, GGG => 43, GGT => 44, GTA => 45, GTC => 46, GTG => 47, GTT => 48,
   TAA => 49, TAC => 50, TAG => 51, TAT => 52, TCA => 53, TCC => 54, TCG => 55, TCT => 56,
-  TGA => 57, TGC => 58, TGG => 59, TGT => 60, TTA => 61, TTC => 62, TTG => 63, TTT => 64
+  TGA => 57, TGC => 58, TGG => 59, TGT => 60, TTA => 61, TTC => 62, TTG => 63, TTT => 64,
 
+  #truncated
+  AA => -1, AC => -2, AG => -3, AT => -4, CA => -5, CC => -6, CG => -7, CT => -8,
+  GA => -9, GC => -10, GG => -11, GT => -12, TA => -13, TC => -14, TG => -15, TT => -16,
+  A => -17, C => -18, G => -19, T => -20, 
 };
 
 sub codon2Num {

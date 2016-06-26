@@ -214,7 +214,7 @@ sub buildTrack {
                 $siteData{$pos} = $txInfo->transcriptSites->{$pos};
               } else {
                 # make it an array
-                if(! ref $siteData{$pos} ) { $siteData{$pos} = [ $siteData{$pos} ]; }
+                if(! ref $siteData{$pos}->[0] ) { $siteData{$pos} = [ $siteData{$pos} ]; }
                 # push it!
                 push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
               }
@@ -235,7 +235,7 @@ sub buildTrack {
           
           $self->_writeRegionData( $chr, $regionData{$chr} );
           delete $regionData{$chr};
-
+          
           $self->_writeMainData( $chr, \%siteData );
           undef %siteData;
 
@@ -301,13 +301,14 @@ sub _writeMainData {
   my ($self, $chr, $mainDataHref) = @_;
 
   $self->log('info', "Starting _writeMainData for $chr");
+  
   my %out;
   my $count = 0;
 
   for my $pos ( keys %$mainDataHref ) {
     
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulk($chr, \%out);
+      $self->dbPatchBulkArray($chr, \%out);
 
       undef %out;
       $count = 0;
@@ -320,7 +321,7 @@ sub _writeMainData {
   }
 
   if(%out) {
-    $self->dbPatchBulk($chr, \%out);
+    $self->dbPatchBulkArray($chr, \%out);
 
     undef %out;
   }
@@ -383,15 +384,15 @@ sub _writeNearestGenes {
       $midPoint = $longestPreviousTxEnd + ( ( ($txStart - 1) - $longestPreviousTxEnd ) / 2 );
     }
 
-    if($self->debug) {
-      p $txStartData->{$txStart};
+    # if($self->debug) {
+    #   p $txStartData->{$txStart};
 
-      say "txStart is $txStart";
-      p $txNumber;
+    #   say "txStart is $txStart";
+    #   p $txNumber;
       
-      say "longestPreviousTx end is $longestPreviousTxEnd";
-      p $longestPreviousTxNumber;
-    }
+    #   say "longestPreviousTx end is $longestPreviousTxEnd";
+    #   p $longestPreviousTxNumber;
+    # }
 
     #### Accumulate txNumber or longestPreviousTxNumber for positions between transcripts #### 
     
@@ -472,7 +473,7 @@ sub _writeNearestGenes {
 
     for my $pos (keys %out) {
       if($count >= $self->commitEvery) {
-        $self->dbPatchBulk($chr, \%outAccumulator);
+        $self->dbPatchBulkArray($chr, \%outAccumulator);
 
         undef %outAccumulator;
         $count = 0;
@@ -490,7 +491,7 @@ sub _writeNearestGenes {
 
     # leftovers
     if(%outAccumulator) {
-      $self->dbPatchBulk($chr, \%outAccumulator);
+      $self->dbPatchBulkArray($chr, \%outAccumulator);
 
       undef %outAccumulator; #force free memory, though shouldn't be needed
     }

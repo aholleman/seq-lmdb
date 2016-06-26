@@ -22,18 +22,19 @@ with 'Seq::Role::IO'; #all build methods need to read files
 
 use Seq::Tracks::Build::CompletionMeta;
 
-has overwrite => (is => 'ro', required => 0, lazy => 1, default => 0);
-
 has completionMeta => (
   is => 'ro',
   isa => 'Seq::Tracks::Build::CompletionMeta',
   init_arg => undef,
   lazy => 1,
   default => sub { 
-    my $self = shift; 
+    my $self = shift;
+    #self->overwrite specified in dbManager, which is a Role, so auto-imported
     Seq::Tracks::Build::CompletionMeta->new({ name => $self->name, overwrite => $self->overwrite } )
   },
 );
+
+########## Arguments taken from YAML config file ##############
 
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
@@ -63,6 +64,7 @@ has local_files => (
   isa     => 'ArrayRef',
   traits  => ['Array'],
   handles => {
+    noLocalFiles => 'is_empty',
     allLocalFiles => 'elements',
   },
   default => sub { [] },
@@ -124,6 +126,13 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
+############# We also take the "config" command line argument, because may be used by Fetch ############
+has config => (
+  is => 'ro',
+  isa => 'Str',
+  required => 1,
+);
+
 sub BUILD {
   my $self = shift;
 
@@ -136,6 +145,16 @@ sub BUILD {
     $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
       . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
       . "and that one chromosome isn't accounted for.");
+  }
+
+  if($self->noLocalFiles) {
+    if(!$self->remote_files && !$self->sql_statement) {
+      $self->log('fatal', "Provided no local files, and didn't specify remote_files or an sql_statement");
+    }
+    
+    if($self->sql_statement) {
+
+    }
   }
 }
 

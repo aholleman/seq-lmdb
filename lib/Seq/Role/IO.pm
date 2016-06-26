@@ -11,11 +11,8 @@ our $VERSION = '0.001';
 
 use Moose::Role;
 
-use Carp qw/ confess /;
-
 use PerlIO::utf8_strict;
 use PerlIO::gzip;
-
 
 use Path::Tiny;
 use Try::Tiny;
@@ -68,8 +65,9 @@ sub get_read_fh {
   my $filePath = $file->stringify;
 
   if (!$file->is_file) {
-    return $self->log('error', 'file does not exist for reading: '. $filePath);
+    $self->log('fatal', 'file does not exist for reading: '. $filePath);
   }
+  
   #duck type compressed files
   try {
     # to open with pipe needs something like IPC module to catch stderr
@@ -78,15 +76,15 @@ sub get_read_fh {
     close($fh);
 
 
-    #The above doesn't play nicely with MCE, reads random number of lines
-    #and then exits
-    open ($fh, '-|', "pigz -d -c $file") or die "not a gzip file";
+    #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
+    #and then exits, so use gunzip, standard on linux, and faster
+    open ($fh, '-|', "gunzip -c $file");
   } catch {
-    open($fh, '<:unix', $filePath);
+    open($fh, '<:unix', "$filePath");
   };
-    
+
   #open($fh, '<', $filePath) unless $fh;
-  return $self->log('fatal', "Unable to open file $filePath") unless $fh;
+  $self->log('fatal', "Unable to open file $filePath") unless $fh;
 
   return $fh;
 }
@@ -94,13 +92,13 @@ sub get_read_fh {
 sub get_write_fh {
   my ( $self, $file ) = @_;
 
-  confess "\nError: get_fh() expected a filename\n" unless $file;
+  $self->log('fatal', "get_fh() expected a filename") unless $file;
 
   my $fh;
   if ( $file =~ m/\.gz\Z/ ) {
-    open($fh, ">:gzip", $file) or die "Couldn't open gzip $file for writing";
+    open($fh, ">:gzip", $file) or $self->log('fatal', "Couldn't open gzip $file for writing");
   } else {
-    open($fh, ">", $file) or die "Couldn't open $file for writing";
+    open($fh, ">", $file) or die $self->log('fatal', "Couldn't open $file for writing");
   }
   return $fh;
 }
@@ -109,7 +107,7 @@ sub get_write_bin_fh {
   my ( $self, $file ) = @_;
 
   if(!$file) {
-    confess "\nError: get_write_bin_fh() expects a filename\n";
+    $self->log('fatal', "Get_write_bin_fh() expects a filename");
   }
 
   my $fh = $self->get_write_fh($file);

@@ -70,7 +70,7 @@ sub buildTrack {
               }
 
               #so let's write whatever we have for the previous chr
-              $self->dbPatchBulk($wantedChr, \%data );
+              $self->dbPatchBulkArray($wantedChr, \%data );
 
               #since this is new, let's reset our data and count
               #we've already updated the chrPosition above
@@ -117,7 +117,7 @@ sub buildTrack {
 
             #Count number of entries recorded; write to DB if it's over the limit
             if($count >= $self->commitEvery) {
-              $self->dbPatchBulk($wantedChr, \%data);
+              $self->dbPatchBulkArray($wantedChr, \%data);
               
               undef %data;
               $count = 0;
@@ -138,7 +138,7 @@ sub buildTrack {
          return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
 
-        $self->dbPatchBulk($wantedChr, \%data );
+        $self->dbPatchBulkArray($wantedChr, \%data );
       }
 
       foreach ( keys %visitedChrs ) {

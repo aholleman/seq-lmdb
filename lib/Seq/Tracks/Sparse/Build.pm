@@ -42,8 +42,8 @@ sub buildTrack {
 
   #use small commit size; sparse tracks are small, but their individual values
   #may be quite large, leading to overflow pages
-  if($self->commitEvery > 500){
-    $self->commitEvery(500);
+  if($self->commitEvery > 1000){
+    $self->commitEvery(1000);
   }
 
   for my $file ($self->allLocalFiles) {
@@ -103,6 +103,7 @@ sub buildTrack {
         $self->log('fatal', "Feature $fname missing in $file header");
       }
 
+      my @allWantedFeatureIdx = keys %$featureIdxHref;
       ########## Get rest of data #########
       my %data = ();
       my $wantedChr;
@@ -137,7 +138,7 @@ sub buildTrack {
         if($wantedChr ) {
           if($wantedChr ne $chr) {
             if (%data) {
-              $self->dbPatchBulk($wantedChr, \%data);
+              $self->dbPatchBulkArray($wantedChr, \%data);
 
               undef %data;
               $count = 0;
@@ -169,25 +170,28 @@ sub buildTrack {
             .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
         }
       
-        # Collect all of the feature data
+        # Collect all of the feature data as an array
         # Coerce the field into the type specified for $name, if coercion exists
-        my $fDataHref;
+        my @sparseData;
+        # Initialize to the size wanted, so we can place in the right index
+        $#sparseData = @allWantedFeatureIdx;
+
+        #add the data
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
-          $fDataHref->{ $self->getFieldDbName($name) } = $value;
+          $sparseData[ $self->getFieldDbName($name) ] = $value;
         }
 
-        #adds $self->dbName to record
-        $fDataHref = $self->prepareData($fDataHref);
-        
+        #adds $self->dbName to record to locate dbData
+        my $namedData = $self->prepareData(\@sparseData);
        
         for my $pos (@$pAref) {
-          $data{$pos} = $fDataHref;
+          $data{$pos} = $namedData;
           $count++;
         }
 
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulk($wantedChr, \%data);
+          $self->dbPatchBulkArray($wantedChr, \%data);
 
           undef %data;
           $count = 0;
@@ -199,7 +203,7 @@ sub buildTrack {
           return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
 
-        $self->dbPatchBulk($wantedChr, \%data);
+        $self->dbPatchBulkArray($wantedChr, \%data);
       }
 
     $pm->finish;

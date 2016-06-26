@@ -38,14 +38,6 @@ use DDP;
 
 with 'Seq::Role::IO', 'MooseX::Getopt';
 
-has configfile => (
-  is        => 'ro',
-  isa       => Path | Undef,
-  coerce    => 1,
-  predicate => 'has_configfile',
-  traits    => ['Getopt'],
-);
-
 state $tracksKey = 'tracks';
 #The only "Trick" added here is that we take everything that is outside the
 #"tracks" key, and push that stuff in each tracks array item
@@ -57,17 +49,17 @@ sub new_with_config {
   my ( $class, $opts ) = $check->(@_);
   my %opts;
 
-  my $configfile = $opts->{configfile};
+  my $config = $opts->{config};
 
-  if ( defined $configfile ) {
-    my $hash = $class->get_config_from_file($configfile);
+  if ( defined $config ) {
+    my $hash = $class->get_config_from_file($config);
     no warnings 'uninitialized';
-    croak "get_config_from_file($configfile) did not return a hash (got $hash)"
+    croak "get_config_from_file($config) did not return a hash (got $hash)"
       unless reftype $hash eq 'HASH';
     %opts = ( %$hash, %$opts );
   }
   else {
-    croak "new_with_config() expects configfile";
+    croak "new_with_config() expects config";
   }
 
   #Now push every single global option into each individual track

@@ -9,7 +9,7 @@ use Moose;
 extends 'Seq::Tracks::Build';
 
 use List::MoreUtils qw/first_index/;
-
+use Scalar::Util qw/looks_like_number/;
 use DDP;
 
 #TODO: like with sparse tracks, allow users to map required fields
@@ -24,9 +24,11 @@ has '+based' => (
 );
   
 #if use doesn't specify a feature, give them the PHRED score
-has '+features' => (
-  default => 'PHRED',
-);
+# TODO: Maybe enable this; for now we just report a single score, PHRED
+# and this is identified just like other score tracks, by the track name
+# has '+features' => (
+#   default => 'PHRED',
+# );
 
 sub buildTrack {
   my ($self) = @_;
@@ -34,7 +36,7 @@ sub buildTrack {
   my ($file) = $self->allLocalFiles;
 
   my $fh = $self->get_read_fh($file);
-  
+
   if( index($fh->getline(), '## CADD') > - 1) {
     close $fh;
     goto &buildTrackFromCaddFormat;
@@ -89,7 +91,7 @@ sub buildTrackFromCaddFormat {
       if(%out) {
         if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         
-        $self->dbPatchBulk($wantedChr, \%out);
+        $self->dbPatchBulkArray($wantedChr, \%out);
         undef %out; $count = 0;
       }
 
@@ -111,7 +113,7 @@ sub buildTrackFromCaddFormat {
 
     #specify 2 significant figures
     #store as strings because Data::MessagePack seems to store all floats in 9 bytes
-    push @score, $rounder->roundToString($line[5]);
+    push @score, $rounder->round($line[5]);
     
     if(@score < 3) {
       next;
@@ -129,7 +131,7 @@ sub buildTrackFromCaddFormat {
     undef @score;
 
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulk($wantedChr, \%out);
+      $self->dbPatchBulkArray($wantedChr, \%out);
 
       undef %out;
       $count = 0;
@@ -143,7 +145,7 @@ sub buildTrackFromCaddFormat {
     if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
     if(@score) { $self->log('fatal', "At end of $file have uncommited scores"); }
 
-    $self->dbPatchBulk($wantedChr, \%out);
+    $self->dbPatchBulkArray($wantedChr, \%out);
   }
 
   return 0;
@@ -257,7 +259,7 @@ sub writeToDatabase {
 
   for my $chr (keys %$resultRef) {
     if( %{ $resultRef->{$chr} } ) {
-      $self->dbPatchBulk($chr, $resultRef->{$chr} );
+      $self->dbPatchBulkArray($chr, $resultRef->{$chr} );
     }
   }
 

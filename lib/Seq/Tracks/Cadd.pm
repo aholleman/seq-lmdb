@@ -62,7 +62,7 @@ sub get {
     # if (defined $order->{ $refBase }->{ $altAlleles } ) {
     if (defined $order->{ $_[4] }->{ $_[5] } ) {
       #return $href->{ $self->dbName }->[ $order->{ $refBase }->{ $altAlleles } ]
-      return $_[1]->{ $_[0]->dbName }->[ $order->{ $_[4] }->{ $_[5] } ];
+      return $_[1]->[ $_[0]->dbName ][ $order->{ $_[4] }->{ $_[5] } ];
     }
 
     return undef;
@@ -79,7 +79,7 @@ sub get {
       #if(defined $order->{ $refBase }->{ $allele } ) {
       if(defined $order->{ $_[4] }->{ $allele } ) {
         #push @out, $href->{ $self->dbName }->[ $order->{ $refBase }->{ $allele } ];
-        push @out, $_[1]->{ $_[0]->dbName }->[ $order->{ $_[4] }->{ $allele } ];
+        push @out, $_[1]->[ $_[0]->dbName ][ $order->{ $_[4] }->{ $allele } ];
       }
      
     }
