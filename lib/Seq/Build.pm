@@ -24,17 +24,13 @@ use DDP;
 use Moose 2;
 use namespace::autoclean;
 use DDP;
-extends 'Seq::Tracks';
+extends 'Seq::Base';
 
-#use MCE::Loop;
+use Seq::Tracks;
+use Seq::Tracks::Base::Types;
+use List::Util qw/first/;
 
-# comes from Seq::Tracks, which is extended by Seq::Assembly
-has wantedType => (
-  is => 'ro',
-  isa => 'Maybe[TrackType]',
-  lazy => 1,
-  default => undef,
-);
+has wantedType => (is => 'ro', isa => 'Maybe[TrackType]', lazy => 1, default => undef);
 
 #TODO: allow building just one track, identified by name
 has wantedName => (
@@ -52,31 +48,35 @@ has buildClean => (
   default => 0,
 );
 
+has tracks => ( is => 'ro', required => 1);
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 
 #"buildTrack" method
 sub BUILD {
   my $self = shift;
 
+  my $tracks = Seq::Tracks->new({tracks => $self->tracks});
+
   my @builders;
   if($self->wantedType) {
-    @builders = @{ $self->singletonTracks->getTrackBuildersByType($self->wantedType) };
+    @builders = @{ $tracks->getTrackBuildersByType($self->wantedType) };
   } elsif($self->wantedName) {
-    @builders = ( $self->singletonTracks->getTrackBuilderByName($self->wantedName) );
+    if(! defined(first { $_->name eq $self->wantedName } $tracks->allTrackBulders ) ) {
+      $self->log('fatal', "Track name not recognized")
+    }
+    @builders = ( $tracks->getTrackBuilderByName($self->wantedName) );
   } else {
-    @builders = $self->singletonTracks->allTrackBulders;
+    @builders = $tracks->allTrackBulders;
+
+    #If we're building all tracks, reference should be first
+    if($builders[0]->name ne $tracks->getRefTrackBuilder()->name) {
+      $self->log('fatal', "Reference track should be listed first");
+    }
   }
 
   #TODO: return error codes from the rest of the buildTrack methods
+  my $count = 0;
   for my $builder (@builders) {
-    #we already built the refTrackBuilder
-    #could also just check for reference equality,
-    #but this is more robust if we end up not using singletons at some point
-    #all track names must be unique as a global requirement, so this is safe
-    #and of course if the user requests we overwrite, lets respect that
-    #but I've for now decided to encapsulate the overwrite check within the 
-    #reference track build method
-
     $self->log('info', "Started building " . $builder->name );
     
     #TODO: implement errors for all tracks

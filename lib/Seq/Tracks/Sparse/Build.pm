@@ -42,9 +42,13 @@ sub buildTrack {
 
   #use small commit size; sparse tracks are small, but their individual values
   #may be quite large, leading to overflow pages
-  if($self->commitEvery > 1000){
-    $self->commitEvery(1000);
+  if($self->commitEvery > 700){
+    $self->commitEvery(700);
   }
+
+  # Don't bother storing 3 bytes for a nil value
+  # We output NA for any undefined values anyhow
+  my $missingValue = 'NA';
 
   for my $file ($self->allLocalFiles) {
     $pm->start and next;
@@ -104,16 +108,18 @@ sub buildTrack {
       }
 
       my @allWantedFeatureIdx = keys %$featureIdxHref;
-      ########## Get rest of data #########
+      ############## Read file and insert data into main database #############
       my %data = ();
       my $wantedChr;
 
-      # sparse tracks are by default 1 based, but user can override
+      # The default BED format is 0-based: https://genome.ucsc.edu/FAQ/FAQformat.html#format1
+      # Users can override this by setting $self->based;
       my $based = $self->based;
       my $count;
 
       FH_LOOP: while(<$fh>) {
         chomp;
+
         my @fields = split("\t", $_);
 
         #If the user wants to modify the values of any fields, do that first
@@ -135,18 +141,16 @@ sub buildTrack {
         my $chr = $fields[ $reqIdxHref->{$chrom} ];
 
         #If the chromosome is new, write any data we have & see if we want new one
-        if($wantedChr ) {
-          if($wantedChr ne $chr) {
-            if (%data) {
-              $self->dbPatchBulkArray($wantedChr, \%data);
+        if(!$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
+          if (%data) {
+            if(!$wantedChr){ $self->log('fatal', 'Have data, but no chr on line ' . $.)}
 
-              undef %data;
-              $count = 0;
-            }
-            
-            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+            $self->dbPatchBulkArray($wantedChr, \%data);
+
+            undef %data;
+            $count = 0;
           }
-        } else {
+            
           $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
         }
         
@@ -156,8 +160,7 @@ sub buildTrack {
           }
           
           next FH_LOOP;
-        }
-
+        } 
         my $pAref;
         
         #this is an insertion; the only case when start should == stop
@@ -165,7 +168,7 @@ sub buildTrack {
           $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
         } else { 
           #it's a normal change, or a deletion
-          #BED is a half-closed format, so subtract 1 from end
+          #BED is a 0-based, half-closed format, so subtract 1 from end
           $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
             .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
         }
@@ -174,11 +177,12 @@ sub buildTrack {
         # Coerce the field into the type specified for $name, if coercion exists
         my @sparseData;
         # Initialize to the size wanted, so we can place in the right index
-        $#sparseData = @allWantedFeatureIdx;
+        $#sparseData = $#allWantedFeatureIdx;
 
-        #add the data
+        # Get the field values after transforming them to desired types
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
+          
           $sparseData[ $self->getFieldDbName($name) ] = $value;
         }
 

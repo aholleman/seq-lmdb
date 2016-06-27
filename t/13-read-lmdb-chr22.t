@@ -6,9 +6,17 @@ package MockAnnotationClass;
 use lib './lib';
 use Moose;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
-extends 'Seq::Tracks';
+extends 'Seq::Base';
 with 'Seq::Role::DBManager';
 
+use Seq::Tracks;
+
+has tracks => ( is => 'ro', required => 1);
+
+has singletonTracks => ( is => 'ro', init_arg => undef, lazy => 1, default => sub{
+  my $self = shift; 
+  return Seq::Tracks->new({getterOnly => 1, tracks => $self->tracks});
+});
 #__PACKAGE__->meta->
 1;
 
@@ -25,8 +33,11 @@ my $rounder = Seq::Tracks::Score::Build::Round->new();
 plan tests => 27;
 
 my $tracks = MockAnnotationClass->new_with_config(
-  { configfile =>'./config/hg19.lmdb.yml'}
+  { config =>'./config/hg19.lmdb.yml'}
 );
+
+say "tracks are";
+p $tracks->singletonTracks;
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
 my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp142');
@@ -183,7 +194,7 @@ p $dataAref;
 ok($phyloPval == $rounder->round(0.132), 'phyloP track ok at chr22:16050001');
 
 $dataAref = $tracks->dbRead('chr22', 16050001 + 1 -1 );
-my $phyloPval = $phyloPTrack->get($dataAref);
+$phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
 ok($phyloPval == $rounder->round(0.127), 'phyloP track ok at chr22:16050001');
 
@@ -250,13 +261,12 @@ ok($phyloPval == $rounder->round(-1.937), "phyloP track ok at chr22:@{[51239213 
 
 ##snp testing
 say "Starting snp testing";
-$dataAref = $tracks->dbRead('chr22', [16049824 .. 16050325 - 1] );
-# p $dataAref;
-
-exit;
-my $snpValHref = $snpTrack->get($dataAref);
+$dataAref = $tracks->dbRead('chr22', 16050074);
 p $dataAref;
-say "snpValHref is";
+
+my $snpValHref = $snpTrack->get($dataAref);
+
+say "snpValHref";
 p $snpValHref;
 my $rsNumber = $snpValHref->{name};
 ok($rsNumber eq 'rs587697622', "snp142 sparse track ok at chr22:16050074");
@@ -267,16 +277,15 @@ p $dataAref;
 say "snpValHref is";
 p $snpValHref;
 $rsNumber = $snpValHref->{name};
-ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112391");
+ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112390");
 
 #test an indel
 $dataAref = $tracks->dbRead('chr22', [16140742 .. 16140746 - 1] );
-my $snpValAref = $snpTrack->getBulk($dataAref);
-p $dataAref;
-say "snpValAref is";
-p $snpValAref;
+my $snpValAref;
+
 #4 long
-for my $snpValHref (@$snpValAref) {
+for my $data (@$dataAref) {
+  $snpValHref = $snpTrack->get($data);
   my $rsNumber = $snpValHref->{name};
   ok($rsNumber eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
 }

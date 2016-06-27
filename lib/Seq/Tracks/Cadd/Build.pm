@@ -143,7 +143,9 @@ sub buildTrackFromCaddFormat {
   # leftovers
   if(%out) {
     if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
-    if(@score) { $self->log('fatal', "At end of $file have uncommited scores"); }
+    if(@score) { 
+      $self->log('warn', "At end of $file have uncommited scores: " . join(',', @score) ); 
+    }
 
     $self->dbPatchBulkArray($wantedChr, \%out);
   }
@@ -151,108 +153,108 @@ sub buildTrackFromCaddFormat {
   return 0;
 }
 
-sub buildTrackFromHeaderlessWigFix {
-  my $self = shift;
+# sub buildTrackFromHeaderlessWigFix {
+#   my $self = shift;
 
-  #there can only be ONE
-  #the one that binds them
-  my @files = $self->allLocalFiles;
+#   #there can only be ONE
+#   #the one that binds them
+#   my @files = $self->allLocalFiles;
 
-  my ($file) = @files;
+#   my ($file) = @files;
 
-  if(@files > 1) {
-    $self->log('warn', 'In Cadd/Buil more than one local_file specified. Taking first,
-      which is ' . $file);
-  }
+#   if(@files > 1) {
+#     $self->log('warn', 'In Cadd/Buil more than one local_file specified. Taking first,
+#       which is ' . $file);
+#   }
 
-  my $fh = $self->get_read_fh($file);
+#   my $fh = $self->get_read_fh($file);
   
-  my $wantedChr;
+#   my $wantedChr;
   
-  my $count = 0;
+#   my $count = 0;
 
-  # sparse track should be 1 based
-  # we have a method ->zeroBased, but in practice I find it more confusing to use
-  my $based = $self->based;
+#   # sparse track should be 1 based
+#   # we have a method ->zeroBased, but in practice I find it more confusing to use
+#   my $based = $self->based;
 
-  my $delimiter = $self->delimiter;
+#   my $delimiter = $self->delimiter;
 
-  MCE::Loop::init {
-    chunk_size => 2e8, #read in chunks of 200MB
-    max_workers => 32,
-    use_slurpio => 1,
-    gather => \&writeToDatabase,
-  };
+#   MCE::Loop::init {
+#     chunk_size => 2e8, #read in chunks of 200MB
+#     max_workers => 32,
+#     use_slurpio => 1,
+#     gather => \&writeToDatabase,
+#   };
 
-  mce_loop_f {
-    my ($mce, $slurp_ref, $chunk_id) = @_;
+#   mce_loop_f {
+#     my ($mce, $slurp_ref, $chunk_id) = @_;
 
-    my @lines;
+#     my @lines;
 
-    open my $MEM_FH, '<', $slurp_ref;
-    binmode $MEM_FH, ':raw';
-    while (<$MEM_FH>) { push @lines, $_; }
-    close   $MEM_FH;
+#     open my $MEM_FH, '<', $slurp_ref;
+#     binmode $MEM_FH, ':raw';
+#     while (<$MEM_FH>) { push @lines, $_; }
+#     close   $MEM_FH;
 
-    # storing
-    # chr => {
-      #pos => {
-    #    $self->dbName => [val1, val2, val3]
-    #  }
-    #}
-    my %out;
+#     # storing
+#     # chr => {
+#       #pos => {
+#     #    $self->dbName => [val1, val2, val3]
+#     #  }
+#     #}
+#     my %out;
 
-    #count number of positions recorded for each chr  so that 
-    #we can comply with $self->commitEvery
-    my %count;
+#     #count number of positions recorded for each chr  so that 
+#     #we can comply with $self->commitEvery
+#     my %count;
 
-    LINE_LOOP: for my $line (@lines) {
-      #wantedChr means user has asked for just one chromosome
-      if($self->wantedChr && index($line, $self->wantedChr) == -1) {
-        next LINE_LOOP;
-      }
+#     LINE_LOOP: for my $line (@lines) {
+#       #wantedChr means user has asked for just one chromosome
+#       if($self->wantedChr && index($line, $self->wantedChr) == -1) {
+#         next LINE_LOOP;
+#       }
 
-      chomp $line;
+#       chomp $line;
 
-      my @sLine = split $delimiter, $line;
+#       my @sLine = split $delimiter, $line;
 
-      my $chr = $sLine[0];
+#       my $chr = $sLine[0];
 
-      my $dbPosition = $sLine[1] - $based;
-      #if no single --chr is specified at run time,
-      #check against list of genome_chrs
-      if(!$self->chrIsWanted( $chr ) ) {
-        next;
-      }
+#       my $dbPosition = $sLine[1] - $based;
+#       #if no single --chr is specified at run time,
+#       #check against list of genome_chrs
+#       if(!$self->chrIsWanted( $chr ) ) {
+#         next;
+#       }
 
-      if(! defined $out{ $chr } ) {
-        undef $out{ $chr };
-        $count{ $sLine[0] } = 0;
-      }
+#       if(! defined $out{ $chr } ) {
+#         undef $out{ $chr };
+#         $count{ $sLine[0] } = 0;
+#       }
 
-      #if this chr has more than $self->commitEvery records, put it in db
-      if( $count{ $chr } == $self->commitEvery ) {
-        MCE->gather($self, { $chr => $out{ $chr } } );
+#       #if this chr has more than $self->commitEvery records, put it in db
+#       if( $count{ $chr } == $self->commitEvery ) {
+#         MCE->gather($self, { $chr => $out{ $chr } } );
         
-        undef $out{ $chr };
-        $count{ $chr } = 0;
-      }
+#         undef $out{ $chr };
+#         $count{ $chr } = 0;
+#       }
 
-      $out{ $chr }{ $dbPosition } = $self->prepareData( [$sLine[2], $sLine[3], $sLine[4]] );
-      $count{ $chr }++;
-    }
+#       $out{ $chr }{ $dbPosition } = $self->prepareData( [$sLine[2], $sLine[3], $sLine[4]] );
+#       $count{ $chr }++;
+#     }
 
-    # http://www.perlmonks.org/?node_id=1110235
-    if(%out) {
-      MCE->gather($self, \%out);
-    }
+#     # http://www.perlmonks.org/?node_id=1110235
+#     if(%out) {
+#       MCE->gather($self, \%out);
+#     }
 
-    undef %out;
-    undef %count;
-  } $fh;
+#     undef %out;
+#     undef %count;
+#   } $fh;
 
-  $self->log('info', 'finished building: ' . $self->name);
-}
+#   $self->log('info', 'finished building: ' . $self->name);
+# }
 
 sub writeToDatabase {
   my ($self, $resultRef) = @_;

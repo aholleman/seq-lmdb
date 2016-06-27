@@ -22,6 +22,10 @@ with 'Seq::Tracks::Base::Types', 'Seq::Role::DBManager';
 # the track name
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
+# Exports getFieldName and getFieldDbName , requires name
+# TODO: move this to a class instead of role
+with 'Seq::Tracks::Base::MapFieldNames';
+
 # Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
 has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
 
@@ -31,12 +35,29 @@ has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'neare
 
 has nearestDbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setNearestDbName', default => -9, );
 
-# Exports getFieldName and getFieldDbName , requires name
-# TODO: move this to a class instead of role
-with 'Seq::Tracks::Base::MapFieldNames';
-
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
+
+#anything with an underscore comes from the config format
+#anything config keys that can be set in YAML but that only need to be used
+#during building should be defined here
+has genome_chrs => (
+  is => 'ro',
+  isa => 'HashRef',
+  traits => ['Hash'],
+  handles => {
+    allWantedChrs => 'keys',
+    chrIsWanted => 'defined', #hash over array because unwieldy firstidx
+  },
+  required => 1,
+);
+
+has wantedChr => (
+  is => 'ro',
+  isa => 'Maybe[Str]',
+  lazy => 1,
+  default => undef,
+);
 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int

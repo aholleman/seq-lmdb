@@ -1,13 +1,3 @@
-#Initializes SingletonTracks, which constructs all of our tracks according to the
-#config file
-#and also sets the database path, which is also a singleton
-use 5.10.0;
-use strict;
-use warnings;
-our $VERSION = '0.002';
-
-package Seq::Tracks;
-
 # ABSTRACT: A base class for track classes
 
 # used to simplify process of detecting tracks
@@ -31,97 +21,254 @@ package Seq::Tracks;
 #} 
 #}
 
-# VERSION
+use 5.10.0;
+use strict;
+use warnings;
+
+package Seq::Tracks;
 
 use Moose 2;
-use namespace::autoclean;
 
-#holds a permanent record of all of the tracks
-use Seq::Tracks::SingletonTracks;
+#defines refType, scoreType, etc
+with 'Seq::Tracks::Base::Types',
+'Seq::Role::Message';
 
-#exports new_with_config
-with 'Seq::Role::ConfigFromFile',
-#exports all the methods prefaced with db* like dbGet
-'Seq::Role::DBManager';
+use Seq::Tracks::Reference;
+use Seq::Tracks::Score;
+use Seq::Tracks::Sparse;
+use Seq::Tracks::Region;
+use Seq::Tracks::Gene;
+use Seq::Tracks::Cadd;
 
-#the only property we mean to export
-has singletonTracks => (
-  is => 'ro',
-  isa => 'Seq::Tracks::SingletonTracks',
-  init_arg => undef,
-  writer => '_setSingletonTracks',
-  lazy => 1,
-  default => sub {
-    my $self = shift;
-    return Seq::Tracks::SingletonTracks->new( {tracks => $self->tracks} );
-  }
-);
+use Seq::Tracks::Reference::Build;
+use Seq::Tracks::Score::Build;
+use Seq::Tracks::Sparse::Build;
+use Seq::Tracks::Region::Build;
+use Seq::Tracks::Gene::Build;
+use Seq::Tracks::Cadd::Build;
 
-# attributes that are given to this class as configuration options
+########################### Configuration ##################################
+has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
 
-#our only required value; needed for SingletonTracks
+# @param <ArrayRef> tracks: track configuration
+# Required only for the first run, after that cached, and re-used
+# expects: {
+  # typeName : {
+  #  name: someName (optional),
+  #  data: {
+  #   feature1:   
+#} } }
 has tracks => (
   is => 'ro',
-  required => 1,
+  isa => 'ArrayRef[HashRef]',
+  lazy => 1,
+  default => sub { [] },
 );
 
-has messanger => (
-  is => 'ro',
-  isa => 'Maybe[HashRef]',
-  lazy => 1,
-  default => undef,
-);
+########################### Public Methods #################################
 
-has publisherAddress => (
-  is => 'ro',
-  isa => 'Maybe[ArrayRef]',
-  lazy => 1,
-  default => undef,
-);
+# @param <ArrayRef> trackBuilders : ordered track builders
+state $orderedTrackBuildersAref = [];
+has trackBuilders => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
+  traits => ['Array'], handles => { allTrackBulders => 'elements' }, 
+  default => sub { $orderedTrackBuildersAref } );
 
-has logPath => (
-  is => 'ro',
-  lazy => 1,
-  default => '',
-);
+state $trackBuilders = {};
+sub getTrackBuilderByName {
+  # my ($self, $name) = @_; #$_[1] == $name
+  return $trackBuilders->{$_[1]};
+}
 
-has debug => (
-  is => 'ro',
-  lazy => 1,
-  default => 0,
-);
+state $trackBuildersByType = {};
+sub getTrackBuildersByType {
+  #my ($self, $type) = @_; #$_[1] == $type
+  return $trackBuildersByType->{$_[1]};
+}
+
+# @param <ArrayRef> trackGetters : ordered track getters
+state $orderedTrackGettersAref = [];
+has trackGetters => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
+  traits => ['Array'], handles => { allTrackGetters => 'elements' } , 
+  default => sub { $orderedTrackGettersAref } );
+
+state $trackGetters = {};
+sub getTrackGetterByName {
+  #my ($self, $name) = @_; #$_[1] == $name
+  return $trackGetters->{$_[1]};
+}
+
+state $trackGettersByType = {};
+sub getTrackGettersByType {
+  # my ($self, $type) = @_; # $_[1] == $type
+  return $trackGettersByType->{$_[1]};
+}
+
+################### Individual track getters ##################
+
+#only 1 refere
+sub getRefTrackGetter {
+  my $self = shift;
+  return $trackGettersByType->{$self->refType}[0];
+}
+
+sub allRegionTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->regionType};
+}
+
+sub allScoreTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->scoreType};
+}
+
+sub allSparseTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->sparseType};
+}
+
+sub allGeneTrackBuilders {
+  my $self = shift;
+  return $trackBuildersByType->{$self->geneType};
+}
+
+#only one ref track allowed, so we return the first
+sub getRefTrackBuilder {
+  my $self = shift;
+  return $trackBuildersByType->{$self->refType}[0];
+}
 
 sub BUILD {
+  goto &initialize;
+}
+
+#Initialize once, then use forever
+sub initialize {
   my $self = shift;
 
-  if(!$self->database_dir->exists) {
-    $self->log('debug', 'database_dir '. $self->database_dir . 'doesn\'t exit. Creating');
-    $self->database_dir->mkpath;
+  if($self->gettersOnly) {
+    if(%$trackGetters) {
+      return;
+    }
   }
 
-  if (!$self->database_dir->is_dir) {
-    $self->log('fatal', 'database_dir given is not a directory');
-  }
-  
-  #needs to be initialized before dbmanager can be used
-  $self->setDbPath( $self->database_dir );
-
-  if($self->messanger && $self->publisherAddress) {
-    $self->setPublisher($self->messanger, $self->publisherAddress);
+  if(%$trackBuilders && %$trackGetters) {
+    return;
   }
 
-  if ($self->logPath) {
-    $self->setLogPath($self->logPath);
+  # If this is 1st time we execute initialize, must have tracks configuration
+  if(! @{$self->tracks} ) {
+    $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
   }
 
-  #todo: finisih ;for now we have only one level
-  if ( $self->debug) {
-    $self->setLogLevel('DEBUG');
-  } else {
-    $self->setLogLevel('INFO');
+  if(!%$trackBuilders) {
+    $self->_buildTrackBuilders;
+  }
+
+  if(!%$trackGetters) {
+    $self->_buildTrackGetters;
   }
 }
 
-__PACKAGE__->meta->make_immutable;
+################### Private builders #####################
+sub _buildTrackGetters {
+  if(%$trackGetters) {
+    return;
+  }
 
+  my $self = shift;
+
+  for my $trackHref (@{$self->tracks}) {
+    #get the trackClass
+    my $trackFileName = $self->_toTrackGetterClass($trackHref->{type} );
+    #class 
+    my $className = $self->_toTrackGetterClass( $trackHref->{type} );
+
+    my $track = $className->new($trackHref);
+
+    if(exists $trackGetters->{$track->{name} } ) {
+      $self->log('fatal', "More than one track with the same name 
+        exists: $trackHref->{name}. Each track name must be unique
+      . Overriding the last object for this name, with the new")
+    }
+
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
+    $trackGetters->{$track->{name} } = $track;
+    
+    #allows us to preserve order when iterating over all track getters
+    push @$orderedTrackGettersAref, $track;
+
+    push @{$trackGettersByType->{$trackHref->{type} } }, $track;
+  }
+}
+
+#different from Seq::Tracks in that we store class instances hashed on track type
+#this is to allow us to more easily build tracks of one type in a certain order
+sub _buildTrackBuilders {
+  if(%$trackBuilders) {
+    return;
+  }
+
+  my $self = shift;
+
+  for my $trackHref (@{$self->tracks}) {
+    my $trackFileName = $self->_toTrackBuilderClass($trackHref->{type} );
+    #class 
+    my $className = $self->_toTrackBuilderClass( $trackHref->{type} );
+
+    my $track = $className->new($trackHref);
+
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
+    if(exists $trackBuilders->{$track->{name} } ) {
+      $self->log('fatal', "More than one track with the same name 
+        exists: $trackHref->{name}. Each track name must be unique
+      . Overriding the last object for this name, with the new")
+    }
+
+    #we use the track name rather than the trackHref name
+    #because at the moment, users are allowed to rename their tracks
+    #by name : 
+      #   something : someOtherName
+    #TODO: make this go away by automating track name conversion/storing in db
+    $trackBuilders->{$track->{name} } = $track;
+
+    push @$orderedTrackBuildersAref, $track;
+
+    push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
+  }
+}
+
+####### Helper methods for _buildTrackBulders & _buildTrackGetters methods ########
+
+sub _toTitleCase {
+  my $self = shift;
+  my $name = shift;
+
+  return uc( substr($name, 0, 1) ) . substr($name, 1, length($name) - 1);
+}
+
+sub _toTrackGetterClass {
+  my $self = shift,
+  my $type = shift;
+
+  my $classNamePart = $self->_toTitleCase($type);
+
+  return "Seq::Tracks::" . $classNamePart;
+}
+
+sub _toTrackBuilderClass{
+  my $self = shift,
+  my $type = shift;
+
+  my $classNamePart = $self->_toTitleCase($type);
+
+  return "Seq::Tracks::" . $classNamePart ."::Build";
+}
+
+__PACKAGE__->meta->make_immutable;
 1;

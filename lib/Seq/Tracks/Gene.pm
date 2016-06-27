@@ -44,7 +44,8 @@ state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 
 ### Additional "features" that we will add to our output ###
 state $refAminoAcidKey = 'referenceAminoAcid';
-state $newAminoAcidKey = 'newAminoAcid';
+state $newCodonKey = 'alleleCodon';
+state $newAminoAcidKey = 'alleleAminoAcid';
 state $txEffectsKey = 'proteinEffect';
 
 ### Positions that aren't covered by a refSeq record are intergenic ###
@@ -58,6 +59,7 @@ state $frameshift = 'Frameshift';
 state $inFrame = 'InFrame';
 state $startLoss = 'StartLoss';
 state $stopLoss = 'StopLoss';
+state $stopGain = 'StopGain';
 state $truncated = 'TruncatedCodon';
 
 ### Set the features that we get from the Gene track region database ###
@@ -71,11 +73,13 @@ state $allCachedDbNames;
 state $nearestSubTrackName;
 
 #### Add our other "features", everything we find for this site ####
-override 'BUILD' => sub {
+sub BUILD {
   my $self = shift;
 
-  $self->addFeaturesToHeader([$siteUnpacker->allSiteAnnotationKeys, $txEffectsKey, 
-    $refAminoAcidKey, $newAminoAcidKey], $self->name);
+  # 1 to prepend
+  $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->strandKey,
+    $siteUnpacker->codonPositionKey, $siteUnpacker->codonSequenceKey, $newCodonKey,
+    $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonNumberKey], $self->name, 1);
 
   $allCachedDbNames->{$self->name} = {};
 
@@ -95,8 +99,6 @@ override 'BUILD' => sub {
   for my $featureName ($self->allFeatureNames) {
     $allCachedDbNames->{$self->name}{$featureName} = $self->getFieldDbName($featureName);
   }
-
-  super();
 };
 
 #gets the gene, nearest gene data for the position
@@ -123,6 +125,7 @@ sub get {
   #<ArrayRef> $unpackedSites ; <ArrayRef|Int> $txNumbers
   my ($siteData, $txNumbers, $multiple);
 
+
   # is an <ArrayRef>, where every other element is siteData
   if( $href->[$self->dbName] ) {
     ($txNumbers, $siteData) = $siteUnpacker->unpack($href->[$self->dbName]);
@@ -146,10 +149,39 @@ sub get {
     }# else { $self->log('warn', "no " . $self->name . " or " . $nearestSubTrackName . " found"); }
   }
 
+  state $siteTypeKey = $siteUnpacker->siteTypeKey;
+
   if( !$txNumbers ) {
-    state $siteTypeKey = $siteUnpacker->siteTypeKey;
     $out{$siteTypeKey} = $intergenic;
     return \%out;
+  }
+
+  ################## Populate site information ########################
+  # save unpacked sites, for use in txEffectsKey population #####
+  #moose attrs are very slow, cache
+  state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
+  state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
+
+  my $hasCodon;
+  OUTER: for my $site ($multiple ? @$siteData : $siteData) {
+    for (my $i = 0; $i < @$site; $i++) {
+      if($i == $codonPositionIdx){
+        # We store codon position as 0-based, but people probably expect 1-based
+        push @{ $out{$siteUnpacker->keysMap->{$i} } }, $site->[$i] + 1;
+      } else {
+        push @{ $out{$siteUnpacker->keysMap->{$i} } }, $site->[$i];
+      }
+    }
+
+    #### Populate refAminoAcidKey; note that for a single site
+    ###    we can have only one codon sequence, so not need to set array of them ###
+    if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
+      push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
+      $hasCodon = 1;
+    } else {
+      ### should we push undef?
+      push @{ $out{$refAminoAcidKey} }, undef;
+    }
   }
 
   # ################# Populate geneTrack's user-defined features #####################
@@ -159,23 +191,9 @@ sub get {
     }
   }
 
-  ################## Populate site information ########################
-  # save unpacked sites, for use in txEffectsKey population #####
-  #moose attrs are very slow, cache
-  state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
-
-  OUTER: for my $site ($multiple ? @$siteData : $siteData) {
-    for (my $i = 0; $i < @$site; $i++) {
-      push @{ $out{$siteUnpacker->keysMap->{$i} } }, $site->[$i];
-    }
-
-    #### Populate refAminoAcidKey; note that for a single site
-    ###    we can have only one codon sequence, so not need to set array of them ###
-    if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
-      push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
-    } else {
-      ### should we push undef?
-    }
+  # If we want to be ~ 20% faster, move this before the Populate Gene Tracks section
+  if(!$hasCodon) {
+    return \%out;
   }
 
   # ################# Populate $transcriptEffectsKey, $refAminoAcidKey, and $newAminoAcidKey #####################
@@ -183,92 +201,78 @@ sub get {
   # #############  we may want to know how/if they disturb genes  #####################
 
   state $codonSequenceKey = $siteUnpacker->codonSequenceKey;
-
+  state $strandIdx = $siteUnpacker->strandIdx;
+  
   # Looping over string, int, or ref: https://ideone.com/4APtzt
-  # TX_EFFECTS_LOOP: for my $allele (ref $allelesAref ? @$allelesAref : $allelesAref) {
-  #   my @accum;
+  TX_EFFECTS_LOOP: for my $allele (ref $allelesAref ? @$allelesAref : $allelesAref) {
+    my @accum;
 
-  #   if(length($allele) > 1) {
-  #     # We expect either a + or -
-  #     my $type = substr($allele, 0, 1);
+    if(length($allele) > 1) {
+      # We expect either a + or -
+      my $type = substr($allele, 0, 1);
 
-  #     #store as array because our output engine writes [ [one], [two] ] as "1,2"
-  #     push @accum, [ $self->_annotateIndel($chr, $dbPosition, $allele) ];
+      #store as array because our output engine writes [ [one], [two] ] as "1,2"
+      push @accum, [ $self->_annotateIndel($chr, $dbPosition, $allele) ];
 
-  #     next TX_EFFECTS_LOOP;
-  #   }
+      next TX_EFFECTS_LOOP;
+    }
 
-  #   if( !defined $out{ $codonSequenceKey } ) {
-  #     next;
-  #   }
+    ######### Most cases are just snps, so  inline that functionality ##########
+    state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 
-  #   ######### Most cases are just snps, so  inline that functionality ##########
-  #   state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
+    ### We only populate newAminoAcidKey for snps ###
+    my $i = 0;
+    SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
+      if(!defined $site->[ $codonPositionIdx ]){
+        push @accum, $nonCoding;
+        push @{ $out{$newAminoAcidKey} }, undef;
 
-  #   ### We only populate newAminoAcidKey for snps ###
-  #   my $i = 0;
-  #   SNP_LOOP: for my $refCodonSequence ( @{$out{$codonSequenceKey} } ) {
-  #     say "refCodonSequence"
+        next SNP_LOOP;
+      }
 
-  #     if(!$refCodonSequence) {
-  #       push @accum, $nonCoding;
-  #       push @{ $out{$newAminoAcidKey} }, undef;
+      my $refCodonSequence = $out{$codonSequenceKey}[$i];
 
-  #       next SNP_LOOP;
-  #     }
-
-  #     if(length($refCodonSequence) != 3) {
-  #       $self->log('warn', "Codon @ $chr: @{[$dbPosition + 1]} not 3 bases long: $refCodonSequence");
+      if(length($refCodonSequence) != 3) {
+        push @accum, $truncated;
+        push @{ $out{$newAminoAcidKey} }, undef;
         
-  #       push @accum, $truncated;
-  #       push @{ $out{$newAminoAcidKey} }, undef;
-        
-  #       next SNP_LOOP;
-  #     }
+        next SNP_LOOP;
+      }
 
-  #     # If codon is on the opposite strand, invert the allele
-  #     if( $site->{ $siteUnpacker->strandKey } eq '-' ) {
-  #       $allele = $negativeStrandTranslation->{$allele};
-  #     }
+      # If codon is on the opposite strand, invert the allele
+      if( $site->[$strandIdx] eq '-' ) {
+        $allele = $negativeStrandTranslation->{$allele};
+      }
 
-  #     #make a codon where the reference base is swapped for the allele
-  #     my $alleleCodonSequence = $refCodonSequence;
-      
-  #     substr($alleleCodonSequence, $site->{ $siteUnpacker->codonPositionKey }, 1 ) = $allele;
+      #make a codon where the reference base is swapped for the allele
+      my $alleleCodonSequence = $refCodonSequence;
 
-  #     push @{ $out{$newAminoAcidKey} }, $codonMap->codon2aa($refCodonSequence);
-    
-  #     if(!$refCodonSequence) {
-  #       say "no refCodonSequence for";
-  #       p $site;
-  #       die;
-  #     }
+      substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
 
-  #     if(!defined $out{$newAminoAcidKey}->[$i]) {
-  #       $i++;
-  #       next;
-  #     }
+      push @{ $out{$newCodonKey} }, $alleleCodonSequence;
+      push @{ $out{$newAminoAcidKey} }, $codonMap->codon2aa($alleleCodonSequence);
 
-  #     # If reference codon is same as the allele-substititued version, it's a Silent site
-  #     if( $codonMap->codon2aa($refCodonSequence) eq $out{$newAminoAcidKey}->[$i] ) {
-  #       push @accum, $silent;
-  #     } else {
-  #       push @accum, $replacement;
-  #     }
+      if(!defined $out{$newAminoAcidKey}->[$i]) {
+        $i++;
+        next;
+      }
 
-  #     $i++;
-  #   }
+      # If reference codon is same as the allele-substititued version, it's a Silent site
+      if( $codonMap->codon2aa($refCodonSequence) eq $out{$newAminoAcidKey}->[$i] ) {
+        push @accum, $silent;
+      } elsif($out{$newAminoAcidKey}->[$i] eq '*') {
+        push @accum, $stopGain;
+      } else {
+        push @accum, $replacement;
+      }
 
-  #   if(@accum) {
-  #     push @{ $out{$txEffectsKey} }, @accum > 1 ? \@accum : $accum[0];
-  #   }
-  # }
+      $i++;
+    }
 
-  # if( !defined $out{$txEffectsKey} ) {
-  #   $out{$txEffectsKey} = $intergenic;
-  # } elsif( @{ $out{$txEffectsKey} } == 1) {
-  #   $out{$txEffectsKey} = $out{$txEffectsKey}->[0];
-  # }
+    if(@accum) {
+      push @{ $out{$txEffectsKey} }, @accum > 1 ? \@accum : $accum[0];
+    }
+  }
 
   return \%out;
 };
@@ -302,7 +306,7 @@ sub _annotateIndel {
   }
 
   for my $data (@$dbDataAref) {
-    if (! defined $data->{ $self->dbName } ) {
+    if (! defined $data->[$self->dbName] ) {
       #this position doesn't have a gene track, so skip
       $middle .= "$intergenic";
       next;
@@ -312,13 +316,13 @@ sub _annotateIndel {
     my $siteData;
 
     # is an <ArrayRef[ArrayRef>|ArrayRef[Int]>, each Aref is [$referenceNumberToRegionDatabase, $siteData] ]
-    if( $data->{$self->dbName} ) {
-      if( ref $data->{$self->dbName}->[0] ) {
-        foreach ( @{ $data->{$self->dbName} } ) {
+    if( $data->[$self->dbName] ) {
+      if( ref $data->[$self->dbName][0] ) {
+        foreach ( @{ $data->[$self->dbName] } ) {
           push @$siteData, $_->[1];
         }
       } else {
-        $siteData = $data->{$self->dbName}->[1]; 
+        $siteData = $data->[$self->dbName][1]; 
       }
     }
 

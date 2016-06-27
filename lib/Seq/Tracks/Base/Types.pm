@@ -37,6 +37,9 @@ has geneType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$geneT
 state $caddType = 'cadd';
 has caddType => (is => 'ro', init_arg => undef, lazy => 1, default => sub{$caddType});
 
+has trackTypes => (is => 'ro', init_arg => undef, lazy => 1, default => sub{
+  return [$refType, $scoreType, $sparseType, $regionType, $geneType, $caddType]
+});
 
 enum TrackType => [$refType, $scoreType, $sparseType, $regionType, $geneType, $caddType];
 

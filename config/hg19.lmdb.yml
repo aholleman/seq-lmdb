@@ -29,6 +29,14 @@ genome_description: human
 genome_name: hg19 
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
+output_order:
+    - hg19
+    - gene
+    - snp142
+    - clinvar
+    - cadd
+    - phastCons
+    - phyloP
 tracks:
 - name: hg19
   type: reference
@@ -239,10 +247,9 @@ tracks:
     - chrM.phyloP100way.wigFix.gz
 - name: cadd
   type: cadd
-  features:
-    - PHRED : float
   local_files:
-    - whole_genome_SNVs.tsv
+    #- whole_genome_SNVs.tsv
+    - whole_genome_SNVs.chr22.tsv
 - name: snp142
   type: sparse
   features:
@@ -254,7 +261,7 @@ tracks:
     - alleleFreqCount: int
     - alleles
     - alleleNs: int
-    - alleleFreqs
+    - alleleFreqs: float
   local_files:
     - hg19.snp142.chr1.txt
     - hg19.snp142.chr2.txt

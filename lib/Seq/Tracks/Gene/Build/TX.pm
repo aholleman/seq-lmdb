@@ -23,8 +23,8 @@ our $VERSION = '0.001';
 
 use Moose 2;
 
-#we have pre-configured reference track in this
-use Seq::Tracks::SingletonTracks;
+# We need pre-initialized tracks
+use Seq::Tracks;
 
 use Seq::Tracks::Gene::Site;
 
@@ -208,7 +208,7 @@ sub _buildTranscript {
 
   my (@sequencePositions, $txSequence);
 
-  state $tracks = Seq::Tracks::SingletonTracks->new();
+  state $tracks = Seq::Tracks->new();
 
   state $refTrack = $tracks->getRefTrackGetter();
 

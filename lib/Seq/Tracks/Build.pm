@@ -22,6 +22,7 @@ with 'Seq::Role::IO'; #all build methods need to read files
 
 use Seq::Tracks::Build::CompletionMeta;
 
+# Allows consumers to record track completion
 has completionMeta => (
   is => 'ro',
   isa => 'Seq::Tracks::Build::CompletionMeta',
@@ -34,28 +35,7 @@ has completionMeta => (
   },
 );
 
-########## Arguments taken from YAML config file ##############
-
-#anything with an underscore comes from the config format
-#anything config keys that can be set in YAML but that only need to be used
-#during building should be defined here
-has genome_chrs => (
-  is => 'ro',
-  isa => 'HashRef',
-  traits => ['Hash'],
-  handles => {
-    allWantedChrs => 'keys',
-    chrIsWanted => 'defined', #hash over array because unwieldy firstidx
-  },
-  required => 1,
-);
-
-has wantedChr => (
-  is => 'ro',
-  isa => 'Maybe[Str]',
-  lazy => 1,
-  default => undef,
-);
+########## Arguments taken from YAML config file or passed some other way ##############
 
 has files_dir => ( is => 'ro', isa => AbsDir, coerce => 1 );
 
@@ -70,18 +50,6 @@ has local_files => (
   default => sub { [] },
   lazy    => 1,
 );
-
-has remote_dir => ( is => 'ro', isa => 'Str', default => '', lazy => 1,);
-has remote_files => (
-  is      => 'ro',
-  isa     => 'ArrayRef',
-  traits  => ['Array'],
-  handles => { all_remote_files => 'elements', },
-  default => sub { [] },
-  lazy => 1,
-);
-
-has sql_statement => ( is => 'ro', isa => 'Str', default => '', lazy => 1, );
 
 #called based because that's what UCSC calls it
 #most things are 0 based, including anything in bed format from UCSC, fasta files
@@ -126,13 +94,6 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
-############# We also take the "config" command line argument, because may be used by Fetch ############
-has config => (
-  is => 'ro',
-  isa => 'Str',
-  required => 1,
-);
-
 sub BUILD {
   my $self = shift;
 
@@ -145,16 +106,6 @@ sub BUILD {
     $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
       . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
       . "and that one chromosome isn't accounted for.");
-  }
-
-  if($self->noLocalFiles) {
-    if(!$self->remote_files && !$self->sql_statement) {
-      $self->log('fatal', "Provided no local files, and didn't specify remote_files or an sql_statement");
-    }
-    
-    if($self->sql_statement) {
-
-    }
   }
 }
 
@@ -235,6 +186,9 @@ sub prepareData {
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   # my ($self, $dataStr) = @_;
+  if($_[2] eq 'NA') {
+    return undef;
+  }
 
   my $type = $_[0]->noFeatureTypes ? undef : $_[0]->getFeatureType( $_[1] );
 
@@ -251,22 +205,19 @@ sub coerceFeatureType {
     }
 
     # Function convert is exported by Seq::Tracks::Base
-    #http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
-    #modifying the value here actually modifies the value in the array
+    # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
+    # modifying the value here actually modifies the value in the array
     for my $val (@vals) {
       $val = $_[0]->convert($val, $type);
     }
 
-    #In order to save space in the db, and since may need to use the values
-    #anything that has a comma is just returned as an array ref
+    # In order to allow fields to be well-indexed by ElasticSearch or other engines
+    # and to normalize delimiters in the output, anything that has a comma
+    # (or whatever multi_delim set to), return as an array reference
     return \@vals;
   }
 
-  if(!defined $type) {
-    return $_[2];
-  }
-
-  return $_[0]->convert($_[2], $type);
+  return defined $type ? $_[0]->convert($_[2], $type) : $_[2];
 }
 
 state $cachedFilters;

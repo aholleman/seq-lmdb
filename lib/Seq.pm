@@ -37,7 +37,9 @@ use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
 
-extends 'Seq::Tracks';
+extends 'Seq::Base';
+
+use Seq::Tracks;
 
 with 'Seq::Role::Genotypes';
 
@@ -100,17 +102,27 @@ my $sampleIDaref;
 my $refTrackGetter;
 my $trackGettersExceptReference;
 
+#our only required value: the tracks configuration (typically from YAML)
+has tracks => (
+  is => 'ro',
+  required => 1,
+);
+
 sub BUILD {
   my $self = shift;
 
+  my $tracks = Seq::Tracks->new( {tracks => $self->tracks, gettersOnly => 1} );
+
+  # We won't be building anything, optimize locking for read
+  $self->dbReadOnly(1);
   #the reference base can be used for many purposes
   #and so to benefit encapsulation, I separate it from other tracks during getting
   #this way, tracks can just accept the first four fields of the input file
   # chr, pos, ref, alleles, using the empirically found ref
-  $refTrackGetter = $self->singletonTracks->getRefTrackGetter();
+  $refTrackGetter = $tracks->getRefTrackGetter();
 
   #all other tracks
-  for my $trackGetter ($self->singletonTracks->allTrackGetters) {
+  for my $trackGetter ($tracks->allTrackGetters) {
     if($trackGetter->name ne $refTrackGetter->name) {
       push @$trackGettersExceptReference, $trackGetter;
     }
@@ -210,10 +222,11 @@ sub annotate_snpfile {
         chomp;
         my $line = [ split $delimiter, $_ ];
 
-        #check conditions separately, becaues faster
-        if($line->[$typeFieldIdx] =~ /MESS/) {
+        if ( !$refTrackGetter->chrIsWanted($line->[0] ) ) {
           next;
-        } elsif($line->[$typeFieldIdx] =~ /LOW/) {
+        }
+        #check conditions separately, becaues faster
+        if($line->[$typeFieldIdx] =~ "LOW" || $line->[$typeFieldIdx] =~ "MESS") {
           next;
         }
 
@@ -227,9 +240,6 @@ sub annotate_snpfile {
    #MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
 }
-
-#TODO: Need to implement unknown chr check, LOW/MESS check
-#TODO: return # of discordant bases from children if wanted
 
 #Accumulates data from the database, then returns an output string
 sub annotateLines {

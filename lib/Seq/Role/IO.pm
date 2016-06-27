@@ -55,7 +55,7 @@ has _compressExtension => (
 #@return file handle
 
 sub get_read_fh {
-  my ( $self, $file, $mceEnabled) = @_;
+  my ( $self, $file) = @_;
   my $fh;
   
   if(ref $file ne 'Path::Tiny' ) {

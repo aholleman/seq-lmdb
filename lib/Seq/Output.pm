@@ -69,7 +69,7 @@ sub makeOutputString {
             }
             # we could have an array of arrays, separate those by commas
             if(ref $_) {
-              $accum .= ',' . join(";", @$_) . ";";
+              $accum .= join(";", @$_) . ",";
 
               next ACCUM;
             }
