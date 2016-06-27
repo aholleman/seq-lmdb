@@ -77,61 +77,20 @@ sub setLogLevel {
   $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
 }
 
-# $ctx = new AnyEvent::Log::Ctx
-#    title   => "dubious messages",
-#    level   => "error",
-#    log_cb  => sub { print STDOUT shift; 0 },
-#    slaves  => [$ctx1, $ctx, $ctx2],
-# ;
-
-# sub _buildTeeLogger {
-#   my $ctx = new AnyEvent::Log::Ctx
-#      title   => "dubious messages",
-#      level   => "error",
-#      log_cb  => sub { print STDOUT shift; 0 },
-#      slaves  => [$ctx1, $ctx, $ctx2],
-#   ;
-# }
-
-# note: not using native traits because they don't support Maybe attrs
-state @publisherAddress;
-has publisherAddress => (
-  is       => 'ro',
-  isa      => 'Maybe[ArrayRef]',
-  required => 0,
-  lazy     => 1,
-  writer   => '_setPublisherAddress',
-  default  => sub {\@publisherAddress},
-);
-
-# #note: not using native traits because they don't support Maybe attrs
+state $messageBase;
 state $publisher;
-has _publisher => (
-  is        => 'ro',
-  required  => 0,
-  lazy      => 1,
-  init_arg  => undef,
-  builder   => '_buildMessagePublisher',
-  lazy      => 1,
-  predicate => 'hasPublisher',
-  handles   => { notify => 'command' },
-);
+has hasPublisher => (is => 'ro', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
 
-sub setPublisher {
-  my ($self, $passedPublisher, $passedAddress) = @_;
+sub setPublisherAndAddress {
+  my ($self, $passedMessageBase, $passedAddress) = @_;
 
-  if(!ref $passedPublisher eq 'Hash') {
-    $self->_logger->warn('setPublisher requires hashref messanger, given ' 
-      . ref $passedPublisher);
+  if(!ref $passedMessageBase eq 'Hash') {
+    $self->_logger->warn('setPublisherAndAddress requires hashref messanger, given ' 
+      . ref $passedMessageBase);
     return;
   }
 
-  if($publisher) {
-    $self->_logger->warn('messangerHref exists already in setPublisher');
-  } else {
-    %messanger = %{$passedMessanger};
-    $self->_setMessanger(\%messanger);
-  }
+  $messageBase = $passedMessageBase;
 
   if(!ref $passedAddress eq 'ARRAY') {
     $self->_logger->warn('setPublisher requires ARRAY ref passedAddress, given '
@@ -139,106 +98,74 @@ sub setPublisher {
     return;
   }
 
-  if($passedAddress) {
-    $self->_logger->warn('passedAddress exists already in setPublisher');
-    return;
-  }
-  @publisherAddress = @{$passedAddress};
-  $self->_setPublisherAddress(\@publisherAddress);
-}
-
-sub _buildMessagePublisher {
-  my $self = shift;
-  return unless $self->publisherAddress;
-  #delegation doesn't work for Maybe attrs
-  return Redis::hiredis->new(
-    host => $self->publisherAddress->[0],
-    port => $self->publisherAddress->[1],
+  $publisher = Redis::hiredis->new(
+    host => $passedAddress->[0],
+    port => $passedAddress->[1],
   );
 }
 
 # note, accessing hash directly because traits don't work with Maybe types
 sub publishMessage {
-  # my ( $self, $event, $msg ) = @_;
-  # to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
+  # my ( $self, $msg ) = @_;
+  # to save on perf, $_[0] == $self, $_[1] == $msg;
 
   # because predicates don't trigger builders, need to check hasPublisherAddress
-  return unless $messanger;
-  $messanger->{message}{data} = $msg;
-  $self->notify(
-    [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
+  return unless $publisher;
+  $messageBase->{message}{data} = $_[1];
+  $publisher->command(
+    [ 'publish', $messageBase->{event}, encode_json( $messageBase) ] );
 }
 
 sub publishProgress {
-  # my ( $self, $event, $msg ) = @_;
-  # to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
+  # my ( $self, $msg ) = @_;
+  # to save on perf, $_[0] == $self, $_[1] == $msg;
 
   # because predicates don't trigger builders, need to check hasPublisherAddress
-  return unless $_[0]->messanger;
-  $self->messanger->{message}{data} = {progress => $_[1]};
-  $self->notify(
-    [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
+  return unless $publisher;
+  $messageBase->{message}{data} = { progress => $_[1] };
+  $publisher->command(
+    [ 'publish', $messageBase->{event}, encode_json( $messageBase ) ] );
 }
 
 sub log {
-  #return;
-
-  #This gives child process pid $pid disaappeared, A call to `waitpid` outside of Parallel::ForkManager might have reaped it.
-  #so don't use parallel $Seq::Role::Message::pm->start and return;
-  #and really no performance benefit, since we're already multi-processing our files
-  #unless we do a ton of logging
-
   #my ( $self, $log_method, $msg ) = @_;
   #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
-  #state $debugLog = AnyEvent::Log::logger("debug");
-  #sleep(5);
-  #say "in log, looking at $_[1], $_[2]";
-  #p $Seq::Role::Message::mapLevels->{$_[1] };
-  #log a bunch of messages, helpful on ocassaion
+ 
   if(ref $_[2] ) {
     $_[2] = p $_[2];
   }
-  #interestingly some kind of message bufferring occurs, such that
-  #this will actually make it through to the rest of the log function
-  #synchronous die
-  #TODO: Figure out if 'error' level actually quits the program
-  #if it does not, then we'll have to override $_[1] to fatal
-  # if ( $_[1] eq 'error' ) {
-  #   # state $errorLog = AnyEvent::Log::logger("error");
-  #   # return $errorLog->($_[2]);
-
-    
-  #   #return confess "\n$_[2]\n";
-  # }
-
-  #we don't have any complicated logging support, just log if it's not an error
-  #$debugLog->("$_[1]: $_[2]");
-  # $_[0]->_logger->${ $_[1] }( $_[2] ); # this is very slow, sync to disk
-  #AnyEvent::Log::log $_[1], $_[2];
 
   if( $_[1] eq 'info' ) {
     $Seq::Role::Message::LOG->INFO( "[INFO] $_[2]" );
+
+    if($publisher) {
+      $_[0]->publishMessage( "[INFO] $_[2]" );
+    }
+
   } elsif(  $_[1] eq 'debug' ) {
     $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
+
+    if($publisher) {
+      $_[0]->publishMessage( "[DEBUG] $_[2]" );
+    }
+
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
-  } elsif( $_[1] eq 'fatal' ) {
-    $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
-    #$_[0]->publishMessage($_[1], $_[2]);
-    die "[ERROR] $_[2]";
-  }
 
-  # if($_[0]->messanger) {
-  #   $_[0]->messanger->{message}{data} = $_[1] . $_[2];
-  #   $_[0]->notify(
-  #     [ 'publish', $_[0]->messanger->{event}, encode_json( $_[0]->messanger ) ] );
-  # }
-  
-  #&{ $Seq::Role::Message::LOG->${ $Seq::Role::mapLevels->{$_[1] } } }( $_[2] );
-  #save some performance; could move this to anyevent as well
-  #goto &publishMessage; #re-use stack to save performance
-  
-  #no need for this $Seq::Role::Message::pm->finish;
+    if($publisher) {
+      $_[0]->publishMessage( "[WARN] $_[2]" );
+    }
+
+  } elsif( $_[1] eq 'fatal' ) {
+    $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
+    #$_[0]->publishMessage($_[1], $_[2]);
+    
+    if($publisher) {
+      $_[0]->publishMessage( "[FATAL] $_[2]" );
+    }
+
+    die "[FATAL] $_[2]";
+  }
 }
 
 no Moose::Role;

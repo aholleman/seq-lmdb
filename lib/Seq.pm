@@ -196,29 +196,6 @@ sub annotate_snpfile {
   #write header to file
   say $outFh $headers->getString();
 
- #  if ($self->hasPublisher) {
- #    $pubProg = Seq::Progress->new({
- #      progressBatch => 200,
- #      fileLines => scalar @$fileLines,
- #      progressAction => sub {
- #        $pubProg->recordProgress($pubProg->progressCounter);
- #        $self->publishMessage({progress => $pubProg->progressFraction } )
- #      },
- #    });
- #  }
-  
- #  if(!$writeProg) {
- #    $writeProg = Seq::Progress->new({
- #      progressBatch => $self->write_batch,
- #      progressAction => sub {
- #        $self->publishMessage('Writing ' . 
- #          $self->write_batch . ' lines to disk') if $self->hasPublisher;
- #        $self->print_annotations( \@snp_annotations );
- #        @snp_annotations = ();
- #      },
- #    });
- # }
-
   #initialize our parallel engine; re-uses forks
   my $a = MCE::Loop::init {
     #slurpio is optimized with auto chunk
@@ -280,21 +257,21 @@ sub logMessages {
   my $progress = 0;
   state $hasPublisher = $self->hasPublisher;
 
-  return sub {
+  if($hasPublisher) {
+    return sub {
+      $total += $chunkSize;
+      # Can exceed total because last chunk may be over-stated in size
+      if($total > $fileSize) {
+        $progress = 1;
+      } else {
+        $progress = sprintf '%0.2f', $total / $fileSize;
+      }
 
-    my $val = shift;
-    say "val is $val";
-
-    $total += $chunkSize;
-    if($total > $fileSize) {
-      $progress = 1;
-    } else {
-      $progress = sprintf '%0.2f', $total / $fileSize;
+      $self->publishProgress($progress);
     }
-
-    $self->publishProgress($progress);
-    say "Progress: $progress";
-  }  
+  } else {
+    return {}
+  }
 }
 
 #Accumulates data from the database, then returns an output string
