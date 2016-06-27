@@ -32,6 +32,7 @@ use namespace::autoclean;
 use DDP;
 
 use MCE::Loop;
+use MCE::Shared;
 
 use Seq::InputFile;
 use Seq::Output;
@@ -102,6 +103,8 @@ my $sampleIDaref;
 my $refTrackGetter;
 my $trackGettersExceptReference;
 
+my $fileSize;
+my $chunkSize;
 #our only required value: the tracks configuration (typically from YAML)
 has tracks => (
   is => 'ro',
@@ -141,8 +144,10 @@ sub annotate_snpfile {
 
   my $headers = Seq::Headers->new();
   
-  my $fh = $self->get_read_fh($self->snpfile_path);
-  
+  my $fh;
+
+  ($fileSize, $fh) = $self->get_read_fh($self->snpfile_path);
+    
   my $taint_check_regex = $self->taint_check_regex; 
   my $endOfLineChar = $self->endOfLineChar;
   my $delimiter = $self->delimiter;
@@ -191,54 +196,105 @@ sub annotate_snpfile {
   #write header to file
   say $outFh $headers->getString();
 
+ #  if ($self->hasPublisher) {
+ #    $pubProg = Seq::Progress->new({
+ #      progressBatch => 200,
+ #      fileLines => scalar @$fileLines,
+ #      progressAction => sub {
+ #        $pubProg->recordProgress($pubProg->progressCounter);
+ #        $self->publishMessage({progress => $pubProg->progressFraction } )
+ #      },
+ #    });
+ #  }
+  
+ #  if(!$writeProg) {
+ #    $writeProg = Seq::Progress->new({
+ #      progressBatch => $self->write_batch,
+ #      progressAction => sub {
+ #        $self->publishMessage('Writing ' . 
+ #          $self->write_batch . ' lines to disk') if $self->hasPublisher;
+ #        $self->print_annotations( \@snp_annotations );
+ #        @snp_annotations = ();
+ #      },
+ #    });
+ # }
+
   #initialize our parallel engine; re-uses forks
-  MCE::Loop::init {
+  my $a = MCE::Loop::init {
     #slurpio is optimized with auto chunk
     chunk_size => 'auto',
-    max_workers => 32,
+    max_workers => 64,
     use_slurpio => 1,
+    gather => $self->logMessages(),
     #doesn't seem to improve performance
     #and apparently slow on shared storage
     # parallel_io => 1,
   };
 
+  # To avoid this ugliness could use MCE::Loop core api
+  my $m1 = MCE::Mutex->new;
+  tie $chunkSize, 'MCE::Shared', 0;
+
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
-    # Quickly determine if a match is found.
-    # Process the slurped chunk only if true.
+    if(!$chunkSize) {
+       $m1->synchronize( sub {
+         $chunkSize = $mce->chunk_size();
+      });
+    }
 
-     my @lines;
+    my @lines;
 
-     # http://search.cpan.org/~marioroy/MCE-1.706/lib/MCE.pod
-     # The following is fast on Unix, but performance degrades
-     # drastically on Windows beyond 4 workers.
+    open my $MEM_FH, '<', $slurp_ref;
+    binmode $MEM_FH, ':raw';
 
-     open my $MEM_FH, '<', $slurp_ref;
-     binmode $MEM_FH, ':raw';
+    while (<$MEM_FH>) {
+    if (/$taint_check_regex/) {
+      chomp;
+      my $line = [ split $delimiter, $_ ];
 
-     while (<$MEM_FH>) {
-      if (/$taint_check_regex/) {
-        chomp;
-        my $line = [ split $delimiter, $_ ];
-
-        if ( !$refTrackGetter->chrIsWanted($line->[0] ) ) {
-          next;
-        }
-        #check conditions separately, becaues faster
-        if($line->[$typeFieldIdx] =~ "LOW" || $line->[$typeFieldIdx] =~ "MESS") {
-          next;
-        }
-
-        push @lines, $line;
+      if ( !$refTrackGetter->chrIsWanted($line->[0] ) ) {
+        next;
       }
-     }
-     close  $MEM_FH;
+      #check conditions separately, becaues faster
+      if($line->[$typeFieldIdx] =~ "LOW" || $line->[$typeFieldIdx] =~ "MESS") {
+        next;
+      }
+
+      push @lines, $line;
+    }
+    }
+    close  $MEM_FH;
 
     #write to file
     $self->annotateLines(\@lines, $outFh);
-   #MCE->print($outFh, $self->annotateLines(\@lines) );
+    MCE->gather(1);
+    #MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
+}
+
+sub logMessages {
+  my $self = shift;
+  my $total = 0;
+  my $progress = 0;
+  state $hasPublisher = $self->hasPublisher;
+
+  return sub {
+
+    my $val = shift;
+    say "val is $val";
+
+    $total += $chunkSize;
+    if($total > $fileSize) {
+      $progress = 1;
+    } else {
+      $progress = sprintf '%0.2f', $total / $fileSize;
+    }
+
+    $self->publishProgress($progress);
+    say "Progress: $progress";
+  }  
 }
 
 #Accumulates data from the database, then returns an output string
@@ -421,18 +477,6 @@ sub finishAnnotatingLines {
     if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
     if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
     if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
-
-    #Could check for discordant bases here
-    
-    #Annotate the Indel, which is a bit like annotating a bunch of other
-    #sites
-    #and is held in a separate package, Sites::Indels
-    #it takes the chr, and the current site's annotation data
-    #then it will fetch the required sites, and get the gene track
-    #TODO: finish implementing
-    #$self->annotateIndel( $chr, \%singleLineOutput, $inputAref->[$i] );
-
-    #Indels
   }
 
   return $outAref;
@@ -441,27 +485,3 @@ sub finishAnnotatingLines {
 __PACKAGE__->meta->make_immutable;
 
 1;
-
-#TODO: Figure out what to do with messaging progress
-  #if (!$pubProg && $self->hasPublisher) {
-    # $pubProg = Seq::Progress->new({
-    #   progressBatch => 200,
-    #   fileLines => scalar @$fileLines,
-    #   progressAction => sub {
-    #     $pubProg->recordProgress($pubProg->progressCounter);
-    #     $self->publishMessage({progress => $pubProg->progressFraction } )
-    #   },
-    # });
-  #}
-  
-  #if(!$writeProg) {
-    # $writeProg = Seq::Progress->new({
-    #   progressBatch => $self->write_batch,
-    #   progressAction => sub {
-    #     $self->publishMessage('Writing ' . 
-    #       $self->write_batch . ' lines to disk') if $self->hasPublisher;
-    #     $self->print_annotations( \@snp_annotations );
-    #     @snp_annotations = ();
-    #   },
-    # });
- # }

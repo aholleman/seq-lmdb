@@ -93,92 +93,92 @@ sub setLogLevel {
 #   ;
 # }
 
-#note: not using native traits because they don't support Maybe attrs
-# state @publisherAddress;
-# has publisherAddress => (
-#   is       => 'ro',
-#   isa      => 'Maybe[ArrayRef]',
-#   required => 0,
-#   lazy     => 1,
-#   writer   => '_setPublisherAddress',
-#   default  => sub {\@publisherAddress},
-# );
+# note: not using native traits because they don't support Maybe attrs
+state @publisherAddress;
+has publisherAddress => (
+  is       => 'ro',
+  isa      => 'Maybe[ArrayRef]',
+  required => 0,
+  lazy     => 1,
+  writer   => '_setPublisherAddress',
+  default  => sub {\@publisherAddress},
+);
 
 # #note: not using native traits because they don't support Maybe attrs
-# state $messanger;
-# has messanger => (
-#   is       => 'rw',
-#   isa      => 'Maybe[HashRef]',
-#   required => 0,
-#   lazy     => 1,
-#   writer   => '_setMessanger',
-#   default  => sub { $messanger},
-# );
+state $publisher;
+has _publisher => (
+  is        => 'ro',
+  required  => 0,
+  lazy      => 1,
+  init_arg  => undef,
+  builder   => '_buildMessagePublisher',
+  lazy      => 1,
+  predicate => 'hasPublisher',
+  handles   => { notify => 'command' },
+);
 
-# has _publisher => (
-#   is        => 'ro',
-#   required  => 0,
-#   lazy      => 1,
-#   init_arg  => undef,
-#   builder   => '_buildMessagePublisher',
-#   lazy      => 1,
-#   predicate => 'hasPublisher',
-#   handles   => { notify => 'command' },
-# );
+sub setPublisher {
+  my ($self, $passedPublisher, $passedAddress) = @_;
 
-# sub setPublisher {
-#   my ($self, $passedMessanger, $passedAddress) = @_;
+  if(!ref $passedPublisher eq 'Hash') {
+    $self->_logger->warn('setPublisher requires hashref messanger, given ' 
+      . ref $passedPublisher);
+    return;
+  }
 
-#   if(!ref $passedMessanger eq 'Hash') {
-#     $self->_logger->warn('setPublisher requires hashref messanger, given ' 
-#       . ref $passedMessanger);
-#     return;
-#   }
+  if($publisher) {
+    $self->_logger->warn('messangerHref exists already in setPublisher');
+  } else {
+    %messanger = %{$passedMessanger};
+    $self->_setMessanger(\%messanger);
+  }
 
-#   if(%messanger) {
-#     $self->_logger->warn('messangerHref exists already in setPublisher');
-#   } else {
-#     %messanger = %{$passedMessanger};
-#     $self->_setMessanger(\%messanger);
-#   }
+  if(!ref $passedAddress eq 'ARRAY') {
+    $self->_logger->warn('setPublisher requires ARRAY ref passedAddress, given '
+      . ref $passedAddress);
+    return;
+  }
 
-#   if(!ref $passedAddress eq 'ARRAY') {
-#     $self->_logger->warn('setPublisher requires ARRAY ref passedAddress, given '
-#       . ref $passedAddress);
-#     return;
-#   }
+  if($passedAddress) {
+    $self->_logger->warn('passedAddress exists already in setPublisher');
+    return;
+  }
+  @publisherAddress = @{$passedAddress};
+  $self->_setPublisherAddress(\@publisherAddress);
+}
 
-#   if($passedAddress) {
-#     $self->_logger->warn('passedAddress exists already in setPublisher');
-#     return;
-#   }
-#   @publisherAddress = @{$passedAddress};
-#   $self->_setPublisherAddress(\@publisherAddress);
-# }
+sub _buildMessagePublisher {
+  my $self = shift;
+  return unless $self->publisherAddress;
+  #delegation doesn't work for Maybe attrs
+  return Redis::hiredis->new(
+    host => $self->publisherAddress->[0],
+    port => $self->publisherAddress->[1],
+  );
+}
 
-# sub _buildMessagePublisher {
-#   my $self = shift;
-#   return unless $self->publisherAddress;
-#   #delegation doesn't work for Maybe attrs
-#   return Redis::hiredis->new(
-#     host => $self->publisherAddress->[0],
-#     port => $self->publisherAddress->[1],
-#   );
-# }
+# note, accessing hash directly because traits don't work with Maybe types
+sub publishMessage {
+  # my ( $self, $event, $msg ) = @_;
+  # to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
 
-#note, accessing hash directly because traits don't work with Maybe types
-# sub publishMessage {
-#   #$Seq::Role::Message::pm->start;
-#     my ( $self, $event, $msg ) = @_;
-#     # to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
+  # because predicates don't trigger builders, need to check hasPublisherAddress
+  return unless $messanger;
+  $messanger->{message}{data} = $msg;
+  $self->notify(
+    [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
+}
 
-#     # because predicates don't trigger builders, need to check hasPublisherAddress
-#     return unless $_[0]->messanger;
-#     $self->messanger->{message}{data} = $msg;
-#     $self->notify(
-#       [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
-#   #$Seq::Role::Message::pm->finish;
-# }
+sub publishProgress {
+  # my ( $self, $event, $msg ) = @_;
+  # to save on perf, $_[0] == $self, $_[1] == $event, $_[2] == $msg;
+
+  # because predicates don't trigger builders, need to check hasPublisherAddress
+  return unless $_[0]->messanger;
+  $self->messanger->{message}{data} = {progress => $_[1]};
+  $self->notify(
+    [ 'publish', $self->messanger->{event}, encode_json( $self->messanger ) ] );
+}
 
 sub log {
   #return;
