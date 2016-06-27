@@ -257,8 +257,8 @@ sub logMessages {
   my $progress = 0;
   state $hasPublisher = $self->hasPublisher;
 
-  if($hasPublisher) {
-    return sub {
+  return sub {
+    if($hasPublisher) {
       $total += $chunkSize;
       # Can exceed total because last chunk may be over-stated in size
       if($total > $fileSize) {
@@ -269,8 +269,8 @@ sub logMessages {
 
       $self->publishProgress($progress);
     }
-  } else {
-    return {}
+
+    ## Handle statistics accumulation
   }
 }
 
