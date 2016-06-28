@@ -6,9 +6,15 @@ package MockAnnotationClass;
 use lib './lib';
 use Moose;
 use MooseX::Types::Path::Tiny qw/AbsDir/;
-extends 'Seq::Tracks';
-with 'Seq::Role::DBManager';
+extends 'Seq::Base';
+use Seq::Tracks;
 
+has tracks => (is => 'ro', required => 1);
+
+has singletonTracks => (is => 'ro', lazy => 1, default => sub{
+  my $self = shift;
+  return Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
+});
 #__PACKAGE__->meta->
 1;
 
@@ -20,7 +26,7 @@ use List::Util qw/reduce/;
 plan tests => 4;
 
 my $tracks = MockAnnotationClass->new_with_config(
-  { configfile =>'./config/hg19.lmdb.yml'}
+  { config =>'./config/hg19.lmdb.yml'}
 );
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();

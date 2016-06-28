@@ -142,13 +142,12 @@ sub BUILD {
 }
 
 #Initialize once, then use forever
+# Using an initialize method allows consumers to get an instance of Tracks
 sub initialize {
   my $self = shift;
 
-  if($self->gettersOnly) {
-    if(%$trackGetters) {
-      return;
-    }
+  if(%$trackGetters && $self->gettersOnly) {
+    return;
   }
 
   if(%$trackBuilders && %$trackGetters) {
@@ -160,12 +159,16 @@ sub initialize {
     $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
   }
 
-  if(!%$trackBuilders) {
-    $self->_buildTrackBuilders;
-  }
-
   if(!%$trackGetters) {
     $self->_buildTrackGetters;
+  }
+
+  if($self->gettersOnly) {
+    return;
+  }
+
+  if(!%$trackBuilders) {
+    $self->_buildTrackBuilders;
   }
 }
 

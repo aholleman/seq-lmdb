@@ -29,7 +29,7 @@ with 'Seq::Tracks::Region::RegionTrackPath',
 
 use DDP;
 
-# Unlike original GeneTrack, we don't remap field names 
+# Unlike original GeneTrack, we don't remap field names
 # It's easier to remember the real names than real names + our domain-specific names
 
 #can be overwritten if needed in the config file, as described in Tracks::Build
@@ -46,7 +46,6 @@ has '+features' => (
 sub BUILD {
   my $self = shift;
 
-  #normal features are mapped at build time
   # geneTxErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
   $self->getFieldDbName($self->geneTxErrorName);
@@ -67,11 +66,9 @@ sub buildTrack {
 
   my $pm = Parallel::ForkManager->new(scalar @allFiles);
   
-  # Assume one file per loop, or all sites in one file
-  # Tracks::Build warns if it looks like it may not be the case
+  # Assume one file per loop, or all sites in one file. Tracks::Build warns if not
   for my $file (@allFiles) {
-    $pm->start and next;
-
+    $pm->start($file) and next;
       my %allIdx; # a map <Hash> { featureName => columnIndexInFile}
       my %regionIdx; #like allIdx, but only for features going into the region databae
 
@@ -80,15 +77,15 @@ sub buildTrack {
       my $firstLine = <$fh>;
       chomp $firstLine;
    
-      # Store all the features we can find, hoping we have enough for packages we consume
-      # We avoid autocracy: we don't need to know every last thing consumees require; they'll complain if not
+      # Store all features we can find, for Seq::Build::Gene::TX. Avoid autocracy,
+      # don't need to know what Gene::TX requires.
       my $fieldIdx = 0;
       for my $field (split "\t", $firstLine) {
         $allIdx{$field} = $fieldIdx;
         $fieldIdx++;
       }
 
-      # Except w.r.t the chromosome field, def. need this
+      # Except w.r.t the chromosome field, definitely need this
       if( !defined $allIdx{$self->chrom_field_name} ) {
         $self->log('fatal', 'must provide chromosome field');
       }
@@ -97,7 +94,7 @@ sub buildTrack {
       REGION_FEATS: for my $field ($self->allFeatureNames) {
         if(exists $allIdx{$field} ) {
           $regionIdx{$field} = $allIdx{$field};
-          next REGION_FEATS; #label for clarity
+          next REGION_FEATS;
         }
 
         $self->log('fatal', 'Required $field missing in $file header');
@@ -117,13 +114,18 @@ sub buildTrack {
 
         my $chr = $fields[ $allIdx{$self->chrom_field_name} ];
 
-        if( ($wantedChr && $wantedChr ne $chr) || !$wantedChr ) {
+        # We may have already finished this chr, or may not have asked for it
+        if( !$self->completionMeta->okToBuild($chr) ) {
+          $self->log('info', "Have already built $chr for " . $self->name);
+          $wantedChr = undef;
+        } elsif( ($wantedChr && $wantedChr ne $chr) || !$wantedChr ) {
           $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
         }
         
         if(!$wantedChr) {
           # if not wanted, and we have one chr per file, exit
           if($chrPerFile) {
+            $self->log('info', "$chr not wanted, and 1 chr per file, skipping $file");
             last FH_LOOP;
           }
 
@@ -176,14 +178,14 @@ sub buildTrack {
 
         $allDataHref->{txNumber} = $txNumber;
 
-        push @{ $allData{$wantedChr} }, $allDataHref;
+        push @{ $allData{$wantedChr}{$txStart} }, $allDataHref;
 
         $txNumbers{$wantedChr} += 1;
       }
     
       if(!%allData) {
         #we skipped this chromosome worth of data
-        $pm->finish;
+        $pm->finish(0);
       }
 
       ############################### Make transcripts #########################
@@ -194,69 +196,113 @@ sub buildTrack {
       my $txErrorDbname = $self->getFieldDbName($self->geneTxErrorName);
 
       for my $chr (@allChrs) {
-        $pm2->start and next;
+        $pm2->start($chr) and next;
           
           my (%siteData, %sitesCoveredByTX);
 
           $self->log('info', "Starting to build transcript for $file");
 
-          for my $txData ( @{ $allData{$chr} } ) {
-            my $txNumber = $txData->{txNumber};
+          my @allTxStartsAscending = sort { $a <=> $b } keys %{ $allData{$chr} };
 
-            $self->log('info', "Starting to make transcript \#$txNumber for $chr");
+          # To save space, we need to write the mainDb data early
+          my $largestTxEnd = 0;
+          for my $txStart ( @allTxStartsAscending ) {
+            if($largestTxEnd < $txStart && %siteData) {
+              $self->log('info', "largestTxEnd is $largestTxEnd and txStart is $txStart."
+               . " Can't overlap, so writing accumulated siteData");
+              # After we;ve moved past the last covered transcript, no risk of missing an overlap,
+              # assuming all txStart > txEnd, which is the case according to
+              # http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
+              $self->_writeMainData($chr, \%siteData);
+              undef %siteData;
+            }
 
-            my $txInfo = Seq::Tracks::Gene::Build::TX->new($txData);
+            for my $txData ( @{ $allData{$chr}->{$txStart} } ) {
+              my $txNumber = $txData->{txNumber};
 
-            # Store the data # To save space, both memory and later db, store as scalar if possible
-            # uses 1/3rd the bytes in the container: http://perlmaven.com/how-much-memory-do-perl-variables-use
-            INNER: for my $pos ( keys %{$txInfo->transcriptSites} ) {
-              if(!defined $siteData{$pos} ) {
-                $siteData{$pos} = $txInfo->transcriptSites->{$pos};
-              } else {
-                # make it an array
-                if(! ref $siteData{$pos}->[0] ) { $siteData{$pos} = [ $siteData{$pos} ]; }
-                # push it!
-                push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
+              $self->log('info', "Starting to make transcript \#$txNumber for $chr");
+
+              my $txInfo = Seq::Tracks::Gene::Build::TX->new($txData);
+
+              # Store the data # To save space, both memory and later db, store as scalar if possible
+              # uses 1/3rd the bytes in the container: http://perlmaven.com/how-much-memory-do-perl-variables-use
+              INNER: for my $pos ( keys %{$txInfo->transcriptSites} ) {
+                if(!defined $siteData{$pos} ) {
+                  $siteData{$pos} = $txInfo->transcriptSites->{$pos};
+                } else {
+                  # make it an array
+                  if(! ref $siteData{$pos}->[0] ) { $siteData{$pos} = [ $siteData{$pos} ]; }
+                  # push it!
+                  push @{ $siteData{$pos} }, $txInfo->transcriptSites->{$pos};
+                }
+                
+                $sitesCoveredByTX{$pos} = 1;
               }
-              
-              $sitesCoveredByTX{$pos} = 1;
-            }
 
-            if( @{$txInfo->transcriptErrors} ) {
-              $regionData{$chr}->{$txNumber}{$txErrorDbname} = $txInfo->transcriptErrors;
-            }
+              if( @{$txInfo->transcriptErrors} ) {
+                $regionData{$chr}->{$txNumber}{$txErrorDbname} = $txInfo->transcriptErrors;
+              }
 
-            $self->log('info', "Finished making transcript \#$txNumber for $chr");
+              if($txData->{txEnd} > $largestTxEnd) {
+                $largestTxEnd = $txData->{txEnd};
+              }
+
+              $self->log('info', "Finished making transcript \#$txNumber for $chr");
+            }
           }
 
-          delete $allData{$chr};
-
-          $self->log('info', "Finished  to build transcript for $file");
+          $self->log('info', "Finished building transcripts for $file");
           
           $self->_writeRegionData( $chr, $regionData{$chr} );
-          delete $regionData{$chr};
-          
-          $self->_writeMainData( $chr, \%siteData );
-          undef %siteData;
+
+          if(%siteData) {
+            $self->_writeMainData( $chr, \%siteData );
+            undef %siteData;
+          }
 
           if(!$self->noNearestFeatures) {
             $self->_writeNearestGenes( $chr, $txStartData{$chr}, \%sitesCoveredByTX );
           }
 
-          delete $txStartData{$chr}; undef %sitesCoveredByTX; 
+          undef %sitesCoveredByTX; 
 
-        $pm2->finish;
+          # We've finished with 1 chromosome, so write that to meta to disk
+          $self->completionMeta->recordCompletion($chr);
+
+        $pm2->finish(0);
+
+        # Can only delete these outside the fork
+        delete $allData{$chr}; delete $regionData{$chr}; delete $txStartData{$chr}; 
       }
+
+      # Check exit codes for succses; 0 indicates success
+      $pm2->run_on_finish( sub {
+        my ($pid, $exitCode, $chr) = @_;
+        if(!defined $exitCode || $exitCode != 0) {
+          # Die, even though some chr may have built correctly
+          # To prevent corruption
+          $self->log('fatal', "Failed to build transcripts for $chr");
+        }
+      });
 
       $pm2->wait_all_children;
 
-    $pm->finish;
+    $pm->finish(0);
   }
+
+  my @failed;
+  # Check exit codes for succses; 0 indicates success
+  $pm->run_on_finish( sub {
+    my ($pid, $exitCode, $fileName) = @_;
+    if(!defined $exitCode || $exitCode != 0) {
+      push @failed, "Exit Code $exitCode for: $fileName";
+    }
+  });
 
   $pm->wait_all_children;
 
   #TODO: Finish, only return 0 if truly succeeded;
-  return 0;
+  return (@failed ? 255 : 0, \@failed);
 }
 
 sub _writeRegionData {
@@ -306,7 +352,6 @@ sub _writeMainData {
   my $count = 0;
 
   for my $pos ( keys %$mainDataHref ) {
-    
     if($count >= $self->commitEvery) {
       $self->dbPatchBulkArray($chr, \%out);
 
@@ -314,7 +359,6 @@ sub _writeMainData {
       $count = 0;
     }
 
-    # Let's store array only when we need to, to save space
     $out{$pos} = $self->prepareData( $mainDataHref->{$pos} );
 
     $count += 1;
