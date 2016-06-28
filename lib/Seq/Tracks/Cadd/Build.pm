@@ -162,6 +162,7 @@ sub buildTrackFromCaddOrBedFormat {
 }
 
 sub buildTrackFromHeaderlessWigFix {
+  my $self = shift;
   $self->log('fatal', "Custom wigFix format no longer allowed."
     . " Please use either CADD format, or bed-like cadd format, which should have"
     . " 2 header lines, like in a regular CADD file, with the first being"
