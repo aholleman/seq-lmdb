@@ -7,26 +7,9 @@ package Seq;
 our $VERSION = '0.001';
 
 # ABSTRACT: Annotate a snp file
-# VERSION
-
-=head1 DESCRIPTION
-
-  @class B<Seq>
-  Annotate.
-
-  @example
-
-Used in: None
-
-Extended by: None
-
-=cut
 
 use Moose 2;
-use MooseX::Types::Path::Tiny qw/AbsFile AbsPath AbsDir/;
-
-use Path::Tiny;
-use File::Temp qw/ tempdir /;
+use MooseX::Types::Path::Tiny qw/AbsFile AbsPath/;
 use namespace::autoclean;
 
 use DDP;
@@ -37,21 +20,17 @@ use MCE::Shared;
 use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
+use Seq::Tracks;
+use Seq::Genotypes;
 
 extends 'Seq::Base';
-
-use Seq::Tracks;
-
-with 'Seq::Role::Genotypes';
-
-# use Seq::Progress;
 
 has snpfile => (
   is       => 'ro',
   isa      => AbsFile,
   coerce   => 1,
   required => 1,
-  handles  => { snpfile_path => 'stringify' }
+  handles  => { inputFilePath => 'stringify' }
 );
 
 has out_file => (
@@ -59,33 +38,26 @@ has out_file => (
   isa       => AbsPath,
   coerce    => 1,
   required  => 1,
-  handles   => { output_path => 'stringify' }
+  handles   => { outputFilePath => 'stringify' }
 );
 
-# TODO: add this back
-# has ignore_unknown_chr => (
-#   is      => 'ro',
-#   isa     => 'Bool',
-#   default => 1,
-#   lazy => 1,
-# );
-
-#we also add a few of our own annotation attributes
-#these will be re-used in the body of the annotation processor below
+# We also add a few of our own annotation attributes
+# These will be re-used in the body of the annotation processor below
 my $heterozygousIdsKey = 'heterozygotes';
 my $compoundIdsKey = 'compoundHeterozygotes';
 my $homozygousIdsKey = 'homozygotes';
 
-#knows about the snp file headers
+############# Private variables used by this package ###############
+# Reads headers of input file, checks if it is in an ok format
 my $inputFileProcessor = Seq::InputFile->new();
 
-#handles creation of our output strings
+# Creates the output file
 my $outputter = Seq::Output->new();
 
-#reused in annotation body, need to be set after reading first line
-#of input file
-#These are filled after the first line of the input is read; before that we
-#don't know which file type we have
+# Handles figuring out genotype issues
+my $genotypes = Seq::Genotypes->new();
+
+# Names and indices of input fields that will be added as the first few output fields
 my $chrFieldIdx;
 my $referenceFieldIdx;
 my $positionFieldIdx;
@@ -97,19 +69,25 @@ my $positionFieldName;
 my $alleleFieldName;
 my $typeFieldName;
 
+# We will get the individual genotypes of samples, and therefore need to know
+# Their indices
 my $sampleIDsToIndexesMap;
+
+# Store the names of the samples
 my $sampleIDaref;
 
+# Reference track and all other track getters. Reference is separate because
+# It is used to calculate discordant bases, and because we pass its reference
+# base to all other getters, because we don't rely on the input file reference base
 my $refTrackGetter;
 my $trackGettersExceptReference;
 
+# We may want to log progress. So we'll stat the file, and chunk the input into N bytes
 my $fileSize;
 my $chunkSize;
-#our only required value: the tracks configuration (typically from YAML)
-has tracks => (
-  is => 'ro',
-  required => 1,
-);
+
+# The track configuration array reference. The only required value: the tracks configuration (typically from YAML)
+has tracks => ( is => 'ro', isa => 'ArrayRef[HashRef]', required => 1, );
 
 sub BUILD {
   my $self = shift;
@@ -146,7 +124,7 @@ sub annotate_snpfile {
   
   my $fh;
 
-  ($fileSize, $fh) = $self->get_read_fh($self->snpfile_path);
+  ($fileSize, $fh) = $self->get_read_fh($self->inputFilePath);
     
   my $taint_check_regex = $self->taint_check_regex; 
   my $endOfLineChar = $self->endOfLineChar;
@@ -191,7 +169,7 @@ sub annotate_snpfile {
     $self->log('fatal', "First line of input file has illegal characters");
   }
 
-  my $outFh = $self->get_write_fh( $self->output_path );
+  my $outFh = $self->get_write_fh( $self->outputFilePath );
   
   #write header to file
   say $outFh $headers->getString();
@@ -200,7 +178,7 @@ sub annotate_snpfile {
   my $a = MCE::Loop::init {
     #slurpio is optimized with auto chunk
     chunk_size => 'auto',
-    max_workers => 64,
+    max_workers => 32,
     use_slurpio => 1,
     gather => $self->logMessages(),
     #doesn't seem to improve performance
@@ -226,28 +204,33 @@ sub annotate_snpfile {
     open my $MEM_FH, '<', $slurp_ref;
     binmode $MEM_FH, ':raw';
 
-    while (<$MEM_FH>) {
-    if (/$taint_check_regex/) {
-      chomp;
-      my $line = [ split $delimiter, $_ ];
+    while ( <$MEM_FH>) {
+      if (/$taint_check_regex/) {
+        chomp;
+        my @fields = split $delimiter, $_;
 
-      if ( !$refTrackGetter->chrIsWanted($line->[0] ) ) {
-        next;
-      }
-      #check conditions separately, becaues faster
-      if($line->[$typeFieldIdx] =~ "LOW" || $line->[$typeFieldIdx] =~ "MESS") {
-        next;
-      }
+        if ( !$refTrackGetter->chrIsWanted($fields[0] ) ) {
+          $self->log('info', "Didn't recognize $fields[0], skipping");
+          next;
+        }
 
-      push @lines, $line;
-    }
+        # Don't annotate unreliable sites, no need to notify user, standard behavior
+        if($fields[$typeFieldIdx] =~ "LOW" || $fields[$typeFieldIdx] =~ "MESS") {
+          next;
+        }
+
+        push @lines, \@fields;
+      }
     }
     close  $MEM_FH;
 
-    #write to file
+    # annotateLines annotates N lines, writes them to disk
+    # TODO: decide whether to return statistics from here, or use MCE::Shared
     $self->annotateLines(\@lines, $outFh);
+
+    # Accumulate statistics and write progress
+    # 1 is a placedholder for some statistics hash reference
     MCE->gather(1);
-    #MCE->print($outFh, $self->annotateLines(\@lines) );
   } $fh;
 }
 
@@ -274,7 +257,7 @@ sub logMessages {
   }
 }
 
-#Accumulates data from the database, then returns an output string
+# Accumulates data from the database, and writes an output string
 sub annotateLines {
   my ($self, $linesAref, $outFh) = @_;
 
@@ -363,9 +346,9 @@ sub finishAnnotatingLines {
   my ($self, $chr, $dataFromDbAref, $inputAref, $positionsAref, $outAref) = @_;
 
   state $refTrackName = $refTrackGetter->name;
+  # Cache $alleles
   state $cached;
-  #note, that if dataFromDbRef, and inputAref contain different numbers
-  #of records, that is evidence of a programmatic bug
+
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
@@ -376,47 +359,32 @@ sub finishAnnotatingLines {
 
     my $givenRef = $inputAref->[$i][$referenceFieldIdx];
 
-    #TODO: figure out if we should actually output a line for this case
-    if( $outAref->[$i]{$refTrackName} eq 'N') {
-      $self->log('warn', "Reference is 'N' in this assembly. You may have chosen the wrong assembly.");
-      next;
-    }
-
     if( $outAref->[$i]{$refTrackName} ne $givenRef) {
       $self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
     }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
-    #$cached->{genotype}->{$reference} = $minorAllele
-    my $allelesAref;
-    
-    if(defined $cached->{$givenRef}->{ $inputAref->[$i][$alleleFieldIdx] } ) {
-      $allelesAref = $cached->{$givenRef} ->{ $inputAref->[$i][$alleleFieldIdx] };
-    } else {
+    if(!defined $cached->{$givenRef}->{ $inputAref->[$i][$alleleFieldIdx] } ) {
+      my @alleles;
       for my $allele ( split(',', $inputAref->[$i][$alleleFieldIdx] ) ) {
         if($allele ne $givenRef) {
-          push @$allelesAref, $allele;
+          push @alleles, $allele;
         }
       }
 
-      if(@$allelesAref == 1) {
-        $allelesAref = $allelesAref->[0];
+      if(@alleles == 1) {
+        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = $alleles[0];
+      } else {
+        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = \@alleles;
       }
-
-      $cached->{$givenRef} ->{ $inputAref->[$i][$alleleFieldIdx] } = $allelesAref;
     }
-
+ 
     ############### Gather all track data (besides reference) #################
-
-    #Note: the output order does not matter for any single $i
-    #Ordering is handled by Output.pm
-
-    #some tracks may also want the alternative alleles, so give those as last arg
-    #example: cadd track needs this
     foreach(@$trackGettersExceptReference) {
-      #we pass: dataFromDatabase, chromosome, position, real reference, alleles
-      $outAref->[$i]->{$_->name} = $_->get($dataFromDbAref->[$i], $chr, 
-        $positionsAref->[$i], $outAref->[$i]{$refTrackName}, $allelesAref) 
+      # Pass: dataFromDatabase, chromosome, position, real reference, alleles
+      $outAref->[$i]->{$_->name} = $_->get(
+        $dataFromDbAref->[$i], $chr, $positionsAref->[$i], $outAref->[$i]{$refTrackName},
+        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } );
     };
 
     ############# Store chr, position, alleles, type ###############
@@ -434,13 +402,13 @@ sub finishAnnotatingLines {
         next SAMPLE_LOOP;
       }
 
-      if ( $self->isHet($geno) ) {
+      if ( $genotypes->isHet($geno) ) {
         $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
 
-        if( $self->isCompoundHeterozygote($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
+        if( $genotypes->isCompoundHet($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
           $outAref->[$i]{$compoundIdsKey} .= "$id;";
         }
-      } elsif( $self->isHomo($geno) ){
+      } elsif( $genotypes->isHom($geno) ) {
         $outAref->[$i]{$homozygousIdsKey} .= "$id;";
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );

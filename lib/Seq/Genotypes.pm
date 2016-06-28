@@ -1,4 +1,4 @@
-package Seq::Role::Genotypes;
+package Seq::Genotypes;
 
 our $VERSION = '0.001';
 
@@ -8,12 +8,30 @@ our $VERSION = '0.001';
 use strict;
 use warnings;
 use 5.10.0;
-use Moose::Role;
+
+use Moose 2;
 use namespace::autoclean;
 
 # the genotype codes below are based on the IUPAC ambiguity codes with the notable
 #   exception of the indel codes that are specified in the snpfile specifications
 # no type checks to avoid constraint checks at inclusion time
+state $iupac = {
+  A => 'A',
+  C => 'C',
+  G => 'G',
+  T => 'T',
+  D => '-',
+  I => '+',
+  R => 'AG',
+  Y => 'CT',
+  S => 'GC',
+  W => 'AT',
+  K => 'GT',
+  M => 'AC',
+  E => '-*',
+  H => '+*'
+};
+
 has iupac => (
   is      => 'ro',
   traits  => ['Hash'],
@@ -24,7 +42,7 @@ has iupac => (
   },
   init_arg => undef,
   lazy     => 1,
-  builder  => '_buildIUPAC',
+  default => sub {$iupac},
 );
 
 # _buildIUPAC retruns a hashref of genotyping codes and corresponding nucleic
@@ -35,68 +53,51 @@ has iupac => (
 #shold we chose to check by length of genotype
 #also thinking about benefit of including AA => A, CC => C, etc in _buildIUPAC
 sub _buildIUPAC {
-  return {
-    A => 'A',
-    C => 'C',
-    G => 'G',
-    T => 'T',
-    D => '-',
-    I => '+',
-    R => 'AG',
-    Y => 'CT',
-    S => 'GC',
-    W => 'AT',
-    K => 'GT',
-    M => 'AC',
-    E => '-*',
-    H => '+*'
-  };
+  return ;
 }
 
 #can also do this with ArrayRef and first_index, not sure which is faster
 has hetGenos => (
   is      => 'ro',
   traits  => ['Hash'],
+  isa => 'HashRef',
   handles => { isHet => 'exists' },
   lazy    => 1,
-  default => sub {
-    {
-      K => 1,
-      M => 1,
-      R => 1,
-      S => 1,
-      W => 1,
-      Y => 1,
-      E => 1,
-      H => 1,
-    };
-  },
+  default => sub { return {
+    K => 1,
+    M => 1,
+    R => 1,
+    S => 1,
+    W => 1,
+    Y => 1,
+    E => 1,
+    H => 1,
+  } },
   init_arg => undef,
 );
 
 has homGenos => (
   is      => 'ro',
+  isa => 'HashRef',
   traits  => ['Hash'],
-  handles => { isHomo => 'exists', },
+  handles => { isHom => 'exists', },
   lazy    => 1,
-  default => sub {
-    {
-      A => 1,
-      C => 1,
-      G => 1,
-      T => 1,
-      D => 1,
-      I => 1,
-    };
-  },
+  default => sub { return {
+    A => 1,
+    C => 1,
+    G => 1,
+    T => 1,
+    D => 1,
+    I => 1,
+  } },
   init_arg => undef,
 );
-#an alternative way to look for homozygote vs heterozygote:
-# sub deconvAlleleCount {
-#   my ($self, $geno) = @_;
-#   if(length($self->getGeno($geno) ) == 1) { return 2; }
-#   return 1;
-# }
+
+sub BUILD {
+  # Trigger the lazy stuff, so that threads can get these memoized
+  # $_[0] == $self
+  $_[0]->getGeno('A'); $_[0]->isHet('A'); $_[0]->isHom('A');
+}
 
 #@param {Str} $geno1 : deconvoluted genotype, iupac geno, or another genotype-like string
 #@param {Str} $geno2 : ""
@@ -158,11 +159,12 @@ sub genosContained {
 }
 
 #checks whether a genotype is a compound het
-sub isCompoundHeterozygote {
+sub isCompoundHet {
   #my ( $self, $iupacGenotype, $referenceBase ) = @_;
   #$_[1] == $iupacGenotype;
   #$_[2] == $referenceBase;
   return index($_[0]->iupac->{ $_[1] }, $_[2]) == -1;
 }
-no Moose::Role;
+
+__PACKAGE__->meta->make_immutable;
 1;
