@@ -39,7 +39,7 @@ sub buildTrack {
 
   if( index($fh->getline(), '## CADD') > - 1) {
     close $fh;
-    goto &buildTrackFromCaddFormat;
+    goto &buildTrackFromCaddOrBedFormat;
   }
 
   goto &buildTrackFromHeaderlessWigFix;

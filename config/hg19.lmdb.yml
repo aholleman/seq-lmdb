@@ -248,8 +248,8 @@ tracks:
 - name: cadd
   type: cadd
   local_files:
-    #- whole_genome_SNVs.tsv
-    - whole_genome_SNVs.chr22.tsv
+    - whole_genome_SNVs.tsv
+    # - whole_genome_SNVs.tsv.chr22.gz
 - name: snp142
   type: sparse
   features:
