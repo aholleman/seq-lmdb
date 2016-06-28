@@ -116,8 +116,7 @@ sub annotate_snpfile {
   $self->log( 'info', 'Beginning annotation' );
 
   # Set the lmdb database to read only, remove locking
-  # We MUST make sure everything is written to the database by this point,
-  # including any meta fields
+  # We MUST make sure everything is written to the database by this point
   $self->setDbReadOnly(1);
 
   my $headers = Seq::Headers->new();
@@ -130,8 +129,7 @@ sub annotate_snpfile {
   my $endOfLineChar = $self->endOfLineChar;
   my $delimiter = $self->delimiter;
 
-  #first line is header
-  #strip it from the file, and write it to disk
+  # Get the header fields we want in the output, and print the header to the output
   my $firstLine = <$fh>;
 
   chomp $firstLine;
@@ -140,8 +138,6 @@ sub annotate_snpfile {
 
     $inputFileProcessor->checkInputFileHeader($firstLine);
 
-    #fill after checking input headers, because before then we don't know
-    #what kind of file we're reading
     $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
     $referenceFieldIdx = $inputFileProcessor->referenceFieldIdx;
     $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
@@ -153,16 +149,15 @@ sub annotate_snpfile {
     $alleleFieldName = $inputFileProcessor->alleleFieldName;
     $typeFieldName = $inputFileProcessor->typeFieldName;
 
-    #1 means prepend
+    # Add these input fields to the output header record
     $headers->addFeaturesToHeader( [$chrFieldName, $positionFieldName, $alleleFieldName,
       $typeFieldName, $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
 
-    #outputter needs to know which fields we're going to want to writer
+    # Outputter needs to know which fields we're going to pass to it
     $outputter->setOutputDataFieldsWanted( $headers->get() );
 
     $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
 
-    # save list of ids within the snpfile
     $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
 
   } else {
@@ -171,10 +166,10 @@ sub annotate_snpfile {
 
   my $outFh = $self->get_write_fh( $self->outputFilePath );
   
-  #write header to file
+  # Write the header
   say $outFh $headers->getString();
 
-  #initialize our parallel engine; re-uses forks
+  # Initialize our parallel processes; re-uses forked processes
   my $a = MCE::Loop::init {
     #slurpio is optimized with auto chunk
     chunk_size => 'auto',
@@ -183,10 +178,11 @@ sub annotate_snpfile {
     gather => $self->logMessages(),
     #doesn't seem to improve performance
     #and apparently slow on shared storage
-    # parallel_io => 1,
+    parallel_io => 1,
   };
 
-  # To avoid this ugliness could use MCE::Loop core api
+  # We need to know the chunk size, and only way to do that 
+  # Is to get it from within one worker, unless we use MCE::Core interface
   my $m1 = MCE::Mutex->new;
   tie $chunkSize, 'MCE::Shared', 0;
 
