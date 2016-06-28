@@ -144,17 +144,15 @@ sub split {
   $wantedTrackConfigHref->{local_files} = [];
 
   for my $chr (@allChrs) {
-    my $fh = $self->get_read_fh($fullPath);
-
     my $outPathChrBase = "$outPathBase.$chr$ext";
 
-    # Get the outPath outside fork so that we can store in $self->config
-    # If the splitting process finishes
-    my $outPath = path($filesDir)->child($wantedTrackConfigHref->{name})
-    ->child($outPathChrBase)->stringify;
-
     $pm->start([$chr, $outPathChrBase]) and next;
+      my $outPath = path($filesDir)->child($wantedTrackConfigHref->{name})
+        ->child($outPathChrBase)->stringify;
+
       my $outFh = $self->get_write_fh($outPath);
+
+      my $fh = $self->get_read_fh($fullPath);
 
       while(<$fh>) {
         chomp $_;
