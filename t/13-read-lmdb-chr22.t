@@ -259,6 +259,12 @@ $phyloPval = $phyloPTrack->get($dataAref);
 p $dataAref;
 ok($phyloPval == $rounder->round(-1.937), "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 
+
+$dataAref = $tracks->dbRead('chr22', 51244032 - 1);
+$phyloPval = $phyloPTrack->get($dataAref);
+say "showing data for 51244032";
+p $dataAref;
+ok($phyloPval == $rounder->round(.104), "phyloP track ok at chr22:51244032 (last phyloP entry)");
 ##snp testing
 say "Starting snp testing";
 $dataAref = $tracks->dbRead('chr22', 16050074);
@@ -291,9 +297,10 @@ for my $data (@$dataAref) {
 }
 
 #end of chr22 snp142 file
-$dataAref = $tracks->dbRead('chr22', 51244514 );
+$dataAref = $tracks->dbRead('chr22', 51244514);
 $snpValHref = $snpTrack->get($dataAref);
 $rsNumber = $snpValHref->{name};
+say "showing data for chr22:51244514";
 p $dataAref;
 ok($rsNumber eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
 
