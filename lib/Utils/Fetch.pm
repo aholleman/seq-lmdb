@@ -45,7 +45,10 @@ sub _fetchFromUCSCsql {
   
   my $sqlStatement = $self->_wantedTrack->{sql_statement};
 
-  my $featuresIdx = index($sqlStatement, 'features');
+  # What features are called according to our YAML config spec
+  my $featuresKey = 'features';
+
+  my $featuresIdx = index($sqlStatement, $featuresKey);
   my $asteriskIdx = index($sqlStatement, '*');
 
   if($asteriskIdx > -1 && $featuresIdx > -1) {
@@ -63,7 +66,8 @@ sub _fetchFromUCSCsql {
 
     my $trackFeatures;
     foreach(@{$self->_wantedTrack->{features}}) {
-      # YAML config spec defines optional type on feature names
+      # YAML config spec defines optional type on feature names, so some features
+      # Can be hashes. Take only the feature name, ignore type, UCSC doesn't use them
       my $featureName;
       
       if(ref $_) {
@@ -77,7 +81,7 @@ sub _fetchFromUCSCsql {
 
     chop $trackFeatures;
 
-    substr($sqlStatement, $featuresIdx, length('features') ) = $trackFeatures;
+    substr($sqlStatement, $featuresIdx, length($featuresKey) ) = $trackFeatures;
   }
 
   my $sqlWriter = Utils::SqlWriter->new({
@@ -119,19 +123,23 @@ sub _fetchFiles {
 
   my $remoteDir = $2;
 
-  my $compressArg = $self->compress ? 'z' : '';
+  # -a explanation: http://serverfault.com/questions/141773/what-is-archive-mode-in-rsync
+  my $args = '-a' . ($self->compress ? 'z' : '') . ($self->debug ? ' --progress' : '') 
+    . ' --ignore-existing';
+
+  $self->log('debug', "rsync args are $args");
+
+  my $outPath = $self->_localFilesDir;
 
   $self->_wantedTrack->{local_files} = [];
 
   for my $file ( @{$self->_wantedTrack->{remote_files}} ) {
-    my $outPath = path($self->_localFilesDir)->child($file)->stringify;
-
     $self->log('debug', "outPath is $outPath");
 
     my $remotePath = path($remoteDir)->child($file)->stringify;
 
     # Always outputs verbose, capture the arguments
-    my $command = "$rsync -avp$compressArg rsync://$remotePath";
+    my $command = "$rsync $args rsync://$remotePath $outPath";
 
     $self->log('info', "rsync cmd: " . $command );
 
@@ -140,6 +148,7 @@ sub _fetchFiles {
 
     my $progress;
     while(<$fh>) {
+      if($self->debug) { say $_ } # we may want to watch progress in stdout
       $self->log('info', $_);
     }
     close($fh);
