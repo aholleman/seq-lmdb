@@ -16,6 +16,7 @@ extends 'Utils::Base';
 use namespace::autoclean;
 use File::Which qw(which);
 use Path::Tiny;
+use YAML::XS qw/Dump/;
 
 use Utils::SqlWriter;
 use DDP;

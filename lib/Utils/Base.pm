@@ -69,9 +69,11 @@ has _decodedConfig => ( is => 'ro', isa => 'HashRef', lazy => 1, default => sub 
 has _localFilesDir => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
   my $self = shift;
   my $dir = path($self->_decodedConfig->{files_dir})->child($self->_wantedTrack->{name});
+  
   if(!$dir->exists) {
     $dir->mkpath;
   }
+  
   return $dir->stringify;
 });
 
