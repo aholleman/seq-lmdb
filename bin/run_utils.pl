@@ -79,14 +79,11 @@ my %options = (
 if($split) {
   my $splitter = Utils::Split->new(\%options);
   $splitter->split();
-
-  $options{config} = $splitter->getUpdatedConfigPath();
 }
 
 if($fetch) {
-  my $fetcher = Utils::Fetch->new(\%options); # TODO: make it!
-
-  $options{config} = $fetcher->getUpdatedConfigPath();
+  my $fetcher = Utils::Fetch->new(\%options);
+  $fetcher->fetch();
 }
 
 #say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';

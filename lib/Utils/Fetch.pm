@@ -21,8 +21,8 @@ use YAML::XS qw/Dump/;
 use Utils::SqlWriter;
 use DDP;
 
-########################## The main program  ######################
-sub BUILD {
+########################## The only public export  ######################
+sub fetch {
   my $self = shift;
 
   if(defined $self->_wantedTrack->{remote_files} && defined $self->_wantedTrack->{remote_dir}) {
@@ -98,11 +98,7 @@ sub _fetchFromUCSCsql {
 
   $self->_wantedTrack->{local_files} = \@writtenFileNames;
 
-  open(my $fh, '>', $self->_newConfigPath);
-
-  say $fh Dump($self->_decodedConfig);
-
-  $self->_setUpdatedConfig($self->_newConfigPath);
+  $self->_backupAndWriteConfig();
 
   $self->log('info', "Finished fetching data from sql");
 }
@@ -165,11 +161,7 @@ sub _fetchFiles {
     sleep 3;
   }
 
-  open(my $fh, '>', $self->_newConfigPath);
-
-  say $fh Dump($self->_decodedConfig);
-
-  $self->_setUpdatedConfig($self->_newConfigPath);
+  $self->_backupAndWriteConfig();
 
   $self->log('info', "Finished fetching all remote files");
 }

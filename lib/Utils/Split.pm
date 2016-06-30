@@ -102,15 +102,7 @@ sub split {
 
   $pm->wait_all_children;
 
-  # Save a new config object
-  my $newConfigPath = substr($self->config, 0, rindex($self->config,'.') ) . '.split'
-    . substr($self->config, rindex($self->config,'.') );
-
-  open(my $fh, '>', $newConfigPath);
-
-  say $fh Dump($self->_decodedConfig);
-
-  $self->_setConfig($newConfigPath);
+  $self->_backupAndWriteConfig();
 }
 
 __PACKAGE__->meta->make_immutable;
