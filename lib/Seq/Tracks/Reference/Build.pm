@@ -29,7 +29,7 @@ sub buildTrack {
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
   my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
-  
+
   for my $file ( $self->allLocalFiles ) {
     # Expects 1 chr per file for n+1 files, or all chr in 1 file
     # Single writer to reduce copy-on-write db inflation

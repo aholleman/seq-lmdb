@@ -239,8 +239,6 @@ sub dbPatchHash {
     $self->log('fatal', "dbPatch requires a 1-element hash of a hash");
   }
 
-  say "chr is $chr in dbPatchHash";
-
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
@@ -271,6 +269,7 @@ sub dbPatchHash {
       # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
       if($overwrite == 1) { $dataHref->{$trackIndex} = merge $href, $dataHref; }
     }
+
     $dataHref->{'something'} = 1;
 
     $href->{$trackIndex} = $trackValue;
@@ -285,70 +284,6 @@ sub dbPatchHash {
   
   #Then write the new data, re-using the stack for efficiency
   goto &dbPut;
-}
-
-# Write database entries in bulk
-# Expects one track per call ; each posHref should have {pos => {trackName => trackData} }
-# @param <HashRef> $posHref : form of {pos => {trackName => trackData} }, modified in place
-sub dbPatchBulkHash {
-  my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
-    
-  my $db = $self->_getDbi($chr);
-  my $dbi = $db->{dbi}; 
-  #separate read and write transacions, hopefully helps with db inflation due to locks
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
-  #https://ideone.com/Y0C4tX
-  my $overwrite = $overrideOverwrite || $self->overwrite;
-
-  for my $pos ( keys %$posHref ) {
-    if(ref $posHref->{$pos} ne 'HASH') {
-      $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
-    }
-
-    my ($trackIndex) = %{ $posHref->{$pos} };
-    
-    my $json; #zero-copy
-    $txn->get($dbi, $pos, $json);
-
-    #trigger this only if json isn't found, save on many if calls
-    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
-    }
-
-    if($json) {
-      #can't modify $json, read-only value, from memory map
-      my $href = $mp->unpack($json);
-
-      if(defined $href->{$trackIndex} && !$overwrite) {
-        #skip this position (we pass posHref to dbPutBulk)
-        delete $posHref->{$pos};
-        next;
-      }
-
-      if($overwrite == 1) {
-        $posHref->{$pos} = merge( $href, $posHref->{$pos} );
-        next;
-      }
-
-      #overwrite > 1
-      $href->{$trackIndex} = $posHref->{$pos}{$trackIndex};
-      #this works because it modifies the stack's reference
-      $posHref->{$pos} = $href;
-      next;
-    }
-
-    #posHref is unchanged, we write it as is
-    next;
-  }
-
-  $txn->commit();
-
-  #reset the class error variable
-  $LMDB_File::last_err = 0;
-
-  #Then write the new data, re-using the stack for efficiency
-  goto &dbPutBulk;
 }
 
 sub dbPatchBulkArray {
@@ -555,6 +490,70 @@ no Moose::Role;
 
 1;
 
+########### hash-based method ##############
+# Write database entries in bulk
+# Expects one track per call ; each posHref should have {pos => {trackName => trackData} }
+# @param <HashRef> $posHref : form of {pos => {trackName => trackData} }, modified in place
+# sub dbPatchBulkHash {
+#   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
+    
+#   my $db = $self->_getDbi($chr);
+#   my $dbi = $db->{dbi}; 
+#   #separate read and write transacions, hopefully helps with db inflation due to locks
+#   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+#   #https://ideone.com/Y0C4tX
+#   my $overwrite = $overrideOverwrite || $self->overwrite;
+
+#   for my $pos ( keys %$posHref ) {
+#     if(ref $posHref->{$pos} ne 'HASH') {
+#       $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
+#     }
+
+#     my ($trackIndex) = %{ $posHref->{$pos} };
+    
+#     my $json; #zero-copy
+#     $txn->get($dbi, $pos, $json);
+
+#     #trigger this only if json isn't found, save on many if calls
+#     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+#       $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
+#     }
+
+#     if($json) {
+#       #can't modify $json, read-only value, from memory map
+#       my $href = $mp->unpack($json);
+
+#       if(defined $href->{$trackIndex} && !$overwrite) {
+#         #skip this position (we pass posHref to dbPutBulk)
+#         delete $posHref->{$pos};
+#         next;
+#       }
+
+#       if($overwrite == 1) {
+#         $posHref->{$pos} = merge( $href, $posHref->{$pos} );
+#         next;
+#       }
+
+#       #overwrite > 1
+#       $href->{$trackIndex} = $posHref->{$pos}{$trackIndex};
+#       #this works because it modifies the stack's reference
+#       $posHref->{$pos} = $href;
+#       next;
+#     }
+
+#     #posHref is unchanged, we write it as is
+#     next;
+#   }
+
+#   $txn->commit();
+
+#   #reset the class error variable
+#   $LMDB_File::last_err = 0;
+
+#   #Then write the new data, re-using the stack for efficiency
+#   goto &dbPutBulk;
+# }
 
 ### WIP NOT USED CURRENTLY ####
 # Potentially valuable numerical approach to dbReadAll

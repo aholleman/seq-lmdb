@@ -19,21 +19,9 @@ use Seq::Tracks::Base::MapTrackNames;
 #exports TrackType, DataTypes    # exports db* methods
 with 'Seq::Tracks::Base::Types', 'Seq::Role::DBManager';
 
+###################### Required Arguments ############################
 # the track name
 has name => ( is => 'ro', isa => 'Str', required => 1);
-
-# Exports getFieldName and getFieldDbName , requires name
-# TODO: move this to a class instead of role
-with 'Seq::Tracks::Base::MapFieldNames';
-
-# Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
-has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
-
-# Some tracks may have a nearest property; these are stored as their own track, but
-# conceptually are a sub-track, 
-has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
-
-has nearestDbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setNearestDbName', default => -9, );
 
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
@@ -52,6 +40,11 @@ has genome_chrs => (
   required => 1,
 );
 
+# Exports getFieldName and getFieldDbName , requires name
+# TODO: move this to a class instead of role
+with 'Seq::Tracks::Base::MapFieldNames';
+
+################# Optional arguments ####################
 has wantedChr => (
   is => 'ro',
   isa => 'Maybe[Str]',
@@ -103,6 +96,17 @@ has nearest => (
   default => sub{ [] },
 );
 
+################# Public Exports ##########################
+# Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
+has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
+
+# Some tracks may have a nearest property; these are stored as their own track, but
+# conceptually are a sub-track, 
+has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
+
+has nearestDbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setNearestDbName', default => -9, );
+
+#### Initialize / make dbnames for features and tracks before forking occurs ###
 sub BUILD {
   my $self = shift;
 
@@ -141,6 +145,7 @@ sub BUILD {
   }
 }
 
+############ Argument configuration to meet YAML config spec ###################
 
 # Expects a hash, will crash and burn if it doesn't
 around BUILDARGS => sub {

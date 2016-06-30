@@ -37,7 +37,7 @@ has completionMeta => (
 
 ########## Arguments taken from YAML config file or passed some other way ##############
 
-has files_dir => ( is => 'ro', isa => AbsDir, coerce => 1 );
+has files_dir => ( is => 'ro', isa => AbsDir, coerce => 1, required => 1 );
 
 has local_files => (
   is      => 'ro',
@@ -47,8 +47,7 @@ has local_files => (
     noLocalFiles => 'is_empty',
     allLocalFiles => 'elements',
   },
-  default => sub { [] },
-  lazy    => 1,
+  required => 1,
 );
 
 #called based because that's what UCSC calls it
