@@ -185,6 +185,11 @@ sudo make install
 cpan install Redis::hiredis
 ```
 
+If you want to fetch remote files (Utils::Fetch):
+```
+cpan install DBI
+cpan install DBD::mysql
+```
 3. SeqAnt comes with a number of pre-specified genome assemblies in the `./config` 
 directory.
 

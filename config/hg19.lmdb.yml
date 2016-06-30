@@ -1,4 +1,5 @@
 ---
+assembly: hg19
 genome_chrs:
 - chr1
 - chr2
@@ -25,14 +26,12 @@ genome_chrs:
 - chrM
 - chrX
 - chrY
-genome_description: human
-genome_name: hg19 
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
 output_order:
     - hg19
     - gene
-    - snp142
+    - snp146
     - clinvar
     - cadd
     - phastCons
@@ -250,7 +249,7 @@ tracks:
   local_files:
     - whole_genome_SNVs.tsv
     # - whole_genome_SNVs.tsv.chr22.gz
-- name: snp142
+- name: snp146
   type: sparse
   features:
     - name
@@ -262,33 +261,7 @@ tracks:
     - alleles
     - alleleNs: int
     - alleleFreqs: float
-  local_files:
-    - hg19.snp142.chr1.txt
-    - hg19.snp142.chr2.txt
-    - hg19.snp142.chr3.txt
-    - hg19.snp142.chr4.txt
-    - hg19.snp142.chr5.txt
-    - hg19.snp142.chr6.txt
-    - hg19.snp142.chr7.txt
-    - hg19.snp142.chr8.txt
-    - hg19.snp142.chr9.txt
-    - hg19.snp142.chr10.txt
-    - hg19.snp142.chr11.txt
-    - hg19.snp142.chr12.txt
-    - hg19.snp142.chr13.txt
-    - hg19.snp142.chr14.txt
-    - hg19.snp142.chr15.txt
-    - hg19.snp142.chr16.txt
-    - hg19.snp142.chr17.txt
-    - hg19.snp142.chr18.txt
-    - hg19.snp142.chr19.txt
-    - hg19.snp142.chr20.txt
-    - hg19.snp142.chr21.txt
-    - hg19.snp142.chr22.txt
-    - hg19.snp142.chrX.txt
-    - hg19.snp142.chrM.txt
-    - hg19.snp142.chrY.txt
-  sql_statement: SELECT features FROM hg19.snp142
+  sql_statement: SELECT features FROM hg19.snp146
 - name: clinvar
   type: sparse
   features:

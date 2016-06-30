@@ -260,7 +260,7 @@ p $dataAref;
 ok($phyloPval == $rounder->round(-1.937), "phyloP track ok at chr22:@{[51239213 + 22 - 1]}");
 
 
-$dataAref = $tracks->dbRead('chr22', 51244032 - 1);
+$dataAref = $tracks->dbRead('chr22', 51244031 - 1);
 $phyloPval = $phyloPTrack->get($dataAref);
 say "showing data for 51244032";
 p $dataAref;

@@ -11,6 +11,7 @@ use Path::Tiny qw/path/;
 use Pod::Usage;
 
 use Utils::Split;
+use Utils::Fetch;
 
 use DDP;
 
@@ -25,7 +26,7 @@ my (
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
-  'n|name=s'     => \$wantedName,
+  'n|track_name=s'     => \$wantedName,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
@@ -72,7 +73,7 @@ my %options = (
   logPath      => $logPath,
   overwrite    => $overwrite || 0,
 );
-  
+
 # If user wants to split their local files, needs to happen before we build
 # So that the YAML config file has a chance to update
 if($split) {
@@ -83,7 +84,9 @@ if($split) {
 }
 
 if($fetch) {
-  my $fetcher = 1; # TODO: make it!
+  my $fetcher = Utils::Fetch->new(\%options); # TODO: make it!
+
+  $options{config} = $fetcher->getUpdatedConfigPath();
 }
 
 #say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
@@ -93,29 +96,27 @@ __END__
 
 =head1 NAME
 
-build_genome_assembly - builds a binary genome assembly
+run_utils - Runs items in lib/Utils
 
 =head1 SYNOPSIS
 
-build_genome_assembly
+run_utils
   --config <file>
-  --type <'genome', 'conserv', 'transcript_db', 'snp_db', 'gene_db'>
-  [ --wanted_chr ]
+  --compress
+  --track_name
+  [--debug]
 
 =head1 DESCRIPTION
 
-C<build_genome_assembly.pl> takes a yaml configuration file and reads raw genomic
-data that has been previously downloaded into the 'raw' folder to create the binary
-index of the genome and assocated annotations in the mongodb instance.
+C<run_utils.pl> Lets you run utility functions in lib/Utils
 
 =head1 OPTIONS
 
 =over 8
 
-=item B<-t>, B<--type>
+=item B<-t>, B<--compress>
 
-Type: A general command to start building; genome, conserv, transcript_db, gene_db
-or snp_db.
+Flag to compress output files
 
 =item B<-c>, B<--config>
 
@@ -123,16 +124,15 @@ Config: A YAML genome assembly configuration file that specifies the various
 tracks and data associated with the assembly. This is the same file that is
 used by the Seq Package to annotate snpfiles.
 
-=item B<-w>, B<--wanted_chr>
+=item B<-w>, B<--track_name>
 
-Wanted_chr: chromosome to build, if building gene or snp; will build all if not
-specified.
+track_name: The name of the track in the YAML config file
 
 =back
 
 =head1 AUTHOR
 
-Thomas Wingo
+Alex Kotlar
 
 =head1 SEE ALSO
 

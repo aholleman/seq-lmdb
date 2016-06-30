@@ -19,7 +19,7 @@ with 'Seq::Role::ConfigFromFile',
 #exports all the methods prefaced with db* like dbGet
 'Seq::Role::DBManager';
 
-has messanger => (
+has publisherMessageBase => (
   is => 'ro',
   isa => 'Maybe[HashRef]',
   lazy => 1,
@@ -60,8 +60,8 @@ sub BUILD {
   #needs to be initialized before dbmanager can be used
   $self->setDbPath( $self->database_dir );
 
-  if($self->messanger && $self->publisherAddress) {
-    $self->setPublisher($self->messanger, $self->publisherAddress);
+  if($self->publisherMessageBase && $self->publisherAddress) {
+    $self->setPublisher($self->publisherMessageBase, $self->publisherAddress);
   }
 
   if ($self->logPath) {

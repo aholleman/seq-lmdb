@@ -216,7 +216,7 @@ sub _buildAssembly {
     sprintf("ERROR: Cannot read YAML file at %s", $self->configfilePath) 
   );
   
-  return $config_href->{genome_name};
+  return $config_href->{assembly};
 }
 __PACKAGE__->meta->make_immutable;
 

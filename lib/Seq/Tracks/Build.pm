@@ -146,7 +146,7 @@ around BUILDARGS => sub {
   my $fileDir = $href->{files_dir};
 
   for my $localFile (@{$href->{local_files} } ) {
-    push @localFiles, path($fileDir)->child($href->{type} )
+    push @localFiles, path($fileDir)->child($href->{name} )
       ->child($localFile)->absolute->stringify;
   }
 
