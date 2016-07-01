@@ -12,48 +12,27 @@ use List::MoreUtils qw/first_index/;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
 
-#TODO: like with sparse tracks, allow users to map required fields
-use MCE::Loop;
-
 use Seq::Tracks::Score::Build::Round;
 my $rounder = Seq::Tracks::Score::Build::Round->new();
 
-# sparse track should be 1 based by default 
+# Cadd tracks seem to be 1 based (not well documented)
 has '+based' => (
   default => 1,
 );
   
-#if use doesn't specify a feature, give them the PHRED score
-# TODO: Maybe enable this; for now we just report a single score, PHRED
-# and this is identified just like other score tracks, by the track name
+# TODO: Maybe enable users to specify features; for now we always report PHRED
 # has '+features' => (
 #   default => 'PHRED',
 # );
 
-sub buildTrack {
-  my ($self) = @_;
-
-  my ($file) = $self->allLocalFiles;
-
-  my $fh = $self->get_read_fh($file);
-
-  if( index($fh->getline(), '## CADD') > - 1) {
-    close $fh;
-    goto &buildTrackFromCaddOrBedFormat;
-  }
-
-  goto &buildTrackFromHeaderlessWigFix;
-}
-
 # Works, but will take days to finish, should make a faster solution.
 # TODO: split up cadd file in advance?
-sub buildTrackFromCaddOrBedFormat {
+sub buildTrack {
   my $self = shift;
 
   #there can only be one, one ring to rule them all
   my ($file) = $self->allLocalFiles;
 
-  #DOESN'T WORK WITH MCE for compressed files!
   my $fh = $self->get_read_fh($file);
 
   my $columnDelimiter = $self->delimiter;
@@ -61,6 +40,10 @@ sub buildTrackFromCaddOrBedFormat {
   my $versionLine = <$fh>;
   chomp $versionLine;
   
+  if( index($versionLine, '## CADD') == - 1) {
+    $self->log('fatal', "First line of CADD file is not CADD formatted: $_");
+  }
+
   $self->log("info", "Building ". $self->name . " version: $versionLine");
 
   # Cadd's real header is on the 2nd line
@@ -72,6 +55,7 @@ sub buildTrackFromCaddOrBedFormat {
   # Moving $phastIdx to the last column
   my @headerFields = split $columnDelimiter, $headerLine;
   # Get the last index, that's where the phast column lives https://ideone.com/zgtKuf
+  # Can be 5th or 6th column. 5th for CADD file, 6th for BED-like file
   my $phastIdx = $#headerFields;
 
   #accumulate 3 lines worth of PHRED scores
@@ -81,19 +65,15 @@ sub buildTrackFromCaddOrBedFormat {
   my $count = 0;
   my $wantedChr;
 
-  my $numericalChr = $self->wantedChr ? substr($self->wantedChr, 3) : undef;
-  if(!looks_like_number($numericalChr) ) { $numericalChr = undef; }
-  my $nChrLength = length($numericalChr);
-  
-  # We assume the file is sorted by chr
+  # Track which fields we recorded, to record in $self->completionMeta
+  my %visitedChrs;
+
+  # We assume the file is sorted by chr, but will find out if not (probably)
   while (<$fh>) {
-    my $chr = substr($_, 0, $nChrLength ? $nChrLength : index($_, "\t") );
+    chomp;
+    my @line = split "\t", $_;
 
-    # If we only want 1 chromosome, save time by avoiding split 
-    # any remaining %out will still be written by the last %out check
-    if( $numericalChr && looks_like_number($chr) && $chr > $numericalChr ) { last; } 
-
-    $chr = "chr$chr";
+    my $chr = "chr$line[0]";
 
     if( !$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
       if(%out) {
@@ -108,32 +88,32 @@ sub buildTrackFromCaddOrBedFormat {
         undef @score;
       }
 
-      $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+      # Completion meta checks to see whether this track is already recorded
+      # as complete for the chromosome, for this track
+      if( $self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr) ) {
+        $wantedChr = $chr;
+      } else {
+        $wantedChr = undef;
+      }
     }
 
     if(!$wantedChr) {
       next;
     }
 
-    chomp;
-
-    my @line = split "\t", $_;
-
-    #specify 2 significant figures
-    #store as strings because Data::MessagePack seems to store all floats in 9 bytes
+    # Specify 2 significant figures by default
     push @score, $rounder->round($line[$phastIdx]);
     
     if(@score < 3) {
       next;
     }
 
-    #We have all 3 scores accumulated
+    # We have all 3 scores accumulated
     
-    #CADD trcks are 1-indexed
+    # CADD trcks are 1-indexed
     my $dbPosition = $line[1] - $self->based;
 
-    # copy array #https://ideone.com/m08q9V
-    # https://ideone.com/dZ6RGj
+    # Copy array #https://ideone.com/m08q9V ; https://ideone.com/dZ6RGj
     $out{$dbPosition} = $self->prepareData([@score]);
     
     undef @score;
@@ -145,6 +125,8 @@ sub buildTrackFromCaddOrBedFormat {
       $count = 0;
     }
 
+    # Count 3-mer scores recorded for commitEvery, & chromosomes seen for completion recording
+    if(!defined $visitedChrs{$chr} ) { $visitedChrs{$chr} = 1 };
     $count++;
   }
 
@@ -156,6 +138,12 @@ sub buildTrackFromCaddOrBedFormat {
     }
 
     $self->dbPatchBulkArray($wantedChr, \%out);
+  }
+
+  # Since any detected errors are fatal, we have confidence that anything visited
+  # Is complete (we only have 1 file to read)
+  foreach (keys %visitedChrs) {
+    $self->completionMeta->recordCompletion($_);
   }
 
   return 0;
