@@ -60,11 +60,13 @@ has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $cod
 has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
 has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
 
-sub allSiteAnnotationKeys { 
+sub allKeys { 
   return ($siteTypeKey, $strandKey, $codonNumberKey, $codonPositionKey, $codonSequenceKey); 
 }
 
-state $keysMap = { 0 => $siteTypeKey, 1 => $strandKey, 2 => $codonNumberKey, 
+# Not including the txNumberKey;  this is separate from the annotations, which is 
+# what these keys represent
+state $keysMap = { 0 => $strandKey, 1 => $siteTypeKey, 2 => $codonNumberKey, 
   3 => $codonPositionKey, 4 => $codonSequenceKey };
 
 has keysMap => ( is => 'ro', init_arg => undef, lazy => 1, default => sub{ $keysMap } );
@@ -147,10 +149,10 @@ sub unpack {
   # a single item
   if(!ref $_[1]->[0] ) {
     if( @{$_[1] } == 2) {
-      return ( $_[1]->[0], [ @{ $combinedMap->{ $_[1]->[1] } } ] );
+      return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ) ] );
     }
     
-    return ( $_[1]->[0], [ @{ $combinedMap->{ $_[1]->[1] } }, $_[1]->[2], $_[1]->[3],
+    return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ), $_[1]->[2], $_[1]->[3],
       $codonMap->num2Codon( $_[1]->[4] ) ] );
   }
 
@@ -159,11 +161,11 @@ sub unpack {
     push @txNumbers, $_->[0];
 
     if( @{$_} == 2) {
-      push @site, [ @{ $combinedMap->{ $_->[1] } } ];
+      push @site, [ ( @{ $combinedMap->{ $_->[1] } } ) ];
       next;
     }
 
-    push @site, [ @{ $combinedMap->{ $_->[1] } }, $_->[2], $_->[3],
+    push @site, [ ( @{ $combinedMap->{ $_->[1] } } ), $_->[2], $_->[3],
       $codonMap->num2Codon( $_->[4] ) ];
   }
 

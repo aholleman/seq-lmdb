@@ -77,9 +77,9 @@ sub BUILD {
   my $self = shift;
 
   # 1 to prepend
-  $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->strandKey,
-    $siteUnpacker->codonPositionKey, $siteUnpacker->codonSequenceKey, $newCodonKey,
-    $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonNumberKey], $self->name, 1);
+  $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->codonSequenceKey,
+    $newCodonKey, $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonPositionKey,
+    $siteUnpacker->codonNumberKey, $siteUnpacker->strandKey], $self->name, 1);
 
   $allCachedDbNames->{$self->name} = {};
 

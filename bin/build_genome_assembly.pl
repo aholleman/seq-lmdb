@@ -56,7 +56,7 @@ my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
 
 $year += 1900;
 #   # set log file
-my $log_name = join '.', 'build', $config_href->{genome_name}, $wantedType ||
+my $log_name = join '.', 'build', $config_href->{assembly}, $wantedType ||
 $wantedName || 'allTracks', $wantedChr || 'allChr',
 "$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
 
