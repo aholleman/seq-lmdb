@@ -26,7 +26,7 @@ my (
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
-  'n|track_name=s'     => \$wantedName,
+  'n|name=s'     => \$wantedName,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
@@ -45,32 +45,12 @@ unless ($yaml_config) {
   Pod::Usage::pod2usage();
 }
 
-my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-
-$year += 1900;
-
-my $logName;
-if(!$fetch && !$split) {
-  $logName = 'splitandFetch';
-} elsif ($split) {
-  $logName = 'split';
-} elsif ($fetch) {
-  $logName = 'fetch';
-}
-
-#   # set log file
-my $log_name = join '.', $logName, $wantedName,
-"$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
-
-my $logPath = path(".")->child($log_name)->absolute->stringify;
-
 my %options = (
   config       => $yaml_config,
-  compress    => $compress || 0,
-  header_rows => $header_rows,
-  wantedName   => $wantedName || undef,
+  compress     => $compress || 0,
+  header_rows  => $header_rows,
+  name         => $wantedName || undef,
   debug        => $debug,
-  logPath      => $logPath,
   overwrite    => $overwrite || 0,
 );
 

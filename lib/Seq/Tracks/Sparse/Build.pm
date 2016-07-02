@@ -51,7 +51,7 @@ sub buildTrack {
   my $missingValue = 'NA';
 
   for my $file ($self->allLocalFiles) {
-    $pm->start and next;
+    $pm->start($file) and next;
 
       my $fh = $self->get_read_fh($file);
 
@@ -117,6 +117,8 @@ sub buildTrack {
       my $based = $self->based;
       my $count;
 
+      # Record which chromosomes were recorded for completionMeta
+      my %visitedChrs;
       FH_LOOP: while(<$fh>) {
         chomp;
 
@@ -150,8 +152,12 @@ sub buildTrack {
             undef %data;
             $count = 0;
           }
-            
-          $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+
+          if($$self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr) ) {
+            $wantedChr = $chr;
+          } else {
+            $wantedChr = undef;
+          }
         }
         
         if(!$wantedChr) {
@@ -160,7 +166,8 @@ sub buildTrack {
           }
           
           next FH_LOOP;
-        } 
+        }
+
         my $pAref;
         
         #this is an insertion; the only case when start should == stop
@@ -200,6 +207,9 @@ sub buildTrack {
           undef %data;
           $count = 0;
         }
+
+        # Track affected chromosomes for completion recording
+        if( !defined $visitedChrs{$chr} ) { $visitedChrs{$chr} = 1 }
       }
 
       if(%data) {
@@ -210,12 +220,26 @@ sub buildTrack {
         $self->dbPatchBulkArray($wantedChr, \%data);
       }
 
-    $pm->finish;
+      # Record completion. Safe because detected errors throw, kill process
+      foreach (keys %visitedChrs) {
+        $self->completionMeta->recordCompletion($_);
+      }
+
+    $pm->finish(0);
   }
+
+  my @failed;
+  $pm->run_on_finish(sub {
+    my ($pid, $exitCode, $fileName) = @_;
+
+    $self->log('debug', "Got exitCode $exitCode for $fileName");
+
+    if($exitCode != 0) { $self->log('fatal', "Got exitCode $exitCode for $fileName") }
+  });
 
   $pm->wait_all_children;
 
-  return 0;
+  return @failed == 0 ? 0 : (\@failed, 255);
 }
 
 __PACKAGE__->meta->make_immutable;

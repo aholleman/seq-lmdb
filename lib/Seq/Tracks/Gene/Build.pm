@@ -279,8 +279,7 @@ sub buildTrack {
       $pm2->run_on_finish( sub {
         my ($pid, $exitCode, $chr) = @_;
         if(!defined $exitCode || $exitCode != 0) {
-          # Die, even though some chr may have built correctly
-          # To prevent corruption
+          # Exit early, meaning parent doesn't $pm->finish(0), to reduce corruption
           $self->log('fatal', "Failed to build transcripts for $chr");
         }
       });
@@ -290,19 +289,19 @@ sub buildTrack {
     $pm->finish(0);
   }
 
+  # Done with all chromosomes. Tell caller whether we exited due to failure
   my @failed;
-  # Check exit codes for succses; 0 indicates success
   $pm->run_on_finish( sub {
     my ($pid, $exitCode, $fileName) = @_;
-    if(!defined $exitCode || $exitCode != 0) {
-      push @failed, "Exit Code $exitCode for: $fileName";
-    }
+
+    $self->log('debug', "Got exitCode $exitCode for $fileName");
+
+    if($exitCode != 0) { push @failed, "Got exitCode $exitCode for $fileName"; }
   });
 
   $pm->wait_all_children;
 
-  #TODO: Finish, only return 0 if truly succeeded;
-  return (@failed ? 255 : 0, \@failed);
+  return @failed == 0 ? 0 : (\@failed, 255);
 }
 
 sub _writeRegionData {
@@ -428,16 +427,6 @@ sub _writeNearestGenes {
       $midPoint = $longestPreviousTxEnd + ( ( ($txStart - 1) - $longestPreviousTxEnd ) / 2 );
     }
 
-    # if($self->debug) {
-    #   p $txStartData->{$txStart};
-
-    #   say "txStart is $txStart";
-    #   p $txNumber;
-      
-    #   say "longestPreviousTx end is $longestPreviousTxEnd";
-    #   p $longestPreviousTxNumber;
-    # }
-
     #### Accumulate txNumber or longestPreviousTxNumber for positions between transcripts #### 
     
     # When true, we are not intergenic
@@ -508,7 +497,6 @@ sub _writeNearestGenes {
 
         $out{$pos} = $nearestNumber;
       }
-      #$n == @allTranscriptStarts - 1
     }
 
     ################# Write nearest gene data to main database ##################

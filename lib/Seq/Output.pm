@@ -4,7 +4,9 @@ use strict;
 use warnings;
 
 use Moose 2;
-# use Search::Elastic;
+use Search::Elasticsearch;
+
+my $e = Search::Elasticsearch->new();
 
 use DDP;
 
@@ -30,10 +32,20 @@ sub makeOutputString {
   #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
   # flatten entry hash references and print to file
   my $outStr = '';
+  my $count = 1;
   for my $href (@$outputDataAref) {
     
     my @singleLineOutput;
 
+    # $e->index(
+    #   index => 'seqant',
+    #   type  => 'annotation',
+    #   id    => $count,
+    #   body  => $href,
+    # );
+
+    # $count++;
+    
     PARENT: for my $feature ( @{$self->outputDataFields} ) {
       if(ref $feature) {
         #it's a trackName => {feature1 => value1, ...}

@@ -29,7 +29,7 @@ has type => ( is => 'ro', isa => 'TrackType', required => 1);
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
 #during building should be defined here
-has genome_chrs => (
+has chromosomes => (
   is => 'ro',
   isa => 'HashRef',
   traits => ['Hash'],
@@ -154,16 +154,16 @@ around BUILDARGS => sub {
   #don't mutate the input data
   my %data = %$dataHref;
 
-  if(defined $data{genome_chrs} &&  ref $data{genome_chrs} eq 'ARRAY') {
-    my %genome_chrs = map { $_ => 1 } @{$data{genome_chrs} };
-    $data{genome_chrs} = \%genome_chrs;
+  if(defined $data{chromosomes} &&  ref $data{chromosomes} eq 'ARRAY') {
+    my %chromosomes = map { $_ => 1 } @{$data{chromosomes} };
+    $data{chromosomes} = \%chromosomes;
   }
 
   if(defined $data{wantedChr} ) {
-    if (exists $data{genome_chrs}->{$data{wantedChr} } ) {
-      $data{genome_chrs} = { $data{wantedChr} => 1, };
+    if (exists $data{chromosomes}->{$data{wantedChr} } ) {
+      $data{chromosomes} = { $data{wantedChr} => 1, };
     } else {
-      $class->log('fatal', 'Wanted chromosome not listed in genome_chrs in YAML config');
+      $class->log('fatal', 'Wanted chromosome not listed in chromosomes in YAML config');
     }
   }
 

@@ -35,7 +35,7 @@ sub BUILD {
 sub split {
   my $self = shift;
 
-  my @allChrs = $self->_decodedConfig->{genome_chrs};
+  my @allChrs = $self->_decodedConfig->{chromosomes};
 
   my $pm = Parallel::ForkManager->new(scalar @allChrs);
 

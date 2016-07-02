@@ -40,7 +40,7 @@ sub buildTrack{
   my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
 
   for my $file ( $self->allLocalFiles ) {
-    $pm->start and next; 
+    $pm->start($file) and next; 
       unless ( -f $file ) {
         return $self->log('fatal', "ERROR: cannot find $file");
       }
@@ -57,6 +57,9 @@ sub buildTrack{
       my $stepType;
 
       my $based = $self->based;
+
+      # Which chromosomes we've seen, for recording completionMeta
+      my %visitedChrs; 
 
       FH_LOOP: while ( <$fh> ) {
         #super chomp; #trim both ends, but not what's in between
@@ -94,10 +97,11 @@ sub buildTrack{
             #and figure out if we want the current chromosome
             $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
-              # TODO: check if we've built this already, as done with reference
-              # if($wantedChr && !$self->itIsOkToProceedBuilding($wantedChr) ) {
-              #   undef $wantedChr;
-              # }
+            if($self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr)) {
+              $wantedChr = $chr;
+            } else {
+              $wantedChr = undef;
+            }
           }
 
           #use may give us one or many files
@@ -138,24 +142,35 @@ sub buildTrack{
         }
       }
 
-      #we're done with the input file, and we could still have some data to write
+      # leftovers
       if( %data ) {
-        if(!$wantedChr) { #sanity check, 'error' will die
+        if(!$wantedChr) {
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
         $self->dbPatchBulkArray($wantedChr, \%data );
-
-        #now we're done with the process, and memory gets freed
       }
 
-    $pm->finish;
+      # Record completion. Safe because detected errors throw, kill process
+      foreach (keys %visitedChrs) {
+        $self->completionMeta->recordCompletion($_);
+      }
+
+    $pm->finish(0);
   }
+
+  my @failed;
+  $pm->run_on_finish(sub {
+    my ($pid, $exitCode, $fileName) = @_;
+
+    $self->log('debug', "Got exitCode $exitCode for $fileName");
+
+    if($exitCode != 0) { push @failed, "Got exitCode $exitCode for $fileName"; }
+  });
   
   $pm->wait_all_children;
 
-  # FINISH THIS; should only return this if it truly did finish all chr 
-  return 0;
+  return @failed == 0 ? 0 : (\@failed, 255);
 };
 
 __PACKAGE__->meta->make_immutable;

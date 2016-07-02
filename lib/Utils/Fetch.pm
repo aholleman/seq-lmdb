@@ -47,19 +47,9 @@ sub _fetchFromUCSCsql {
 
   # What features are called according to our YAML config spec
   my $featuresKey = 'features';
-
   my $featuresIdx = index($sqlStatement, $featuresKey);
-  my $asteriskIdx = index($sqlStatement, '*');
 
-  if($asteriskIdx > -1 && $featuresIdx > -1) {
-    $self->log('fatal', "Can't SELECT both 'features' and '*', is ambiguous");
-  }
-
-  if(!$asteriskIdx && !$featuresIdx) {
-    $self->log('fatal', "SELECT statement specify either 'features' or '*");
-  }
-
-  if($featuresIdx) {
+  if( $featuresIdx > -1 ) {
     if(! @{$self->_wantedTrack->{features}} ) {
       $self->log('fatal', "Requires features if sql_statement speciesi SELECT features")
     }
@@ -83,13 +73,11 @@ sub _fetchFromUCSCsql {
 
     substr($sqlStatement, $featuresIdx, length($featuresKey) ) = $trackFeatures;
   }
-
+  
   my $sqlWriter = Utils::SqlWriter->new({
     sql_statement => $sqlStatement,
-    assembly => $self->_decodedConfig->{assembly},
-    chromosomes => $self->_decodedConfig->{genome_chrs},
+    chromosomes => $self->_decodedConfig->{chromosomes},
     outputDir => $self->_localFilesDir,
-    name => $self->_wantedTrack->{name},
     compress => 1,
   });
 

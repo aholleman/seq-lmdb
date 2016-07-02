@@ -16,9 +16,11 @@ use List::MoreUtils qw/first_index/;
 use YAML::XS qw/LoadFile Dump/;
 use Path::Tiny qw/path/;
 
+my $localtime = join("_", split(" ", localtime) );
+
 ############## Arguments accepted #############
 # The track name that they want to split
-has wantedName => (is => 'ro', isa => 'Str', required => 1);
+has name => (is => 'ro', isa => 'Str', required => 1);
 
 # The YAML config file path
 has config => ( is => 'ro',isa => AbsFile, coerce => 1, required => 1, handles => {
@@ -26,7 +28,7 @@ has config => ( is => 'ro',isa => AbsFile, coerce => 1, required => 1, handles =
 
 # Logging
 has logPath => ( is => 'ro', lazy => 1, default => sub {
-  my $self = shift; return "./fetch_" . $self->wantedName . ".log";
+  my $self = shift; return "./fetch_" . $self->name . ".$localtime.log";
 });
 
 # Debug log level?
@@ -38,9 +40,7 @@ has compress => (is => 'ro',lazy => 1,default => 0);
 has publisherMessageBase => (is => 'ro', lazy => 1, default => undef);
 has publisherAddress => (is => 'ro', lazy => 1, default => undef);
 
-#########'Protected' and private vars (Meant to be used by child class only) ############ 
-my $localtime = join("_", split(" ", localtime) );
-
+#########'Protected' vars (Meant to be used by child class only) ############ 
 has _decodedConfig => ( is => 'ro', isa => 'HashRef', lazy => 1, default => sub {
   my $self = shift; return LoadFile($self->configPath);
 });
@@ -59,7 +59,7 @@ has _localFilesDir => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
 
 has _wantedTrack => ( is => 'ro', isa => 'HashRef', lazy => 1, default => sub{
   my $self = shift;
-  my $trackIndex = first_index {$_->{name} eq $self->wantedName} @{$self->_decodedConfig->{tracks}};
+  my $trackIndex = first_index {$_->{name} eq $self->name} @{$self->_decodedConfig->{tracks}};
   return $self->_decodedConfig->{tracks}[$trackIndex];
 });
 

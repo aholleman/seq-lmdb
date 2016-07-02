@@ -134,13 +134,14 @@ sub buildTrack {
 
       # leftovers
       if( %data ) {
-        if(!$wantedChr) { #sanity check, 'error' log dies
+        if(!$wantedChr) {
          return $self->log('fatal', "@ end of $file, but no wantedChr and data");
         }
 
         $self->dbPatchBulkArray($wantedChr, \%data );
       }
 
+      # Record completion. Safe because detected errors throw, kill process
       foreach ( keys %visitedChrs ) {
         $self->completionMeta->recordCompletion($_);
       }
@@ -149,27 +150,20 @@ sub buildTrack {
     $pm->finish(0);
   }
 
-  my @failed;
-  
   # Check exit codes for succses; 0 indicates success
+  my @failed;
   $pm->run_on_finish( sub {
     my ($pid, $exitCode, $fileName) = @_;
 
     $self->log('debug', "Got exit code $exitCode for $fileName");
 
-    if(!defined $exitCode || $exitCode != 0) {
-      push @failed, "Exit Code $exitCode for: $fileName";
-    }
+    if($exitCode != 0) { push @failed, "Exit Code $exitCode for: $fileName"; }
   });
 
   $pm->wait_all_children;
   
-  if(@failed) {
-    return (255, "Failed to build " . $self->name . " for files " . join(", ", @failed) );
-  }
-  
   #explicit success
-  return 0;
+  return @failed == 0 ? 0 : (\@failed, 255);
 };
 
 __PACKAGE__->meta->make_immutable;

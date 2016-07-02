@@ -12,43 +12,37 @@ use Moose 2;
 use DBI;
 use namespace::autoclean;
 use Time::localtime;
-use Data::Dump qw/ dump /;
 use Path::Tiny qw/path/;
+use DDP;
 
 with 'Seq::Role::IO', 'Seq::Role::Message';
 
-# A valid SQL statement
+# @param <Str> sql_statement : Valid SQL with fully qualified field names
 has sql_statement => (is => 'ro', isa => 'Str', required => 1);
 
-# hg19, hg38, etc
-has assembly => (is => 'ro', isa => 'Str', required => 1);
-
-# All of the chromosomes we want
+# @param <ArrayRef> chromosomes : All wanted chromosomes
 has chromosomes => (is => 'ro', isa => 'ArrayRef', required => 1);
 
 # Where any downloaded or created files should be saved
 has outputDir => ( is => 'ro', isa => 'Str', required => 1);
 
-# What is the "ID" of the files; we'll write chr.ID.txt
-has name => ( is => 'ro', isa => 'Str', required => 1);
-
 # Compress the output?
 has compress => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0);
 
-############ DB Configuartion Vars #########################
+######################### DB Configuartion Vars #########################
 my $year          = localtime->year() + 1900;
 my $mos           = localtime->mon() + 1;
 my $day           = localtime->mday;
 my $nowTimestamp = sprintf( "%d-%02d-%02d", $year, $mos, $day );
 
-has dsn  => ( is => 'ro', isa => 'Str',  required => 1, default => "DBI:mysql" );
+has driver  => ( is => 'ro', isa => 'Str',  required => 1, default => "DBI:mysql" );
 has host => ( is => 'ro', isa => 'Str', lazy => 1, default  => "genome-mysql.cse.ucsc.edu");
 has user => ( is => 'ro', isa => 'Str', required => 1, default => "genome" );
 has password => ( is => 'ro', isa => 'Str', );
 has port     => ( is => 'ro', isa => 'Int', );
 has socket   => ( is => 'ro', isa => 'Str', );
 
-=method @public sub dbh
+=method @public sub connect
 
   Build database object, and return a handle object
 
@@ -61,22 +55,24 @@ Called in: none
 
 =cut
 
-sub dbh {
+sub connect {
   my $self = shift;
-  my $dsn  = $self->dsn;
-  $dsn .= ":" . $self->assembly;
-  $dsn .= ";host=" . $self->host if $self->host;
-  $dsn .= ";port=" . $self->port if $self->port;
-  $dsn .= ";mysql_socket=" . $self->port_num if $self->socket;
-  $dsn .= ";mysql_read_default_group=client";
-  my %conn_attrs = ( RaiseError => 1, PrintError => 0, AutoCommit => 0 );
-  return DBI->connect( $dsn, $self->user, $self->password, \%conn_attrs );
+  my $databaseName = shift;
+
+  my $connection  = $self->driver;
+  $connection .= ":database=$databaseName;host=" . $self->host if $self->host;
+  $connection .= ";port=" . $self->port if $self->port;
+  $connection .= ";mysql_socket=" . $self->port_num if $self->socket;
+  $connection .= ";mysql_read_default_group=client";
+
+  return DBI->connect( $connection, $self->user, $self->password, {
+    RaiseError => 1, PrintError => 1, AutoCommit => 1
+  } );
 }
 
 =method @public sub fetchAndWriteSQLData
 
   Read the SQL data and write to file
-
 
 @return {DBI}
   A connection object
@@ -90,37 +86,43 @@ sub fetchAndWriteSQLData {
   # We'll return the relative path to the files we wrote
   my @outRelativePaths;
   for my $chr ( @{$self->chromosomes} ) {
-    my $dbh = $self->dbh();
-
     # for return data
     my @sql_data = ();
     
     my $query = $self->sql_statement;
 
-    my $name = join '.', $self->assembly, $self->name, $chr, $extension;
-    my $timestampName = join '.', $nowTimestamp, $name;
+    ########### Restrict SQL fetching to just this chromosome ##############
+
+    # Get the FQ table name (i.e hg19.refSeq instead of refSeq), to avoid
+    $query =~ m/FROM\s(\S+)/i;
+    my $fullyQualifiedTableName = $1;
+
+    $query.= sprintf(" WHERE %s.chrom = '%s'", $fullyQualifiedTableName, $chr);
+
+    my ($databaseName, $tableName) = ( split (/\./, $fullyQualifiedTableName) );
+
+    if(!($databaseName && $tableName)) {
+      $self->log('fatal', "WHERE statement must use fully qualified table name" .
+        "Ex: hg38.refGene instead of refGene");
+    }
+
+    $self->log('info', "Updated sql_statement to $query");
+
+    my $fileName = join '.', $databaseName, $tableName, $chr, $extension;
+    my $timestampName = join '.', $nowTimestamp, $fileName;
 
     # Save the fetched data to a timestamped file, then symlink it to a non-timestamped one
     # This allows non-destructive fetching
-    my $symlinkedFile = path($self->outputDir)->child($name)->absolute->stringify;
+    my $symlinkedFile = path($self->outputDir)->child($fileName)->absolute->stringify;
     my $targetFile = path($self->outputDir)->child($timestampName)->absolute->stringify;
 
     # prepare file handle
     my $outFh = $self->get_write_fh($targetFile);
 
-    ########### Restrict SQL fetching to just this chromosome ##############
-
-    # Get the FQ name (i.e hg19.refSeq.chrom instead of chrom), to avoid
-    # Cases where in JOINS chrom exists in N tables
-    $query =~ m/FROM\s(\S+)/i;
-    my $fullyQualifiedTableName = $1;
-
-    $query.= sprintf(" WHERE %s.chrom = '%s'", $1, $chr);
-
-    $self->log('info', "Updated sql_statement to $query");
-
+    ########### Connect to database ##################
+    my $dbh = $self->connect($databaseName);
     ########### Prepare and execute SQL ##############
-    my $sth = $self->dbh->prepare($query) or $self->log('fatal', $dbh->errstr);
+    my $sth = $dbh->prepare($query) or $self->log('fatal', $dbh->errstr);
     
     $sth->execute or $self->log('fatal', $dbh->errstr);
 
@@ -139,8 +141,11 @@ sub fetchAndWriteSQLData {
         map { say {$outFh} join( "\t", @$_ ); } @sql_data;
         @sql_data = ();
       }
-
     }
+
+    $sth->finish();
+    # Must commit before this works, or will get DESTROY before explicit disconnect()
+    $dbh->disconnect();
 
     # leftovers
     if (@sql_data) {
@@ -164,9 +169,7 @@ sub fetchAndWriteSQLData {
 
     $self->log('info', "Symlinked $targetFile -> $symlinkedFile");
 
-    push @outRelativePaths, $symlinkedFile;
-
-    $dbh->disconnect();
+    push @outRelativePaths, $fileName;
 
     sleep 5;
   }
