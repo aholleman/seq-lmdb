@@ -236,7 +236,7 @@ sub dbPatchHash {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
   if(ref $dataHref ne 'HASH') {
-    $self->log('fatal', "dbPatch requires a 1-element hash of a hash");
+    $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
   }
 
   my $db = $self->_getDbi($chr);
@@ -359,12 +359,12 @@ sub dbPatchBulkArray {
 }
 
 sub dbPut {
-  my ( $self, $chr, $pos, $dataHref) = @_;
+  my ( $self, $chr, $pos, $data) = @_;
 
   my $db = $self->_getDbi($chr);
   my $txn = $db->{env}->BeginTxn();
 
-  $txn->put($db->{dbi}, $pos, $mp->pack( $dataHref ) );
+  $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
 
   if($LMDB_File::last_err) {
     $self->log('warn', 'dbPut error: ' . $LMDB_File::last_err);
@@ -475,13 +475,20 @@ sub dbReadMeta {
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with
-#@param <String> $metaType : this is our "position" in the meta database
+#@param <String> $metaKey : this is our "position" in the meta database
  # a.k.a the top-level key in that meta database, what type of meta data this is 
-#@param <HashRef> $dataHref : {someField => someValue}
+#@param <HashRef|Scalar> $data : {someField => someValue} or a scalar value
 sub dbPatchMeta {
-  my ( $self, $databaseName, $metaType, $dataHref ) = @_;
+  my ( $self, $databaseName, $metaKey, $data ) = @_;
   
-  $self->dbPatchHash($databaseName . $metaDbNamePart, $metaType, $dataHref, 1);
+  # If the user treats this metaKey as a scalar value, overwrite whatever was there
+  if(!ref $data) {
+    $self->dbPut($databaseName . $metaDbNamePart, $metaKey, $data);
+    return;
+  }
+
+  # Pass 1 to merge $data with whatever was kept at this metaKey
+  $self->dbPatchHash($databaseName . $metaDbNamePart, $metaKey, $data, 1);
 
   return;
 }

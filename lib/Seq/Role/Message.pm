@@ -149,6 +149,7 @@ sub log {
       $_[0]->publishMessage( "[DEBUG] $_[2]" );
     }
 
+    say "[DEBUG] $_[2]";
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 

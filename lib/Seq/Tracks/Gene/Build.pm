@@ -182,6 +182,10 @@ sub buildTrack {
 
         $txNumbers{$wantedChr} += 1;
       }
+
+      # If we fork a process in order to read (example zcat) prevent that process
+      # from becoming defunct
+      close($fh);
     
       if(!%allData) {
         #we skipped this chromosome worth of data

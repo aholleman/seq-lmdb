@@ -40,7 +40,6 @@ has dbName => (
 #in roles that extend this role, this key's default can be overloaded
 
 state $metaKey = 'name';
-state $metaDatabaseName = 'all_tracks';
 
 #For a $self->name (track name) get a specific field database name
 #Expected to be used during database building
@@ -48,11 +47,12 @@ state $metaDatabaseName = 'all_tracks';
 #and return it
 sub buildDbName {
   my $self = shift;
-
-  if (! exists $trackNamesMap->{$self->name} ) {
+    
+  if (!exists $trackNamesMap->{$self->name} ) {
     $self->_fetchTrackNameMeta();
   }
 
+  # If after fetching it still doesn't exist, we need to add it
   if(!exists $trackNamesMap->{$self->name} ) {
     $self->_addTrackNameMeta();
   }
@@ -63,46 +63,24 @@ sub buildDbName {
 sub _fetchTrackNameMeta {
   my $self = shift;
 
-  #expects {
-  #  name => dbName
-  #}
-  my $nameHref = $self->dbReadMeta($metaDatabaseName, $metaKey) ;
+  my $nameNumber = $self->dbReadMeta($self->name, $metaKey) ;
 
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
-  if( !$nameHref ) {
+  if( !defined $nameNumber ) {
     return;
   }
   
-  $trackNamesMap = $nameHref;
+  $trackNamesMap->{$self->name} = $nameNumber;
 
   #fieldNames map is name => dbName; dbNamesMap is the inverse
-  for my $trackName (keys %$nameHref ) {
-    $trackDbNamesMap->{ $nameHref->{$trackName} } = $trackName;
-  }
-
-  if($self->debug) {
-    say "fetched trackNamesMap  in _fetchTrackNameMeta";
-    p $trackNamesMap;
-    say "and the trackDbNamesMap is";
-    p $trackDbNamesMap;
-  }
-
+  $trackDbNamesMap->{ $nameNumber } = $self->name;
 }
 
 sub _addTrackNameMeta {
   my $self = shift;
 
-  # say "in addMetaField we want";
-  # p $fieldName;
-  # say "fieldDbNamesMap for ". $self->name . " is";
-  # p $fieldDbNamesMap->{$self->name};
-
   my @trackNumbers = keys %$trackDbNamesMap;
-  
-  
-  # say "keys are";
-  # p @fieldKeys;
   
   my $nameNumber;
   if(!@trackNumbers) {
@@ -112,23 +90,15 @@ sub _addTrackNameMeta {
     $nameNumber = max(@trackNumbers) + 1;
   }
 
-  if($self->debug) {
-    say "adding a new track name to the $metaDatabaseName meta database";
-    say "trackDbNamesMap is";
-    p $trackDbNamesMap;
-
-    say "for " . $self->name ." we'll use a dbName of ";
-    p $nameNumber;
-  }
+  $self->log('debug', "adding a new track name to the ". $self->name ." meta database" );
+  $self->log('debug', "for " . $self->name ." we'll use a dbName of ");
   
   #need a way of checking if the insertion actually worked
   #but that may be difficult with the currrent LMDB_File API
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
-  $self->dbPatchMeta($metaDatabaseName, $metaKey, {
-    $self->name => $nameNumber,
-  });
+  $self->dbPatchMeta($self->name, $metaKey, $nameNumber);
 
   $trackNamesMap->{$self->name} = $nameNumber;
   $trackDbNamesMap->{$nameNumber} = $self->name;
