@@ -209,16 +209,17 @@ sub buildTrack {
           my @allTxStartsAscending = sort { $a <=> $b } keys %{ $allData{$chr} };
 
           # To save space, we need to write the mainDb data early
-          my $largestTxEnd = 0;
+          my $largestTxEnd = 0; my $count = 0;
           for my $txStart ( @allTxStartsAscending ) {
-            if($largestTxEnd < $txStart && %siteData) {
+            if($largestTxEnd < $txStart && $count >= $self->commitEvery) {
               $self->log('info', "largestTxEnd is $largestTxEnd and txStart is $txStart."
-               . " Can't overlap, so writing accumulated siteData");
+               . " Can't overlap, and $count >= commit limit, so writing accumulated siteData");
               # After we;ve moved past the last covered transcript, no risk of missing an overlap,
               # assuming all txStart > txEnd, which is the case according to
               # http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
               $self->_writeMainData($chr, \%siteData);
               undef %siteData;
+              $count = 0;
             }
 
             for my $txData ( @{ $allData{$chr}->{$txStart} } ) {
@@ -241,6 +242,7 @@ sub buildTrack {
                 }
                 
                 $sitesCoveredByTX{$pos} = 1;
+                $count++;
               }
 
               if( @{$txInfo->transcriptErrors} ) {

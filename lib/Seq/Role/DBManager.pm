@@ -62,7 +62,7 @@ state $metaDbNamePart = '_meta';
 has commitEvery => (
   is => 'rw',
   init_arg => undef,
-  default => 7e3,
+  default => 1e4,
   lazy => 1,
 );
 

@@ -345,6 +345,7 @@ sub finishAnnotatingLines {
   # Cache $alleles
   state $cached;
 
+  my @allNonReferenceGenos;
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
@@ -378,7 +379,7 @@ sub finishAnnotatingLines {
     ############### Gather all track data (besides reference) #################
     foreach(@$trackGettersExceptReference) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
-      $outAref->[$i]->{$_->name} = $_->get(
+      $outAref->[$i]{$_->name} = $_->get(
         $dataFromDbAref->[$i], $chr, $positionsAref->[$i], $outAref->[$i]{$refTrackName},
         $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } );
     };
@@ -391,6 +392,7 @@ sub finishAnnotatingLines {
     $outAref->[$i]{$typeFieldName} = $inputAref->[$i][$typeFieldIdx];
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
+    my @nonReferenceGenos;
     SAMPLE_LOOP: for my $id ( @$sampleIDaref ) {
       my $geno = $inputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
 
@@ -398,14 +400,16 @@ sub finishAnnotatingLines {
         next SAMPLE_LOOP;
       }
 
+      push @nonReferenceGenos, $geno;
+
       if ( $genotypes->isHet($geno) ) {
-        $outAref->[$i]{$heterozygousIdsKey} .= "$id;";
+        push $outAref->[$i]{$heterozygousIdsKey}, $id;
 
         if( $genotypes->isCompoundHet($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
-          $outAref->[$i]{$compoundIdsKey} .= "$id;";
+          push, $outAref->[$i]{$compoundIdsKey}, $id;
         }
       } elsif( $genotypes->isHom($geno) ) {
-        $outAref->[$i]{$homozygousIdsKey} .= "$id;";
+        push $outAref->[$i]{$homozygousIdsKey}, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
       }
@@ -414,10 +418,6 @@ sub finishAnnotatingLines {
       #but we're not using this for now
       #$sampleIDtypes[3]->{$id} = $geno;
     }
-
-    if   ($outAref->[$i]{$homozygousIdsKey}) { chop $outAref->[$i]{$homozygousIdsKey}; }
-    if   ($outAref->[$i]{$heterozygousIdsKey}) { chop $outAref->[$i]{$heterozygousIdsKey}; }
-    if   ($outAref->[$i]{$compoundIdsKey}) { chop $outAref->[$i]{$compoundIdsKey}; }
   }
 
   return $outAref;

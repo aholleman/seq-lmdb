@@ -93,6 +93,41 @@ has homGenos => (
   init_arg => undef,
 );
 
+has transitions => (
+  is      => 'ro',
+  isa => 'HashRef',
+  traits  => ['Hash'],
+  handles => { isTransition => 'exists', },
+  lazy    => 1,
+  default => sub { return {
+    AG => 1,
+    GA => 1,
+    CT => 1,
+    TC => 1,
+  } },
+  init_arg => undef,
+);
+
+has transversions => (
+  is      => 'ro',
+  isa => 'HashRef',
+  traits  => ['Hash'],
+  handles => { isTransversion => 'exists', },
+  lazy    => 1,
+  default => sub { return {
+    S => 1,
+    W => 1,
+    K => 1,
+    M => 1,
+    AT => 1,
+    TA => 1,
+    CG => 1,
+    GC => 1,
+  } },
+  init_arg => undef,
+);
+
+
 sub BUILD {
   # Trigger the lazy stuff, so that threads can get these memoized
   # $_[0] == $self

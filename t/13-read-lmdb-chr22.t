@@ -15,7 +15,7 @@ has tracks => ( is => 'ro', required => 1);
 
 has singletonTracks => ( is => 'ro', init_arg => undef, lazy => 1, default => sub{
   my $self = shift; 
-  return Seq::Tracks->new({getterOnly => 1, tracks => $self->tracks});
+  return Seq::Tracks->new({gettersOnly => 1, tracks => $self->tracks});
 });
 #__PACKAGE__->meta->
 1;
@@ -40,7 +40,7 @@ say "tracks are";
 p $tracks->singletonTracks;
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
-my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp142');
+my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp146');
 my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
 my $phastConsTrack = $tracks->singletonTracks->getTrackGetterByName('phastCons');
 my $geneTrack = $tracks->singletonTracks->getTrackGetterByName('refSeq');

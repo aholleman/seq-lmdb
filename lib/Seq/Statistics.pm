@@ -1,119 +1,135 @@
-#!/usr/bin/env perl
-
-=head1 NAME
-
-Statistics::StatisticsCalculator
-
-=head1 SYNOPSIS
-Calculates Transition:Transversion, SiteType:SiteTypePartner Ratios (default Silent:Replacement)
-=head1 DESCRIPTION
-
-=head1 AUTHOR
-Alex Kotlar <akotlar@emory.ed>
-based on David Cutler's transversion:transition calculator
-=head1 Logic of Transition & Transversion counts:
-
-If the genotype is an acceptable transition or transversion, it will be recorded always in the sample's summary statistics hash
-Then, for each siteType and siteCode of that sample that is also in allowedTypesRef and allowedCodesRef respectively, the genotype
-will be recorded.
-So in some cases, the total number of transitiosn and transversions for a sample will not reflect the # of transitions and transversion summed from
-siteTypes or siteCodes
-====
-
-=cut
+use 5.10.0;
+use strict;
+use warnings;
 
 package Seq::Statistics;
+use Moose 2;
+use Seq::Genotypes;
+use List::MoreUtils qw/uniq/;
 
-our $VERSION = '0.001';
+use Seq::Tracks;
+with 'Seq::Role::ConfigFromFile';
 
-# ABSTRACT: A class for sequence statistics
-# VERSION
+my $siteHandler = Seq::Tracks::Gene::Site->new();
+my $genotypes = Seq::Genotypes->new();
 
-use 5.10.0;
-use Moose;
-use namespace::autoclean;
+has gene_track_name => (is => 'ro', isa => 'str', required => 1);
+has snp_track_name => (is => 'ro', isa => 'str', required => 1);
 
-extends 'Seq::Statistics::Base';
+my $transitions = { AG => 1, GA => 1, CT => 1, TC => 1};
 
-use Seq::Statistics::Percentiles;
-use DDP;
+my ($hetIdKey, $homIdKey, $alleleKey);
 
-has statsKey => (
-  is      => 'ro',
-  isa     => 'Str',
-  default => 'statistics',
-);
-has ratioKey => (
-  is      => 'ro',
-  isa     => 'Str',
-  default => 'ratios',
-);
-has qcFailKey => (
-  is      => 'ro',
-  isa     => 'Str',
-  default => 'qcFail',
-);
-has debug => (
-  is      => 'ro',
-  isa     => 'Int',
-  default => 0,
-);
+my $siteTypeKey = $siteHandler->siteTypeKey;
 
-with 'Seq::Statistics::Record';
-with 'Seq::Statistics::Ratios';
-with 'Seq::Role::Message';
-with 'Seq::Statistics::Store';
+my $trKey = 'Transitions';
+my $tvKey = 'Transversions';
+my $totalKey = 'Total';
+my $isRsKey = 'in_db_snp';
 
-#############################################################################
-# Public Methods
-#############################################################################
+my ($refTrack, $geneTrackName, $snpTrackName)
+sub BUILD{
+  my ($self, $heterozygoteIdKey, $homozygoteIdKey, $minorAllelKey) = @_;
 
-sub summarize {
-  my $self = shift;
-  my ( $percentilesHref, $destHref );
+  $hetIdKey = $heterozygoteIdKey;
+  $homIdKey = $homozygoteIdKey;
+  $alleleKey = $minorAlleleKey;
 
-  $self->makeRatios;
+  my $tracks = Seq::Tracks->new();
+  $refTrack = $tracks->singletonTracks->getRefTrackGetter;
+  $geneTrackName = $self->gene_track_name;
+  $snpTrackName = $slef->snpTrackName;
+}
 
-  if ( $self->debug ) {
-    say "Ratios:";
-    p $self->ratiosHref;
-  }
+# Take data for a single position and generate trTv statistics
+sub countTransitionsAndTransversions {
+  my ($self, @outputFields ) = @_;
 
-  if ( $self->hasNoRatios ) {
-    #message
-    return;
-  }
+  my (%transitions, %transversions);
 
-  $destHref = $self->setStat( $self->statsKey, {} ); #init statKey at top of href;
+  foreach (@outputFields) {
+    my @sampleIds = ( $_->{$hetIdKey} eq 'NA' ? () : split( ";", $_->{$hetIdKey} ),
+      $_->{$homIdKey} eq 'NA' ? () : split( ";", $_->{$homIdKey} ) );
 
-  for my $kv ( $self->allRatiosKv ) {
-    if ( !defined $kv->[1] ) { next; }               #not certain this needed
+    my $isTrans = 0;
 
-    $percentilesHref = Seq::Statistics::Percentiles->new(
-      ratioName => $kv->[0],
-      ratios    => $kv->[1],
-      qcFailKey => $self->qcFailKey,
-      target    => $destHref,
-    );
+    my $reference = $_->{$refTrack->name};
+    my $minorAlleles = $_->{$alleleKey};
 
-    if ( !$percentilesHref->hasPercentiles ) { next; }
-
-    $percentilesHref->storeAndQc;
-
-    if ( $self->debug ) {
-      say "after qc, stats record has";
-      p $self->statsRecord;
+    # We don't include multi-allelic sites for now
+    if(ref $minorAlleles) {
+      next;
     }
 
-    $self->log( 'info', 'Finished calculating statistics' );
+    # The alleles field is always ACTG, and doesn't include the reference
+    if( $genotypes->isTrans("$minorAlleles$reference" ){
+      $isTrans = 1;
+    }
+
+    my %notUniqueSiteType;
+    my $allSites = $output->{$geneTrackName}{$siteTypeKey};
+    for my $siteType (ref $allSites ? @{$allSites} : $allSites) {
+      if($notUniqueSiteType{$siteType} ) {
+        next;
+      }
+
+      $notUniqueSiteType{$siteType} = 1;
+
+      $transversions{$siteType} = $transversions{$siteType} || 0;
+      $transitions{$siteTYpe} = $transitions{$siteType} || 0;
+
+      if($isTrans) { $transitions{total}{$siteType}++; }
+      else { $transversions{total}{$siteType}++; }
+
+      #has RS
+      my $hasRs;
+      if( $output->{$geneTrackName}{name} ) {
+        $hasRs = 1;
+        if($isTrans == 0) { $transitions{total}{"$siteType_$isRsKey"}++; }
+        else { $transversions{total}{"$siteType_$isRsKey"}++; }
+      }
+
+      SAMPLE_LOOP: for my $sampleId (@sampleIds) {
+        if($isTrans) {
+          $transitions{$sampleId}{$siteType}++;
+          if($hasRs) { $transitions{$sampleId}{"$siteType_$isRsKey"}++; }
+          next SAMPLE_LOOP;
+        }
+
+        $transversions{$sampleId}{$siteType}++;
+        if($hasRs) { $transversions{$sampleId}{"$siteType_$isRsKey"}++; }
+      }
+    }
+
   }
 }
+
+# Seperate processes/threads may build up results, we may want to combine the totals
+sub combine {
+  my ($self, $collectionHref, $addHref) = @_;
+
+  for my $parent (keys %$collectionHref) {
+    if(!ref $collectionHref->{$parent}) {
+      if( && $addHref->{$parent}) {
+        $collectionHref->{$parent} += $addHref->{$parent};
+      }
+      next;
+    }
+    
+    if(!ref $collectionHref->{$parent}) {
+
+    }
+
+    goto &
+  }
+}
+
+sub makeRatios {
+  my ($self, $transitions, $transversion) = @_;
+
+  for my $
+}
+
+sub 
 __PACKAGE__->meta->make_immutable;
 1;
-
-=head1 COPYRIGHT
-
-Copyright (c) 2014 Alex Kotlar (<alex.kotlar@emory.edu>). All rights
-reserved.
-
-=head1 LICENSE
