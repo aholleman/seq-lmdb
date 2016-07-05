@@ -16,8 +16,10 @@ use List::MoreUtils qw/first_index/;
 use Seq::Tracks::Base::MapTrackNames;
 
 # TODO: move Base::Types  to a role
-#exports TrackType, DataTypes    # exports db* methods
-with 'Seq::Tracks::Base::Types', 'Seq::Role::DBManager';
+#exports TrackType, DataTypes
+with 'Seq::Tracks::Base::Types',
+# exports db* methods, overwrite, delete, dbReadOnly, database_dir attributes
+'Seq::Role::DBManager';
 
 ###################### Required Arguments ############################
 # the track name

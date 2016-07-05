@@ -18,7 +18,8 @@ use MooseX::Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 
 extends 'Seq::Tracks::Base';
-with 'Seq::Role::IO'; #all build methods need to read files
+#all build methods need to read files
+with 'Seq::Role::IO';
 
 use Seq::Tracks::Build::CompletionMeta;
 
@@ -31,7 +32,8 @@ has completionMeta => (
   default => sub { 
     my $self = shift;
     #self->overwrite specified in dbManager, which is a Role, so auto-imported
-    Seq::Tracks::Build::CompletionMeta->new({ name => $self->name, overwrite => $self->overwrite } )
+    return Seq::Tracks::Build::CompletionMeta->new({ name => $self->name,
+      overwrite => $self->overwrite, delete => $self->delete } )
   },
 );
 
@@ -185,7 +187,10 @@ sub prepareData {
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   # my ($self, $dataStr) = @_;
-  if($_[2] eq 'NA') {
+
+  # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
+  # Output.pm chooses to represent missing data as.
+  if($_[2] =~ /NA/i) {
     return undef;
   }
 

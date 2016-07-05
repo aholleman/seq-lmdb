@@ -42,13 +42,9 @@ sub buildTrack {
 
   #use small commit size; sparse tracks are small, but their individual values
   #may be quite large, leading to overflow pages
-  if($self->commitEvery > 500){
-    $self->commitEvery(500);
+  if($self->commitEvery > 700){
+    $self->commitEvery(700);
   }
-
-  # Don't bother storing 3 bytes for a nil value
-  # We output NA for any undefined values anyhow
-  my $missingValue = 'NA';
 
   for my $file ($self->allLocalFiles) {
     $pm->start($file) and next;
@@ -212,7 +208,7 @@ sub buildTrack {
         }
 
         # Track affected chromosomes for completion recording
-        if( !defined $visitedChrs{$chr} ) { $visitedChrs{$chr} = 1 }
+        if( !defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 }
       }
 
       if(%data) {

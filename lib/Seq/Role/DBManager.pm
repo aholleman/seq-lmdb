@@ -43,11 +43,6 @@ sub setDbPath {
   $databaseDir = $_[1]; #$_[0] is $self
 }
 
-#to store any records
-#For instance, here we can store our feature name mappings, our type mappings
-#whether or not a particular track has completed writing, etc
-state $metaDbNamePart = '_meta';
-
 #Transaction size
 #Consumers can choose to ignore it, and use arbitrarily large commit sizes
 #this maybe moved to Tracks::Build, or enforce internally
@@ -74,6 +69,15 @@ has overwrite => (
   default => 0,
   lazy => 1,
 );
+
+# Flag for deleting tracks instead of inserting during patch* methods
+has delete => (
+  is => 'ro',
+  isa => 'Bool',
+  default => 0,
+  lazy => 1,
+);
+
 
 state $dbReadOnly;
 has dbReadOnly => (
@@ -229,6 +233,7 @@ sub dbRead {
   return \@out;
 }
 
+# Method to write one position in the database, as a hash
 #$pos can be any string, identifies a key within the kv database
 #dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 #i.e some key in the hash found at the key in the kv database
@@ -236,7 +241,7 @@ sub dbPatchHash {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
   if(ref $dataHref ne 'HASH') {
-    $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
+    return $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
   }
 
   my $db = $self->_getDbi($chr);
@@ -245,35 +250,41 @@ sub dbPatchHash {
 
   my $overwrite = $overrideOverwrite || $self->overwrite;
 
-  #First get the old data, using zero-copy mode
+  # Get existing data
   my $json; 
   $txn->get($dbi, $pos, $json);
-  #commit, to avoid db inflation during write
+  # Commit to avoid db inflation
   $txn->commit();
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
   }
 
+  # If deleting, and there is no existing data, nothing to do
+  if(!$json && $self->delete) { return; }
+
   if($json) {
     my $href = $mp->unpack($json);
 
-    my ($trackIndex, $trackValue) = %{$dataHref};
+    my ($trackKey, $trackValue) = %{$dataHref};
 
-    if( defined $href->{$trackIndex} ) {
-      if(!$overwrite) {
-        #skip since we already have it
-        return;
+    if( defined $href->{$trackKey} ) {
+      # Deletion and insertion are mutually exclusive
+      if($self->delete) {
+        delete $href->{$trackKey};
+      } else {
+        # If not overwriting, nothing to do, return from function
+        if(!$overwrite) { return; }
+
+        # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
+        if($overwrite == 1) { $href = merge $href, $dataHref; }
+        if($overwrite == 2) { $href->{$trackKey} = $trackValue; }
       }
-
-      # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
-      if($overwrite == 1) { $dataHref->{$trackIndex} = merge $href, $dataHref; }
+    } else {
+      $href->{$trackKey} = $trackValue;
     }
 
-    $dataHref->{'something'} = 1;
-
-    $href->{$trackIndex} = $trackValue;
-    #modify the stack in place, can't just set $dataHref
+    # Modify the stack in place, can't just set $dataHref
     $_[3] = $href;
   }
 
@@ -285,7 +296,8 @@ sub dbPatchHash {
   #Then write the new data, re-using the stack for efficiency
   goto &dbPut;
 }
-
+  
+# Method to write multiple positions in the database, as arrays
 sub dbPatchBulkArray {
   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
 
@@ -299,7 +311,7 @@ sub dbPatchBulkArray {
 
   for my $pos ( keys %$posHref ) {
     if(ref $posHref->{$pos} ne 'HASH') {
-      $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
+      return $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
     }
 
     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
@@ -314,39 +326,68 @@ sub dbPatchBulkArray {
 
     my $aref = [];
 
-    if($json) {
+    if(defined $json) {
       #can't modify $json, read-only value, from memory map
       $aref = $mp->unpack($json);
 
       if(defined $aref->[$trackIndex] ) {
-        #skip this position (we pass posHref to dbPutBulk)
+        # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
+        if($self->delete) {
+          splice(@$aref, $trackIndex, 1);
+
+          # If this was also the last element in the array, it is safe to remove
+          # any adjacent entries that aren't defined, since indice order will remain preserved
+          if($trackIndex == @$aref) {
+            SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
+              if(! defined $aref->[$i]) {
+                splice(@$aref, $i, 1);
+                next SHORTEN_LOOP;
+              }
+
+              # We found a defined val, so we're done (array should remain sparse)
+              last SHORTEN_LOOP;
+            }
+          }
+
+          # Update the record that will be inserted to reflect the deletion
+          $posHref->{$pos} = $aref;
+          next; 
+        }
+
+        # If overwrite not set, skip this position since we pass posHref to dbPutBulk
         if(!$overwrite) {
           delete $posHref->{$pos};
           next;
         }
 
-        #else we simply replace the value
+        # Overwrite
         $aref->[$trackIndex] = $trackValue;
         $posHref->{$pos} = $aref;
         next;
       }
     }
 
-    # array is at least as long; but could be sparse (undefined values)
+    # If the track data wasn't found in $json, don't accidentally insert it into the db
+    if( $self->delete ) {
+      delete $posHref->{$pos};
+      next;
+    }
+
+    # Either $json not defiend ($aref empty) or trackIndex not defined
+    # If array is large enough to accomodate $trackIndex, set trackValue
+    # Else, grow it to the correct size, and set trackValue as the last element
     if(@$aref > $trackIndex) {
       $aref->[$trackIndex] = $trackValue;
     } else {
-      #array is not as long; could be 0 to $trackIndex in length
-      #for every element that doesn't exist, make it "sparse"
-      #https://ideone.com/SdwXgu
+      # Array is shorter, down to 0 length #https://ideone.com/SdwXgu
       for (my $i = @$aref; $i < $trackIndex; $i++) {
         push @$aref, undef;
       }
 
-      #push into the $trackIndex
+      # Make the trackValue the last entry, guaranteed to be @ $aref->[$trackIndex]
       push @$aref, $trackValue;
     }
-
+    
     $posHref->{$pos} = $aref;
   }
 
@@ -457,6 +498,11 @@ sub dbReadAll {
   return \%out;
 }
 
+#to store any records
+#For instance, here we can store our feature name mappings, our type mappings
+#whether or not a particular track has completed writing, etc
+state $metaDbNamePart = '_meta';
+
 #We allow people to update special "Meta" databases
 #The difference here is that for each $databaseName, there is always
 #only one meta database. Makes storing multiple meta documents in a single
@@ -498,6 +544,7 @@ no Moose::Role;
 1;
 
 ########### hash-based method ##############
+
 # Write database entries in bulk
 # Expects one track per call ; each posHref should have {pos => {trackName => trackData} }
 # @param <HashRef> $posHref : form of {pos => {trackName => trackData} }, modified in place

@@ -20,7 +20,7 @@ use Seq::Build;
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose,
   $help,        $wantedChr,        
-  $debug,       $overwrite,  $buildClean
+  $debug,       $overwrite,  $delete,
 );
 
 $debug = 0;
@@ -34,7 +34,7 @@ GetOptions(
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
   'chr|wanted_chr=s' => \$wantedChr,
-  'cln|clean' => \$buildClean,
+  'dlt|delete' => \$delete,
 );
 
 if ($help) {
@@ -45,6 +45,7 @@ if ($help) {
 unless ($yaml_config) {
   Pod::Usage::pod2usage();
 }
+
 
 # read config file to determine genome name for log and check validity
 my $config_href = LoadFile($yaml_config);
@@ -70,7 +71,7 @@ my $builder_options_href = {
   overwrite    => $overwrite || 0,
   debug        => $debug,
   logPath      => $logPath,
-  buildClean   => $buildClean,
+  delete       => $delete || 0,
 };
   
 
