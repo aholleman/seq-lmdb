@@ -48,8 +48,7 @@ sub countTransitionsAndTransversions {
   my (%transitions, %transversions);
 
   foreach (@outputFields) {
-    my @sampleIds = ( $_->{$hetIdKey} eq 'NA' ? () : split( ";", $_->{$hetIdKey} ),
-      $_->{$homIdKey} eq 'NA' ? () : split( ";", $_->{$homIdKey} ) );
+    my @sampleIds = ( @{ $_->{$hetIdKey} },  @{ $_->{$homIdKey} } );
 
     my $isTrans = 0;
 

@@ -26,11 +26,11 @@ use List::Util qw/reduce/;
 plan tests => 4;
 
 my $tracks = MockAnnotationClass->new_with_config(
-  { config =>'./config/hg19.lmdb.yml'}
+  { config =>'./config/hg19.lmdb.yml', gettersOnly => 1}
 );
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
-my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp142');
+my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp146');
 my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
 my $phastConsTrack = $tracks->singletonTracks->getTrackGetterByName('phastCons');
 my $geneTrack = $tracks->singletonTracks->getTrackGetterByName('refSeq');
@@ -158,3 +158,8 @@ say "CADD score, assuming a T allele: " . $caddScore;
 $trackData = $tracks->dbRead('chr1', 249240621 - 1);
 say "trackData for last CADD-containing base for chr1 is";
 p $trackData;
+
+$trackData = $tracks->dbRead('chr1', 97564155 - 1);
+say "trackData for chr1:97564154";
+p $trackData;
+

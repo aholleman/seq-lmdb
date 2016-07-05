@@ -42,8 +42,8 @@ sub buildTrack {
 
   #use small commit size; sparse tracks are small, but their individual values
   #may be quite large, leading to overflow pages
-  if($self->commitEvery > 700){
-    $self->commitEvery(700);
+  if($self->commitEvery > 500){
+    $self->commitEvery(500);
   }
 
   # Don't bother storing 3 bytes for a nil value
@@ -115,6 +115,9 @@ sub buildTrack {
       # The default BED format is 0-based: https://genome.ucsc.edu/FAQ/FAQformat.html#format1
       # Users can override this by setting $self->based;
       my $based = $self->based;
+      # Only 0 based files should be half closed
+      my $halfClosedOffset = $based == 0 ? 1 : 0;
+
       my $count;
 
       # Record which chromosomes were recorded for completionMeta
@@ -153,7 +156,7 @@ sub buildTrack {
             $count = 0;
           }
 
-          if($$self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr) ) {
+          if($self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr) ) {
             $wantedChr = $chr;
           } else {
             $wantedChr = undef;
@@ -170,14 +173,14 @@ sub buildTrack {
 
         my $pAref;
         
-        #this is an insertion; the only case when start should == stop
+        # This is an insertion; the only case when start should == stop (for 0-based coordinates)
         if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
           $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
         } else { 
           #it's a normal change, or a deletion
-          #BED is a 0-based, half-closed format, so subtract 1 from end
+          #0-based files are expected to be half-closed format, so subtract 1 from end 
           $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
-            .. $fields[ $reqIdxHref->{$cEnd} ] - $based - 1 ];
+            .. $fields[ $reqIdxHref->{$cEnd} ] - $based - $halfClosedOffset ];
         }
       
         # Collect all of the feature data as an array
