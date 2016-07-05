@@ -18,7 +18,6 @@ use Data::MessagePack;
 use LMDB_File qw(:all);
 use MooseX::Types::Path::Tiny qw/AbsPath/;
 use Sort::XS;
-use Scalar::Util qw/looks_like_number/;
 use DDP;
 use Hash::Merge::Simple qw/ merge /;
 
@@ -54,38 +53,18 @@ sub setDbPath {
 #Even compaction, using mdb_copy may not be enough to fix it it seems
 #requiring a clean re-write using single transactions
 #as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
-has commitEvery => (
-  is => 'rw',
-  init_arg => undef,
-  default => 1e4,
-  lazy => 1,
-);
+has commitEvery => (is => 'rw', init_arg => undef, default => 1e4, lazy => 1);
 
 #0, 1, 2
 #TODO: make singleton
-has overwrite => (
-  is => 'ro',
-  isa => 'Int',
-  default => 0,
-  lazy => 1,
-);
+has overwrite => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
 
 # Flag for deleting tracks instead of inserting during patch* methods
-has delete => (
-  is => 'ro',
-  isa => 'Bool',
-  default => 0,
-  lazy => 1,
-);
+has delete => (is => 'ro', isa => 'Bool', default => 0, lazy => 1);
 
 
 state $dbReadOnly;
-has dbReadOnly => (
-  is => 'rw',
-  isa => 'Bool',
-  default => $dbReadOnly,
-  lazy => 1,
-);
+has dbReadOnly => (is => 'rw', isa => 'Bool', default => $dbReadOnly, lazy => 1);
 
 sub setDbReadOnly {
   $dbReadOnly = $_[1];
@@ -141,24 +120,17 @@ sub _getDbi {
     return;
   }
 
-  my $txn = $envs->{$name}->BeginTxn(); # Open a new transaction
+  my $txn = $envs->{$name}->BeginTxn();
   
   my $DB = $txn->OpenDB();
 
-  #means we have unsafe reading; gives memory pointer for perf reasons
+  # ReadMode 1 gives memory pointer for perf reasons, not safe
   $DB->ReadMode(1);
 
-  #unfortunately if we close the transaction, cursors stop working
-  #a limitation of the current API
-  $txn->commit(); #now db is open
+  # Now db is open
+  $txn->commit();
 
-  #my $status = $envs->{$name}->stat;
-
-  $dbis->{$name} = {
-    env => $envs->{$name},
-    dbi => $DB->dbi,
-    path => $dbPath,
-  };
+  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
 
   return $dbis->{$name};
 }
@@ -167,27 +139,8 @@ sub _getDbi {
 my $mp = Data::MessagePack->new();
 $mp->prefer_integer(); #treat "1" as an integer, save more space
 
-#Since we are using transactions, and have sync on commit enabled
-#we know that if the feature name ($tokPkey) is found
-#that the data is present
-#Assumes that the posHref is
-# {
-#   position => {
-#     feature_name => {
-#       ...everything that belongs to feature_name
-#     }
-#   }
-# }
-# Since we make this assumption, we can just check if the feature exists
-# and if it does, replace it (if we wish to overwrite);
-#was having huge performance issues. so trying to separate read and
-#write transactions
-# this mutates posHref
-# accepts single position, or array reference of positions
-# not completely safe, people could pass garbage, but we expect better
-#by default sort, but, sometimes we may not want to do that by default
-#To save time, I just re-assign $posAref
-#However that proved annoying in practice
+################### DB Read, Write methods ############################
+
 sub dbRead {
   #my ($self, $chr, $posAref) = @_;
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
@@ -233,10 +186,18 @@ sub dbRead {
   return \@out;
 }
 
+#Assumes that the posHref is
+# {
+#   position => {
+#     feature_name => {
+#       ...everything that belongs to feature_name
+#     }
+#   }
+# }
+
 # Method to write one position in the database, as a hash
-#$pos can be any string, identifies a key within the kv database
-#dataHref should be {someTrackName => someData} that belongs at $chr:$pos
-#i.e some key in the hash found at the key in the kv database
+# $pos can be any string, identifies a key within the kv database
+# dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 sub dbPatchHash {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
 
@@ -516,7 +477,6 @@ sub dbReadMeta {
   #so for a single "position"/key (in our case $metaType)
   #only a single value should be returned (whether a hash, or something else
   # based on caller's expectations)
-  #don't sort 
   return $self->dbRead($databaseName . $metaDbNamePart, $metaType, 1);
 }
 
