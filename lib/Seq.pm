@@ -22,6 +22,7 @@ use Seq::Output;
 use Seq::Headers;
 use Seq::Tracks;
 use Seq::Genotypes;
+use Seq::Statistics;
 
 extends 'Seq::Base';
 
@@ -41,11 +42,14 @@ has out_file => (
   handles   => { outputFilePath => 'stringify' }
 );
 
+# The statistics package config options
+has statistics => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
 # We also add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
-my $heterozygousIdsKey = 'heterozygotes';
+my $heterozygoteIdsKey = 'heterozygotes';
 my $compoundIdsKey = 'compoundHeterozygotes';
-my $homozygousIdsKey = 'homozygotes';
+my $homozygoteIdsKey = 'homozygotes';
+my $minorAllelesKey = 'minorAlleles';
 
 ############# Private variables used by this package ###############
 # Reads headers of input file, checks if it is in an ok format
@@ -56,6 +60,9 @@ my $outputter = Seq::Output->new();
 
 # Handles figuring out genotype issues
 my $genotypes = Seq::Genotypes->new();
+
+# Handle statistics, initialize in BUILD, needs args
+my $statistics;
 
 # Names and indices of input fields that will be added as the first few output fields
 my $chrFieldIdx;
@@ -87,26 +94,40 @@ my $fileSize;
 my $chunkSize;
 
 # The track configuration array reference. The only required value: the tracks configuration (typically from YAML)
-has tracks => ( is => 'ro', isa => 'ArrayRef[HashRef]', required => 1, );
+has tracks => (is => 'ro', isa => 'ArrayRef[HashRef]', required => 1);
 
 sub BUILD {
   my $self = shift;
 
   my $tracks = Seq::Tracks->new( {tracks => $self->tracks, gettersOnly => 1} );
 
-  # We won't be building anything, optimize locking for read
+  # We won't be building anything, optimize locking for read (no locks)
   $self->dbReadOnly(1);
+
+  # Set the lmdb database to read only, remove locking
+  # We MUST make sure everything is written to the database by this point
+  $self->setDbReadOnly(1);
+
   #the reference base can be used for many purposes
   #and so to benefit encapsulation, I separate it from other tracks during getting
   #this way, tracks can just accept the first four fields of the input file
   # chr, pos, ref, alleles, using the empirically found ref
   $refTrackGetter = $tracks->getRefTrackGetter();
 
-  #all other tracks
+  # All other tracks
   for my $trackGetter ($tracks->allTrackGetters) {
     if($trackGetter->name ne $refTrackGetter->name) {
       push @$trackGettersExceptReference, $trackGetter;
     }
+  }
+
+  # TODO: maybe make this more configurable, take the IdsKey values from 
+  # YAML
+  if($self->statistics) {
+    $statistics = Seq::Statistics->new_with_config({
+      config => $self->statistics, heterozygoteIdsKey => $heterozygoteIdsKey,
+      homozygoteIdsKey => $homozygoteIdsKey, minorAllelesKey => $minorAllelesKey,
+    })
   }
 }
 
@@ -114,10 +135,6 @@ sub annotate_snpfile {
   my $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
-
-  # Set the lmdb database to read only, remove locking
-  # We MUST make sure everything is written to the database by this point
-  $self->setDbReadOnly(1);
 
   my $headers = Seq::Headers->new();
   
@@ -144,16 +161,16 @@ sub annotate_snpfile {
     $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
     $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
 
-    $chrFieldName = $inputFileProcessor->chrFieldName;
-    $positionFieldName = $inputFileProcessor->positionFieldName;
-    $alleleFieldName = $inputFileProcessor->alleleFieldName;
-    $typeFieldName = $inputFileProcessor->typeFieldName;
+    $chrKey = $inputFileProcessor->chrFieldName;
+    $positionKey = $inputFileProcessor->positionFieldName;
+    $allelesKey = $inputFileProcessor->alleleFieldName;
+    $typeKey = $inputFileProcessor->typeFieldName;
 
-    # Add these input fields to the output header record
-    $headers->addFeaturesToHeader( [$chrFieldName, $positionFieldName, $alleleFieldName,
-      $typeFieldName, $heterozygousIdsKey, $homozygousIdsKey, $compoundIdsKey ], undef, 1);
+    # Prepend these input fields to the output header record
+    $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey,
+      $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
 
-    # Outputter needs to know which fields we're going to pass to it
+    # Outputter needs to know which fields we're going to pass it
     $outputter->setOutputDataFieldsWanted( $headers->get() );
 
     $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
@@ -175,7 +192,7 @@ sub annotate_snpfile {
     chunk_size => 'auto',
     max_workers => 32,
     use_slurpio => 1,
-    gather => $self->logMessages(),
+    gather => $self->logMessagesAndStatistics(),
     #doesn't seem to improve performance
     #and apparently slow on shared storage
     parallel_io => 1,
@@ -226,17 +243,23 @@ sub annotate_snpfile {
 
     # Accumulate statistics and write progress
     # 1 is a placedholder for some statistics hash reference
-    MCE->gather(1);
+    MCE->gather(undef);
   } $fh;
 }
 
 sub logMessages {
-  my $self = shift;
+  my ($self, $statistics) = @_;
   my $total = 0;
   my $progress = 0;
-  state $hasPublisher = $self->hasPublisher;
+  my $allStatsHref = {};
+
+  my $hasPublisher = $self->hasPublisher;
 
   return sub {
+    #$statistics == $_[0]
+
+    say "statistics are $_[0]";
+
     if($hasPublisher) {
       $total += $chunkSize;
       # Can exceed total because last chunk may be over-stated in size
@@ -247,6 +270,10 @@ sub logMessages {
       }
 
       $self->publishProgress($progress);
+
+      if($_[0] && $statistics) {
+        $statistics->accumulateValues($allStatsHref, $)
+      }
     }
 
     ## Handle statistics accumulation
@@ -333,6 +360,9 @@ sub annotateLines {
   #write everything for this part
   MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
 
+  if($statistics) {
+    $statistics->countTransitionsAndTransversions(\@output);
+  }
   #TODO: need also to take care of statistics stuff
 }
 
@@ -345,7 +375,6 @@ sub finishAnnotatingLines {
   # Cache $alleles
   state $cached;
 
-  my @allNonReferenceGenos;
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
@@ -361,7 +390,7 @@ sub finishAnnotatingLines {
     }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
-    if(!defined $cached->{$givenRef}->{ $inputAref->[$i][$alleleFieldIdx] } ) {
+    if(!defined $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } ) {
       my @alleles;
       for my $allele ( split(',', $inputAref->[$i][$alleleFieldIdx] ) ) {
         if($allele ne $givenRef) {
@@ -369,6 +398,7 @@ sub finishAnnotatingLines {
         }
       }
 
+      # If have only one allele, pass on only one allele
       if(@alleles == 1) {
         $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = $alleles[0];
       } else {
@@ -384,15 +414,16 @@ sub finishAnnotatingLines {
         $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } );
     };
 
-    ############# Store chr, position, alleles, type ###############
+    ############# Store chr, position, alleles, type, and minor alleles ###############
 
-    $outAref->[$i]{$chrFieldName} = $inputAref->[$i][$chrFieldIdx];
-    $outAref->[$i]{$positionFieldName} = $inputAref->[$i][$positionFieldIdx];
-    $outAref->[$i]{$alleleFieldName} = $inputAref->[$i][$alleleFieldIdx];
-    $outAref->[$i]{$typeFieldName} = $inputAref->[$i][$typeFieldIdx];
+    $outAref->[$i]{$chrKey} = $inputAref->[$i][$chrFieldIdx];
+    $outAref->[$i]{$positionKey} = $inputAref->[$i][$positionFieldIdx];
+    $outAref->[$i]{$allelesKey} = $inputAref->[$i][$alleleFieldIdx];
+    $outAref->[$i]{$typeKey} = $inputAref->[$i][$typeFieldIdx];
+
+    $outAref->[$i]{$minorAllelesKey} = $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] };
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
-    my @nonReferenceGenos;
     SAMPLE_LOOP: for my $id ( @$sampleIDaref ) {
       my $geno = $inputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
 
@@ -400,23 +431,17 @@ sub finishAnnotatingLines {
         next SAMPLE_LOOP;
       }
 
-      push @nonReferenceGenos, $geno;
-
       if ( $genotypes->isHet($geno) ) {
-        push $outAref->[$i]{$heterozygousIdsKey}, $id;
+        push $outAref->[$i]{$heterozygoteIdsKey}, $id;
 
         if( $genotypes->isCompoundHet($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
           push, $outAref->[$i]{$compoundIdsKey}, $id;
         }
       } elsif( $genotypes->isHom($geno) ) {
-        push $outAref->[$i]{$homozygousIdsKey}, $id;
+        push $outAref->[$i]{$homozygoteIdsKey}, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
       }
-
-      #statistics calculator wants the actual genotype
-      #but we're not using this for now
-      #$sampleIDtypes[3]->{$id} = $geno;
     }
   }
 

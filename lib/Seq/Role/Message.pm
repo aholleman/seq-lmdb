@@ -52,13 +52,7 @@ use DDP return_value => 'dump';
 
 $Seq::Role::Message::pm = Parallel::ForkManager->new(4);
 
-has debug => (
-  is => 'ro',
-  isa => 'Int',
-  lazy => 1,
-  default => 0,
-);
-
+state $debug = 0;
 sub setLogPath {
   my ($self, $path) = @_;
   #open($Seq::Role::Message::Fh, '<', $path);
@@ -73,6 +67,10 @@ sub setLogLevel {
   my ($self, $level) = @_;
   
   our $mapLevels;
+
+  if($level =~ /debug/i) {
+    $debug = 1;
+  }
 
   $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
 }
@@ -142,14 +140,12 @@ sub log {
       $_[0]->publishMessage( "[INFO] $_[2]" );
     }
 
-  } elsif(  $_[1] eq 'debug' ) {
+  } elsif( $_[1] eq 'debug') {
     $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
 
-    if($publisher) {
+    if($publisher && $debug) {
       $_[0]->publishMessage( "[DEBUG] $_[2]" );
     }
-
-    say "[DEBUG] $_[2]";
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 
@@ -166,6 +162,10 @@ sub log {
     }
 
     die "[FATAL] $_[2]";
+  }
+
+  if($debug) {
+    say $_[2];
   }
 }
 
