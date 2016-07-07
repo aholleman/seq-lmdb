@@ -34,6 +34,8 @@ state $metaKey = 'fields';
 #If the fieldName doesn't have a corresponding database name, make one, store,
 #and return it
 #may be called millions of times, so skipping assignment of args
+has debug => (is => 'ro');
+
 sub getFieldDbName {
   #my ($self, $fieldName) = @_;
   
@@ -109,7 +111,6 @@ sub addMetaField {
     say "fieldDbNames";
     p $fieldDbNamesMap;
   }
-  
   
   my $fieldNumber;
   if(!@fieldKeys) {

@@ -131,9 +131,7 @@ sub BUILD {
 
     $self->_setNearestDbName($dbNameBuilder->dbName);
 
-    if($self->debug) {
-      say "set " . $self->name . ' nearest dbName as ' . $self->nearestDbName;
-    }
+    $self->log('debug', "Set " . $self->name . ' nearest dbName as ' . $self->nearestDbName);
   }
 
   my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name});
@@ -142,9 +140,7 @@ sub BUILD {
 
   $self->_setDbName($dbNameBuilder->dbName);
 
-  if($self->debug) {
-    say "track name is " . $self->name; say "track dbName is " . $self->dbName;
-  }
+  $self->log('debug', "Track " . $self->name . " dbName is " . $self->dbName);
 }
 
 ############ Argument configuration to meet YAML config spec ###################

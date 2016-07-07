@@ -38,7 +38,6 @@ $Seq::Role::Message::mapLevels = {
   NOTICE => 'NOTICE',
 };
 
-
 use Parallel::ForkManager;
 use Redis::hiredis;
 
@@ -136,30 +135,21 @@ sub log {
   if( $_[1] eq 'info' ) {
     $Seq::Role::Message::LOG->INFO( "[INFO] $_[2]" );
 
-    if($publisher) {
-      $_[0]->publishMessage( "[INFO] $_[2]" );
-    }
-
+    $_[0]->publishMessage( "[INFO] $_[2]" );
   } elsif( $_[1] eq 'debug') {
     $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
 
-    if($publisher && $debug) {
+    if($debug) {
       $_[0]->publishMessage( "[DEBUG] $_[2]" );
     }
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 
-    if($publisher) {
-      $_[0]->publishMessage( "[WARN] $_[2]" );
-    }
-
+    $_[0]->publishMessage( "[WARN] $_[2]" );
   } elsif( $_[1] eq 'fatal' ) {
     $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
     #$_[0]->publishMessage($_[1], $_[2]);
-    
-    if($publisher) {
-      $_[0]->publishMessage( "[FATAL] $_[2]" );
-    }
+    $_[0]->publishMessage( "[FATAL] $_[2]" );
 
     die "[FATAL] $_[2]";
   }

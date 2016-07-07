@@ -44,6 +44,10 @@ has out_file => (
 
 # The statistics package config options
 has statistics => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
+
+# Do we want to compress?
+has compress => (is => 'ro', lazy => 1, default => undef);
+
 # We also add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 my $heterozygoteIdsKey = 'heterozygotes';
@@ -62,7 +66,7 @@ my $outputter = Seq::Output->new();
 my $genotypes = Seq::Genotypes->new();
 
 # Handle statistics, initialize in BUILD, needs args
-my $statistics;
+my $statisticsHandler;
 
 # Names and indices of input fields that will be added as the first few output fields
 my $chrFieldIdx;
@@ -71,10 +75,10 @@ my $positionFieldIdx;
 my $alleleFieldIdx;
 my $typeFieldIdx;
 
-my $chrFieldName;
-my $positionFieldName;
-my $alleleFieldName;
-my $typeFieldName;
+my $chrKey;
+my $positionKey;
+# my $allelesKey;
+my $typeKey;
 
 # We will get the individual genotypes of samples, and therefore need to know
 # Their indices
@@ -120,15 +124,6 @@ sub BUILD {
       push @$trackGettersExceptReference, $trackGetter;
     }
   }
-
-  # TODO: maybe make this more configurable, take the IdsKey values from 
-  # YAML
-  if($self->statistics) {
-    $statistics = Seq::Statistics->new_with_config({
-      config => $self->statistics, heterozygoteIdsKey => $heterozygoteIdsKey,
-      homozygoteIdsKey => $homozygoteIdsKey, minorAllelesKey => $minorAllelesKey,
-    })
-  }
 }
 
 sub annotate_snpfile {
@@ -139,6 +134,15 @@ sub annotate_snpfile {
   my $headers = Seq::Headers->new();
   
   my $fh;
+
+  # TODO: maybe make this more configurable, take the IdsKey values from 
+  # YAML
+  if($self->statistics) {
+    $statisticsHandler = Seq::Statistics->new( {  %{$self->statistics}, (
+      heterozygoteIdsKey => $heterozygoteIdsKey,
+      homozygoteIdsKey => $homozygoteIdsKey, minorAllelesKey => $minorAllelesKey,
+    ) } );
+  }
 
   ($fileSize, $fh) = $self->get_read_fh($self->inputFilePath);
     
@@ -163,7 +167,7 @@ sub annotate_snpfile {
 
     $chrKey = $inputFileProcessor->chrFieldName;
     $positionKey = $inputFileProcessor->positionFieldName;
-    $allelesKey = $inputFileProcessor->alleleFieldName;
+    # $allelesKey = $inputFileProcessor->alleleFieldName;
     $typeKey = $inputFileProcessor->typeFieldName;
 
     # Prepend these input fields to the output header record
@@ -186,13 +190,14 @@ sub annotate_snpfile {
   # Write the header
   say $outFh $headers->getString();
 
+  my $allStatisticsHref = {};
   # Initialize our parallel processes; re-uses forked processes
   my $a = MCE::Loop::init {
     #slurpio is optimized with auto chunk
     chunk_size => 'auto',
     max_workers => 32,
     use_slurpio => 1,
-    gather => $self->logMessagesAndStatistics(),
+    gather => $self->logProgressAndStatistics($allStatisticsHref),
     #doesn't seem to improve performance
     #and apparently slow on shared storage
     parallel_io => 1,
@@ -241,26 +246,46 @@ sub annotate_snpfile {
     # TODO: decide whether to return statistics from here, or use MCE::Shared
     $self->annotateLines(\@lines, $outFh);
 
-    # Accumulate statistics and write progress
+    # Write progress
     # 1 is a placedholder for some statistics hash reference
     MCE->gather(undef);
   } $fh;
+
+  my $ratiosAndQcHref;
+  if($statisticsHandler) {
+    $self->log('info', "Gathering and printing statistics");
+
+    $ratiosAndQcHref = $statisticsHandler->makeRatios($allStatisticsHref);
+    $statisticsHandler->printStatistics($ratiosAndQcHref, $self->outputFilePath);
+  }
+
+  if($self->compress) {
+    $self->log('info', "Compressing output");
+    $self->compressPath($self->out_file);
+  }
+
+  return $ratiosAndQcHref;
 }
 
-sub logMessages {
-  my ($self, $statistics) = @_;
+sub logProgressAndStatistics {
+  my $self = shift;
+  my $allStatsHref = shift;
+
   my $total = 0;
   my $progress = 0;
-  my $allStatsHref = {};
 
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
     #$statistics == $_[0]
+    #We have two gather calls, one for progress, one for statistics
+    #If for statistics, $_[0] will have a value
 
-    say "statistics are $_[0]";
+    if(!$_[0]) {
+      if(!$hasPublisher) {
+        return;
+      }
 
-    if($hasPublisher) {
       $total += $chunkSize;
       # Can exceed total because last chunk may be over-stated in size
       if($total > $fileSize) {
@@ -270,12 +295,14 @@ sub logMessages {
       }
 
       $self->publishProgress($progress);
-
-      if($_[0] && $statistics) {
-        $statistics->accumulateValues($allStatsHref, $)
-      }
+      return;
     }
 
+    if(!$statisticsHandler) {
+      return;
+    }
+
+    $statisticsHandler->accumulateValues($allStatsHref, $_[0]);
     ## Handle statistics accumulation
   }
 }
@@ -313,7 +340,14 @@ sub annotateLines {
         $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
           \@positions, \@output);
         
+        # Accumulate statistics from this @output
+        if($statisticsHandler) {
+          MCE->gather( $statisticsHandler->countTransitionsAndTransversions(\@output) );
+        }
+
         # and prepare those reults for output, save the accumulated string value
+        # This should come last, makeOutputString may mutate @output
+        # TODO: figure out whether we want to allow mutation (for Elasticsearch)
         $outputString .= $outputter->makeOutputString(\@output);
 
         #erase accumulated values; relies on finishAnnotatingLines being synchronous
@@ -357,13 +391,13 @@ sub annotateLines {
       \@positions, \@output);
   }
 
-  #write everything for this part
-  MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
-
-  if($statistics) {
-    $statistics->countTransitionsAndTransversions(\@output);
+  if($statisticsHandler) {
+    MCE->gather( $statisticsHandler->countTransitionsAndTransversions(\@output) );
   }
-  #TODO: need also to take care of statistics stuff
+
+  # write everything for this part
+  # This should come last, makeOutputString may mutate @output
+  MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
 }
 
 #This iterates over some database data, and gets all of the associated track info
@@ -418,7 +452,7 @@ sub finishAnnotatingLines {
 
     $outAref->[$i]{$chrKey} = $inputAref->[$i][$chrFieldIdx];
     $outAref->[$i]{$positionKey} = $inputAref->[$i][$positionFieldIdx];
-    $outAref->[$i]{$allelesKey} = $inputAref->[$i][$alleleFieldIdx];
+    # $outAref->[$i]{$allelesKey} = $inputAref->[$i][$alleleFieldIdx];
     $outAref->[$i]{$typeKey} = $inputAref->[$i][$typeFieldIdx];
 
     $outAref->[$i]{$minorAllelesKey} = $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] };
@@ -432,15 +466,25 @@ sub finishAnnotatingLines {
       }
 
       if ( $genotypes->isHet($geno) ) {
-        push $outAref->[$i]{$heterozygoteIdsKey}, $id;
+        push @{$outAref->[$i]{$heterozygoteIdsKey} }, $id;
 
         if( $genotypes->isCompoundHet($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
-          push, $outAref->[$i]{$compoundIdsKey}, $id;
+          push @{ $outAref->[$i]{$compoundIdsKey} }, $id;
         }
       } elsif( $genotypes->isHom($geno) ) {
-        push $outAref->[$i]{$homozygoteIdsKey}, $id;
+        push @{ $outAref->[$i]{$homozygoteIdsKey} }, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
+      }
+
+      if( $outAref->[$i]{$heterozygoteIdsKey} && @{$outAref->[$i]{$heterozygoteIdsKey}} == 1) {
+         $outAref->[$i]{$heterozygoteIdsKey} = $outAref->[$i]{$heterozygoteIdsKey}[0];
+      }
+      if( $outAref->[$i]{$compoundIdsKey} && @{$outAref->[$i]{$compoundIdsKey}} == 1 ) {
+         $outAref->[$i]{$compoundIdsKey} = $outAref->[$i]{$compoundIdsKey}[0];
+      }
+      if( $outAref->[$i]{$homozygoteIdsKey} && @{$outAref->[$i]{$homozygoteIdsKey}} == 1 ) {
+         $outAref->[$i]{$homozygoteIdsKey} = $outAref->[$i]{$homozygoteIdsKey}[0];
       }
     }
   }

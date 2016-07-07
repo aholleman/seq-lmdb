@@ -13,6 +13,7 @@ use Moose::Role;
 
 use PerlIO::utf8_strict;
 use PerlIO::gzip;
+use File::Which qw/which/;
 
 use Path::Tiny;
 use Try::Tiny;
@@ -51,6 +52,9 @@ has _compressExtension => (
   init_arg => undef,
 );
 
+state $tar = which('tar');
+state $pigz = which('pigz');
+if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -145,15 +149,22 @@ sub getCleanFields {
     }
     return @out == 1 ? $out[0] : \@out;
   }
+  
   return;
 }
 
 sub compressPath {
   my $self = shift;
-  #expect a Path::Tiny object
-  my $fileObject = shift;
 
-  my $filePath = $fileObject->stringify;
+  if(!$tar) { $self->log( 'fatal', 'No tar program found'); }
+  
+  #expect a Path::Tiny object or a valid file path
+  my $fileObjectOrPath = shift;
+  if(!ref $fileObjectOrPath) {
+    $fileObjectOrPath = path($fileObjectOrPath);
+  }
+
+  my $filePath = $fileObjectOrPath->stringify;
 
   $self->log( 'info', 'Compressing all output files' );
 
@@ -161,29 +172,22 @@ sub compressPath {
     return $self->log( 'warn', 'No output files to compress' );
   }
 
-  my $tar = which('tar') or $self->log( 'fatal', 'No tar program found' );
-  my $pigz = which('pigz');
-  if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
+  my $basename = $fileObjectOrPath->basename;
+  my $thing = $fileObjectOrPath->parent->stringify;
 
-  my $baseFolderName = $fileObject->parent->basename;
-  my $baseFileName = $fileObject->basename;
-  my $compressName = $baseFileName . $self->_compressExtension;
-
+  my $compressName = substr($basename, 0, rindex($basename, ".") ) . $self->_compressExtension;
+  
   my $outcome =
-    system(sprintf("$tar -cf %s -C %s %s --transform=s/%s/%s/ --exclude '.*' --exclude %s; mv %s %s",
+    system(sprintf("cd %s; $tar --exclude '.*' --exclude %s -cf %s %s --remove-files",
+      $fileObjectOrPath->parent->stringify,
       $compressName,
-      $fileObject->parent(2)->stringify, #change to parent of folder containing output files
-      $baseFolderName, #the name of the directory we want to compress
-      #transform and exclude
-      $baseFolderName, #inside the tarball, transform  that directory name
-      $baseFileName, #to one named as our file basename
       $compressName, #and don't include our new compressed file in our tarball
-      #move our file into the original output directory
-      $compressName,
-      $fileObject->parent->stringify,
+      "$basename*", #the name of the directory we want to compress
     ) );
- 
-  $self->log( 'warn', "Zipping failed with $?" ) unless !$outcome;
+    
+  if($outcome) {
+    $self->log( 'warn', "Zipping failed with $?" )
+  }
 }
 
 sub getFileSize {

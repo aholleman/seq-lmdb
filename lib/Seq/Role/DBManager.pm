@@ -312,7 +312,7 @@ sub dbPatchBulkArray {
 
           # Update the record that will be inserted to reflect the deletion
           $posHref->{$pos} = $aref;
-          next; 
+          next;
         }
 
         # If overwrite not set, skip this position since we pass posHref to dbPutBulk

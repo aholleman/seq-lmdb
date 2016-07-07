@@ -178,9 +178,6 @@ sub get {
     if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
       push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
       $hasCodon = 1;
-    } else {
-      ### should we push undef?
-      push @{ $out{$refAminoAcidKey} }, undef;
     }
   }
 
@@ -196,7 +193,7 @@ sub get {
     return \%out;
   }
 
-  # ################# Populate $transcriptEffectsKey, $refAminoAcidKey, and $newAminoAcidKey #####################
+  # ################# Populate $transcriptEffectsKey, $newAminoAcidKey #####################
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
 

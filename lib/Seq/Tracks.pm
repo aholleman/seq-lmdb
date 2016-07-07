@@ -58,11 +58,12 @@ has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
   #  data: {
   #   feature1:   
 #} } }
+state $tracks = [];
 has tracks => (
   is => 'ro',
   isa => 'ArrayRef[HashRef]',
   lazy => 1,
-  default => sub { [] },
+  default => sub { $tracks },
 );
 
 ########################### Public Methods #################################
@@ -158,6 +159,9 @@ sub initialize {
   if(! @{$self->tracks} ) {
     $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
   }
+
+  # Cache for future calls to Seq::Tracks
+  $tracks = $self->tracks;
 
   if(!%$trackGetters) {
     $self->_buildTrackGetters;

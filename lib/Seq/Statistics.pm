@@ -5,14 +5,18 @@ use warnings;
 package Seq::Statistics;
 use Moose 2;
 
-# use Seq::Tracks;
-with 'Seq::Role::ConfigFromFile';
+use Sort::XS;
+use Seq::Tracks;
+use DDP;
+use List::Util qw/reduce/;
+
+with 'Seq::Role::ConfigFromFile', 'Seq::Role::IO';
 
 my $siteHandler = Seq::Tracks::Gene::Site->new();
 
 # From YAML config, the gene track and snp track whose features we take ratios of
-has gene_track_name => (is => 'ro', isa => 'Str', required => 1);
-has snp_track_name => (is => 'ro', isa => 'Str', required => 1);
+has gene_track => (is => 'ro', isa => 'Str', required => 1);
+has snp_track => (is => 'ro', isa => 'Str', required => 1);
 
 # We need to konw where the heterozygotes homozygotes, and minor alleles are located
 has heterozygoteIdsKey =>  (is => 'ro', isa => 'Str', required => 1);
@@ -22,45 +26,57 @@ has minorAllelesKey => (is => 'ro', isa => 'Str', required => 1);
 my %transitionGenos = (AG => 1, GA => 1, CT => 1, TC => 1);
 
 my $siteTypeKey = $siteHandler->siteTypeKey;
-
-my $trKey = 'Transitions';
-my $tvKey = 'Transversions';
+my $transitionsKey = 'Transitions';
+my $transversionsKey = 'Transversions';
+my $trTvRatioKey = 'Transitions:Transversions Ratio';
 my $totalKey = 'Total';
-my $dbSnpKey = 'DbSNP';
-my $ratioKey = 'ratio';
+my $dbSnpKey = '-DbSNP';
 
 # cache the names, avoid lookup time
-my ($refTrack, $geneTrackName, $snpTrackName, $hetKey, $homeKey, $alleleKey);
+my ($refTrack, $geneTrackName, $snpTrackName, $hetKey, $homKey, $alleleKey);
 sub BUILD{
   my ($self) = @_;
 
   $hetKey = $self->heterozygoteIdsKey;
   $homKey = $self->homozygoteIdsKey;
-  $allelesKey = $self->minorAllelesKey;
+  $alleleKey = $self->minorAllelesKey;
 
   my $tracks = Seq::Tracks->new();
-  $refTrack = $tracks->singletonTracks->getRefTrackGetter;
+  $refTrack = $tracks->getRefTrackGetter;
 
-  $geneTrackName = $self->gene_track_name;
-  $snpTrackName = $slef->snpTrackName;
+  $geneTrackName = $self->gene_track;
+  $snpTrackName = $self->snp_track;
 }
 
 # Take data for a single position and generate trTv statistics
 sub countTransitionsAndTransversions {
-  my ($self, @outputFields ) = @_;
+  my ($self, $outputLinesAref ) = @_;
 
   my (%transitions, %transversions);
 
-  foreach (@outputFields) {
-    my @sampleIds = ( @{ $_->{$hetIdKey} },  @{ $_->{$homIdKey} } );
-
+  foreach (@$outputLinesAref) {
+    my $sampleIds;
+    if( $_->{$hetKey} && $_->{$homKey}) {
+      $sampleIds = [ref $_->{$hetKey} ? @{ $_->{$hetKey} } : $_->{$hetKey},
+        ref $_->{$hetKey} ? @{ $_->{$homKey} } : $_->{$homKey}];
+    } elsif($_->{$hetKey}) {
+      $sampleIds = $_->{$hetKey};
+    } elsif($_->{$homKey}) {
+      $sampleIds = $_->{$homKey};
+    } else {
+      $self->log('warn', "No samples found in countTransitionsAndTransversions");
+      next;
+    }
+    
     my $isTrans = 0;
 
     my $reference = $_->{$refTrack->name};
     my $minorAlleles = $_->{$alleleKey};
 
     # We don't include multi-allelic sites for now
-    if(ref $minorAlleles) {
+    if(ref $minorAlleles || ! $minorAlleles =~ /ACTG/) {
+      say "not ACTG";
+      p $minorAlleles;
       next;
     }
 
@@ -70,9 +86,9 @@ sub countTransitionsAndTransversions {
     }
 
     my %notUniqueSiteType;
-    my $allSites = $output->{$geneTrackName}{$siteTypeKey};
+    my $allSites = $_->{$geneTrackName}{$siteTypeKey};
     for my $siteType (ref $allSites ? @{$allSites} : $allSites) {
-      if($notUniqueSiteType{$siteType} ) {
+      if(defined $notUniqueSiteType{$siteType} ) {
         next;
       }
 
@@ -88,7 +104,7 @@ sub countTransitionsAndTransversions {
 
       #has RS
       my $hasRs;
-      if( $output->{$snpTrackName}{name} ) {
+      if( $_->{$snpTrackName}{name} ) {
         $hasRs = 1;
 
         if(!defined $transitions{$totalKey}{"$siteType$dbSnpKey"}) {
@@ -100,7 +116,7 @@ sub countTransitionsAndTransversions {
         else { $transversions{$totalKey}{"$siteType$dbSnpKey"}++; }
       }
 
-      SAMPLE_LOOP: for my $sampleId (@sampleIds) {
+      SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
         if(!defined $transitions{$sampleId}{$siteType}) {
           $transitions{$sampleId}{$siteType} = 0;
           $transversions{$sampleId}{$siteType} = 0;
@@ -138,15 +154,14 @@ sub accumulateValues {
   for my $trOrTvKey (keys %$addHref) {
     # total or a sampleId
     for my $sampleId (keys %{ $addHref->{$trOrTvKey} } ) {
+      # site types
       for my $siteType (keys %{ $addHref->{$trOrTvKey}{$sampleId} } ) {
         if( !defined $allHref->{$trOrTvKey}{$sampleId}{$siteType} ) {
-          $allHref->{$trOrTvKey}{$sampleId}{$siteType} =
-            $addHref->{$trOrTvKey}{$sampleId}{$siteType};
+          $allHref->{$trOrTvKey}{$sampleId}{$siteType} = $addHref->{$trOrTvKey}{$sampleId}{$siteType};
           next;
         }
 
-        $allHref->{$trOrTvKey}{$sampleId}{$siteType} +=
-          $addHref->{$trOrTvKey}{$sampleId}{$siteType};
+        $allHref->{$trOrTvKey}{$sampleId}{$siteType} += $addHref->{$trOrTvKey}{$sampleId}{$siteType};
       }
     }
   }
@@ -161,26 +176,149 @@ sub makeRatios {
   my $transitions = $allHref->{transitions};
   my $transversions = $allHref->{transversions};
 
-  my $totalTr = 0;
-  my $totalTv = 0;
-  for my $sampleId (keys %$transitions) {
-    for my $siteType (keys %{ $transitions->{$sampleId} } ) {
-      $totalTr += $transitions->{$sampleId}{$siteType};
-      $totalTv += $transversions->{$sampleId}{$siteType};
+  # These are the total Tr and Tv for each sample, used for qc measures
+  my %sampleTotalTransitions;
+  my %sampleTotalTransversions;
+  my @allSampleRatios;
 
+  # total or sampleId
+  for my $sampleId (keys %$transitions) {
+    # site type
+    for my $siteType (keys %{ $transitions->{$sampleId} } ) {
       if($transversions->{$sampleId}{$siteType} > 0) {
-        $ratios{$sampleId}{"$siteType $trKey:$tvKey $ratioKey"} =
+        $ratios{$sampleId}{"$siteType $trTvRatioKey"} = sprintf "%0.2f",
           $transitions->{$sampleId}{$siteType} / $transversions->{$sampleId}{$siteType};
       }
-      
+
+      if(!defined $sampleTotalTransitions{$sampleId}) {
+        $sampleTotalTransitions{$sampleId} = 0;
+        $sampleTotalTransversions{$sampleId} = 0;
+      }
+
+      $sampleTotalTransitions{$sampleId} += $transitions->{$sampleId}{$siteType};
+      $sampleTotalTransversions{$sampleId} += $transversions->{$sampleId}{$siteType};
     }
   }
 
-  if($totalTv > 0) {
-    $ratios{$totalKey}{"$trKey:$tvKey $ratioKey"} = $totalTr/$totalTv;
+  # Make the ratios for totalKey and all sampleIds, and record counts of tr & tv
+  for my $sampleId (keys %sampleTotalTransitions) {
+    if($sampleTotalTransversions{$sampleId} > 0) {
+      $ratios{$sampleId}{$trTvRatioKey} = sprintf "%0.2f",
+        $sampleTotalTransitions{$sampleId} / $sampleTotalTransversions{$sampleId};
+
+      $ratios{$sampleId}{$transitionsKey} = $sampleTotalTransitions{$sampleId};
+      $ratios{$sampleId}{$transversionsKey} = $sampleTotalTransversions{$sampleId};
+
+      if($sampleId eq $totalKey) { 
+        next;
+      }
+
+      # Store individual sample ratios for SD and Mean calculations
+      push @allSampleRatios, $ratios{$sampleId}{$trTvRatioKey};
+    }
   }
 
+  my $mean = $self->_mean(\@allSampleRatios);
+  my $standardDev = $self->_stDev(\@allSampleRatios, $mean);
+
+  my $threeSd = 3*$standardDev;
+
+  $qualityControl{stats}{Mean} = $mean;
+  $qualityControl{stats}{'Standard Deviation'} = $standardDev;
+
+  for my $sampleId (keys %sampleTotalTransitions) {
+    if(abs($ratios{$sampleId}{$trTvRatioKey} - $mean) > $threeSd) {
+      $qualityControl{fail}{$sampleId} = ">3SD";
+    }
+  }
+
+  return {ratios => \%ratios, qc => \%qualityControl};
 }
 
+sub printStatistics {
+  my ($self, $statsHref, $outputFilePath) = @_;
+
+  my $ratiosHref = $statsHref->{ratios};
+  my $qcHref = $statsHref->{qc};
+
+  my $ratiosExt = '.stats.ratios.csv';
+  my $qcExt = '.stats.qc.csv';
+
+  ############## Print ratios, Total row being first below header ##############
+  my %headerRatios = ($transitionsKey => 1, $transversionsKey => 1, $trTvRatioKey => 1);
+  my @orderedHeaderRatios;
+
+  for my $ratioType ( @{ Sort::XS::quick_sort_str( [keys %{$ratiosHref->{$totalKey} }] ) } ) {
+    if(defined $headerRatios{$ratioType}) {
+      next;
+    }
+
+    push @orderedHeaderRatios, $ratioType;
+    $headerRatios{$ratioType} = 1;
+  }
+
+  @orderedHeaderRatios = (@orderedHeaderRatios, $transitionsKey, $transversionsKey, $trTvRatioKey);
+
+  my $fh = $self->get_write_fh($outputFilePath . $ratiosExt);
+
+  say $fh join("\t", @orderedHeaderRatios);
+
+  say $fh "$totalKey\t" . join("\t", map { $ratiosHref->{$totalKey}{$_} } @orderedHeaderRatios);
+
+  for my $sampleId ( @{  Sort::XS::quick_sort_str( [keys %$ratiosHref] ) } ) {
+    if($sampleId eq $totalKey) {
+      next;
+    }
+
+    say $fh "$sampleId\t" . join("\t", map { $ratiosHref->{$sampleId}{$_} } @orderedHeaderRatios);
+  }
+
+  close $fh;
+
+  ###################### Print Quality Contorl Information #####################
+  $fh = $self->get_write_fh($outputFilePath . $qcExt);
+
+  say $fh "#Mean\t$qcHref->{stats}{Mean}\n".
+          "#SD\t$qcHref->{stats}{'Standard Deviation'}";
+
+  close $fh;
+
+  if(!defined $qcHref->{fail}) {
+    return;
+  }
+
+  say $fh "#Failures\nSampleID\tReason";
+  for my $sampleId (keys %{ $qcHref->{fail} }) {
+    say $fh "$sampleId\t$qcHref->{fail}{$sampleId}";
+  }
+}
+
+#https://edwards.sdsu.edu/research/calculating-the-average-and-standard-deviation/
+sub _mean{
+  my($self, $data) = @_;
+  if (!@$data) {
+    $self->log('fatal', "Data required in _mean");
+  }
+
+  my $total = 0;
+  foreach (@$data) {
+    $total += $_;
+  }
+  my $average = $total / @$data;
+  return $average;
+}
+sub _stDev{
+  my($self, $data, $average) = @_;
+  if(@$data == 1) {
+    return 0;
+  }
+
+  my $sqtotal = 0;
+  foreach(@$data) {
+    $sqtotal += ($average-$_) ** 2;
+  }
+  my $std = ($sqtotal / (@$data-1)) ** 0.5;
+  return $std;
+}
 __PACKAGE__->meta->make_immutable;
 1;
