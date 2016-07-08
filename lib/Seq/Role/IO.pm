@@ -53,8 +53,8 @@ has _compressExtension => (
 );
 
 state $tar = which('tar');
-state $pigz = which('pigz');
-if ($pigz) { $tar = "$tar --use-compress-program=$pigz"; } #-I $pigz
+state $pigz = which('pigz') || which('gzip');
+$tar = "$tar --use-compress-program=$pigz";
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -83,7 +83,7 @@ sub get_read_fh {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "gunzip -c $file");
+    open ($fh, '-|', "$pigz -d -c $file");
   } catch {
     open($fh, '<:unix', "$filePath");
   };

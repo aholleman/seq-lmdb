@@ -11,7 +11,7 @@ our $VERSION = '0.001';
 
 #TODO: Better errors; Seem to get bad perf if copy error after each db call
 
-use Moose::Role;
+use Moose::Role 2;
 with 'Seq::Role::Message';
 
 use Data::MessagePack;
@@ -24,7 +24,7 @@ use Hash::Merge::Simple qw/ merge /;
 # Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
 
-#needed so that we can initialize DBManager once
+# Has two singleton values, which we expect to be global
 state $databaseDir;
 has database_dir => (
   is => 'ro',
@@ -40,6 +40,13 @@ has database_dir => (
 
 sub setDbPath {
   $databaseDir = $_[1]; #$_[0] is $self
+}
+
+state $dbReadOnly;
+has dbReadOnly => (is => 'rw', isa => 'Bool', default => $dbReadOnly, lazy => 1);
+
+sub setDbReadOnly {
+  $dbReadOnly = $_[1];
 }
 
 #Transaction size
@@ -62,13 +69,7 @@ has overwrite => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
 # Flag for deleting tracks instead of inserting during patch* methods
 has delete => (is => 'ro', isa => 'Bool', default => 0, lazy => 1);
 
-
-state $dbReadOnly;
-has dbReadOnly => (is => 'rw', isa => 'Bool', default => $dbReadOnly, lazy => 1);
-
-sub setDbReadOnly {
-  $dbReadOnly = $_[1];
-}
+has dbMergeFunc => (is => 'ro', isa => 'Maybe[CodeRef]', default => undef);
 
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
@@ -102,15 +103,15 @@ sub _getDbi {
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
-      mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
-      #maxdbs => 20, # Some databases
-      mode   => 0600,
-      #can't just use ternary that outputs 0 if not read only...
-      #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
-      #in the docs
-      flags => $flags,
-      maxreaders => 1000,
-      maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
+    mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
+    #maxdbs => 20, # Some databases
+    mode   => 0600,
+    #can't just use ternary that outputs 0 if not read only...
+    #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
+    #in the docs
+    flags => $flags,
+    maxreaders => 1000,
+    maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
   #if we passed $dontCreate, we may not successfully make a new env
@@ -238,8 +239,7 @@ sub dbPatchHash {
         if(!$overwrite) { return; }
 
         # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
-        if($overwrite == 1) { $href = merge $href, $dataHref; }
-        if($overwrite == 2) { $href->{$trackKey} = $trackValue; }
+        if($overwrite) { $href = merge $href, $dataHref; }
       }
     } else {
       $href->{$trackKey} = $trackValue;
@@ -254,11 +254,17 @@ sub dbPatchHash {
   #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
   
-  #Then write the new data, re-using the stack for efficiency
-  goto &dbPut;
+  return &dbPut;
 }
   
 # Method to write multiple positions in the database, as arrays
+# The behavior of dbPatchBulkArray is as follows:
+# 1. If no data at all is found at a position, some data is added
+# 2. If the key we're trying to insert data for at that pos doesn't exist, it is added
+# with its corresponding value
+# 3. If the key is already present at that position, we need to show that there
+# are multiple entries for this key
+# To do that, we can convert the value into an array. If the value is already an
 sub dbPatchBulkArray {
   my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
 
@@ -270,7 +276,11 @@ sub dbPatchBulkArray {
   #https://ideone.com/Y0C4tX
   my $overwrite = $overrideOverwrite || $self->overwrite;
 
-  for my $pos ( keys %$posHref ) {
+  # We'll use goto to get to dbPutBulk, so store this in stack
+  my @allPositions = @{ xsort([keys %$posHref]) };
+
+  my %out;
+  for my $pos ( @allPositions ) {
     if(ref $posHref->{$pos} ne 'HASH') {
       return $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
     }
@@ -294,54 +304,68 @@ sub dbPatchBulkArray {
       if(defined $aref->[$trackIndex] ) {
         # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
         if($self->delete) {
-          splice(@$aref, $trackIndex, 1);
+          $aref->[$trackIndex] = undef;
 
-          # If this was also the last element in the array, it is safe to remove
-          # any adjacent entries that aren't defined, since indice order will remain preserved
-          if($trackIndex == @$aref) {
+          # If trackIndex is the last index in the array, safe to try to compact the array
+          # However, need to stop at the first defined value from array end
+          # To preserve the order/meaning of the indices
+          if($trackIndex == $#$aref) {
+            my $lastUndefinedIndex;
             SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
-              if(! defined $aref->[$i]) {
-                splice(@$aref, $i, 1);
+              if(!defined $aref->[$i]) {
+                $lastUndefinedIndex = $i;
                 next SHORTEN_LOOP;
               }
-
-              # We found a defined val, so we're done (array should remain sparse)
+              # Found a defined value, can shorten no more
               last SHORTEN_LOOP;
             }
+
+            # Will always shorten to at least @aref - 1
+            splice(@$aref, $lastUndefinedIndex);
           }
-
+          # If the array is now 0 in size, we can store as an empty array, size is 1 byte
           # Update the record that will be inserted to reflect the deletion
-          $posHref->{$pos} = $aref;
+          $out{$pos} = $aref;
           next;
         }
 
-        # If overwrite not set, skip this position since we pass posHref to dbPutBulk
-        if(!$overwrite) {
-          delete $posHref->{$pos};
+        if($self->dbMergeFunc) {
+          # Old , New
+          $aref->[$trackIndex] = $self->dbMergeFunc($aref->[$trackIndex], $trackValue);
+
+          say "after merge func, we have";
+          p $aref->[$trackIndex];
+          $out{$pos} = $aref;
           next;
         }
 
-        # Overwrite
-        $aref->[$trackIndex] = $trackValue;
-        $posHref->{$pos} = $aref;
+        if($self->overwrite) {
+          $aref->[$trackIndex] = $trackValue;
+          $out{$pos} = $aref;
+          next
+        }
+
+        # Overwrite not set, we default to skipping this position
         next;
       }
     }
 
+    # If defined $json, but $trackIndex not found
+
     # If the track data wasn't found in $json, don't accidentally insert it into the db
     if( $self->delete ) {
-      delete $posHref->{$pos};
       next;
     }
 
     # Either $json not defiend ($aref empty) or trackIndex not defined
     # If array is large enough to accomodate $trackIndex, set trackValue
     # Else, grow it to the correct size, and set trackValue as the last element
-    if(@$aref > $trackIndex) {
+    if($#$aref >= $trackIndex) {
       $aref->[$trackIndex] = $trackValue;
     } else {
       # Array is shorter, down to 0 length #https://ideone.com/SdwXgu
       for (my $i = @$aref; $i < $trackIndex; $i++) {
+        # Won't push anything if @$aref == $trackIndex + 1
         push @$aref, undef;
       }
 
@@ -349,7 +373,7 @@ sub dbPatchBulkArray {
       push @$aref, $trackValue;
     }
     
-    $posHref->{$pos} = $aref;
+    $out{$pos} = $aref;
   }
 
   $txn->commit();
@@ -357,7 +381,12 @@ sub dbPatchBulkArray {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  goto &dbPutBulk;
+  if(!%out) {
+    return;
+  }
+
+  $self->dbPutBulk($chr, \%out, \@allPositions);
+  undef %out;
 }
 
 sub dbPut {
@@ -379,15 +408,15 @@ sub dbPut {
 }
 
 sub dbPutBulk {
-  my ( $self, $chr, $posHref) = @_;
+  my ( $self, $chr, $posHref, $passedSortedPosAref) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
   #Enforce putting in ascending lexical or numerical order
-  my $sortedPosAref = xsort( [keys %{$posHref} ] );
-
+  my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
+  
   for my $pos (@$sortedPosAref) {
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 

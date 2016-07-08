@@ -17,6 +17,7 @@ use Moose 2;
 use namespace::autoclean;
 use List::MoreUtils qw/firstidx/;
 use Parallel::ForkManager;
+use Scalar::Util qw/looks_like_number/;
 
 use DDP;
 
@@ -27,12 +28,27 @@ has chrom_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chrom'
 has chromStart_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromStart');
 has chromEnd_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromEnd');
 
-my $pm = Parallel::ForkManager->new(26);
+# We skip entries that span more than this number of bases
+has max_variant_size => (is => 'ro', isa => 'Int', lazy => 1, default => 32);
+
+has dbMergeFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => sub {
+  my ($self, $old, $new);
+  my @return;
+
+  # All of our data is stored as an array
+  if(ref $old->[0]) {
+    return [$old, $new];
+  }
+
+  return [@$old, $new];
+
+});
 
 sub buildTrack {
   my $self = shift;
 
-  my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
+  my @allChrs = $self->allLocalFiles;
+  my $chrPerFile = @allChrs > 1 ? 1 : 0;
 
   my $chrom = $self->chrom_field_name;
   my $cStart = $self->chromStart_field_name;
@@ -46,7 +62,9 @@ sub buildTrack {
     $self->commitEvery(700);
   }
 
-  for my $file ($self->allLocalFiles) {
+  my $pm = Parallel::ForkManager->new(scalar @allChrs == 1 ? 0 : scalar @allChrs);
+
+  for my $file (@allChrs) {
     $pm->start($file) and next;
 
       my $fh = $self->get_read_fh($file);
@@ -56,6 +74,8 @@ sub buildTrack {
       chomp $firstLine;
 
       my @fields = split "\t", $firstLine;
+
+      my $numColumns = @fields;
 
       my $featureIdxHref;
       my $reqIdxHref;
@@ -123,6 +143,18 @@ sub buildTrack {
 
         my @fields = split("\t", $_);
 
+        if(@fields != $numColumns) {
+          $self->log('warn', "Line $. has fewer columns than expected, skipping: $_");
+          next FH_LOOP;
+        }
+
+        # Some files are misformatted, ex: clinvar's tab delimited
+        if( !looks_like_number( $fields[ $reqIdxHref->{$cStart} ] )
+        || !looks_like_number(  $fields[ $reqIdxHref->{$cEnd} ] ) ) {
+          $self->log('warn', "Start or stop doesn't look like a number on line $., skipping: $_ ");
+          next FH_LOOP;
+        }
+
         #If the user wants to modify the values of any fields, do that first
         for my $fieldName ($self->allFieldsToTransform) {
           $fields[ $fieldsToTransformIdx->{$fieldName} ] = 
@@ -167,18 +199,24 @@ sub buildTrack {
           next FH_LOOP;
         }
 
-        my $pAref;
+        my $start;
+        my $end;
         
         # This is an insertion; the only case when start should == stop (for 0-based coordinates)
         if($fields[ $reqIdxHref->{$cStart} ] == $fields[ $reqIdxHref->{$cEnd} ] ) {
-          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based ];
+          $start = $end = $fields[ $reqIdxHref->{$cStart} ] - $based;
         } else { 
           #it's a normal change, or a deletion
           #0-based files are expected to be half-closed format, so subtract 1 from end 
-          $pAref = [ $fields[ $reqIdxHref->{$cStart} ] - $based 
-            .. $fields[ $reqIdxHref->{$cEnd} ] - $based - $halfClosedOffset ];
+          $start = $fields[ $reqIdxHref->{$cStart} ] - $based;
+          $end = $fields[ $reqIdxHref->{$cEnd} ] - $based - $halfClosedOffset;
         }
-      
+        
+        if($end + 1 - $start > $self->max_variant_size) {
+          $self->log('info', "Line spans > " . $self->max_variant_size . " skipping: $_");
+          next FH_LOOP;
+        }
+
         # Collect all of the feature data as an array
         # Coerce the field into the type specified for $name, if coercion exists
         my @sparseData;
@@ -192,19 +230,41 @@ sub buildTrack {
           $sparseData[ $self->getFieldDbName($name) ] = $value;
         }
 
+        # The sparse data may be shorter than @allWantedFeatureIdx because
+        # coerceFeatureType may return undefined values if it finds an NA
+        # No point in storing those; but we dont' want to make the array not sparse
+        # Since that will remove the relationship between index and dbName of the field
+        my $lastUndefinedIndex;
+        SHORTEN_LOOP: for (my $i = $#sparseData; $i >= 0; $i--) {
+          if(!defined $sparseData[$i]) {
+            $lastUndefinedIndex = $i;
+            next SHORTEN_LOOP;
+          }
+          last SHORTEN_LOOP;
+        }
+
+        if($lastUndefinedIndex) {
+          splice(@sparseData, $lastUndefinedIndex);
+        }
+
+        #It's formally possible the array shrinks to 0: https://ideone.com/UTqMcF
+        if(!@sparseData) {
+          next FH_LOOP;
+        }
+
         #adds $self->dbName to record to locate dbData
         my $namedData = $self->prepareData(\@sparseData);
        
-        for my $pos (@$pAref) {
+        for my $pos (($start .. $end)) {
           $data{$pos} = $namedData;
           $count++;
-        }
+        
+          if($count >= $self->commitEvery) {
+            $self->dbPatchBulkArray($wantedChr, \%data);
 
-        if($count >= $self->commitEvery) {
-          $self->dbPatchBulkArray($wantedChr, \%data);
-
-          undef %data;
-          $count = 0;
+            undef %data;
+            $count = 0;
+          }
         }
 
         # Track affected chromosomes for completion recording
