@@ -98,6 +98,26 @@ has nearest => (
   default => sub{ [] },
 );
 
+# We allow a "link" property to be defined for any tracks
+# Although it won't make sense for some (like reference)
+# It's up to the consuming class to decide if they need it
+# It is a property that, when set, may have 0 or more features
+# Used like a pre-calculated join
+# Expects
+# join
+has join => (
+  is => 'ro',
+  isa => 'ArrayRef',
+  traits => ['Array'],
+  handles => {
+    noJoinFeatures => 'is_empty',
+    allJoinFeatures => 'elements',
+  },
+  predicate => 'hasNearest',
+  lazy => 1,
+  default => sub{ [] },
+);
+
 ################# Public Exports ##########################
 # Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
 has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
@@ -163,6 +183,14 @@ around BUILDARGS => sub {
     } else {
       $class->log('fatal', 'Wanted chromosome not listed in chromosomes in YAML config');
     }
+  }
+
+  if(defined $data{join} ) {
+    if(!defined $data{join}->{track}) {
+      $class->log('fatal', "'join' requires track key");
+    }
+    # Features are optional, some tracks we may join won't have any
+    return;
   }
 
   if(! defined $data{features} ) {

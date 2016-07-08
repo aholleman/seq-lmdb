@@ -32,8 +32,8 @@ has completionMeta => (
   default => sub { 
     my $self = shift;
     #self->overwrite specified in dbManager, which is a Role, so auto-imported
-    return Seq::Tracks::Build::CompletionMeta->new({ name => $self->name,
-      overwrite => $self->overwrite, delete => $self->delete } )
+    return Seq::Tracks::Build::CompletionMeta->new( { name => $self->name,
+      skip_completion_check => $self->overwrite, delete => $self->delete } );
   },
 );
 

@@ -19,15 +19,17 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 
 use Seq::Tracks::Gene::Build::TX;
+use Seq::Tracks::Gene::Definition;
+use Seq::Tracks;
 
 extends 'Seq::Tracks::Build';
 
 #exports regionTrackPath
-with 'Seq::Tracks::Region::RegionTrackPath',
-#exports allUCSCgeneFeatures
-'Seq::Tracks::Gene::Definition';
+with 'Seq::Tracks::Region::RegionTrackPath';
 
 use DDP;
+
+my $geneDef = Seq::Tracks::Gene::Definition->new();
 
 # Unlike original GeneTrack, we don't remap field names
 # It's easier to remember the real names than real names + our domain-specific names
@@ -36,19 +38,32 @@ use DDP;
 has chrom_field_name => (is => 'ro', lazy => 1, default => 'chrom' );
 has txStart_field_name => (is => 'ro', lazy => 1, default => 'txStart' );
 has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
+has txNumber_field_name => (is => 'ro', lazy => 1, default => 'txNumber' );
+
+has build_region_track_only => (is => 'ro', lazy => 1, default => 0);
 
 # These are the features stored in the Gene track's region database
 # Provide default in case user doesn't specify any
+# Does not include $geneDef->geneTxErrorName here, because that is something
+# that is not actually present in UCSC refSeq or knownGene records, we add ourselves
 has '+features' => (
-  default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
+  default => sub{ $geneDef->allUCSCgeneFeatures; },
 );
 
+my $joinTrack;
+my $joinTrackFeatures;
 sub BUILD {
   my $self = shift;
 
   # geneTxErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
-  $self->getFieldDbName($self->geneTxErrorName);
+  $self->getFieldDbName($geneDef->geneTxErrorName);
+
+  if($self->join) {
+    my $tracks = Seq::Tracks->new();
+    $joinTrack = $tracks->getTrackBuilderByName( $self->join->{track} );
+    $joinTrackFeatures = $self->join->{track}{features};
+  }
 }
 
 # 1) Store a reference to the corresponding entry in the gene database (region database)
@@ -85,9 +100,10 @@ sub buildTrack {
         $fieldIdx++;
       }
 
-      # Except w.r.t the chromosome field, definitely need this
-      if( !defined $allIdx{$self->chrom_field_name} ) {
-        $self->log('fatal', 'must provide chromosome field');
+      # Except w.r.t the chromosome field, txStart, txEnd, txNumber definitely need these
+      if( !defined $allIdx{$self->chrom_field_name} || !defined $allIdx{$self->txStart_field_name}
+      || !defined $allIdx{$self->txEnd_field_name} || !defined $allIdx{$self->txNumber_field_name}) {
+        $self->log('fatal', 'must provide chrom, txStart, txEnd, txNumber fields');
       }
 
       # Region database features; as defined by user in the YAML config, or our default
@@ -115,10 +131,7 @@ sub buildTrack {
         my $chr = $fields[ $allIdx{$self->chrom_field_name} ];
 
         # We may have already finished this chr, or may not have asked for it
-        if( !$self->completionMeta->okToBuild($chr) ) {
-          $self->log('info', "Have already built $chr for " . $self->name);
-          $wantedChr = undef;
-        } elsif( ($wantedChr && $wantedChr ne $chr) || !$wantedChr ) {
+        if( ($wantedChr && $wantedChr ne $chr) || !$wantedChr ) {
           $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
         }
         
@@ -176,7 +189,7 @@ sub buildTrack {
           $txStartData{$wantedChr}{$txStart} = [ [$txNumber, $txEnd] ];
         }
 
-        $allDataHref->{txNumber} = $txNumber;
+        $allDataHref->{$self->txNumber_field_name} = $txNumber;
 
         push @{ $allData{$wantedChr}{$txStart} }, $allDataHref;
 
@@ -197,10 +210,22 @@ sub buildTrack {
 
       my $pm2 = Parallel::ForkManager->new(scalar @allChrs);
 
-      my $txErrorDbname = $self->getFieldDbName($self->geneTxErrorName);
+      my $txErrorDbname = $self->getFieldDbName($geneDef->geneTxErrorName);
 
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;
+          # We may want to just update the region track, 
+          if($self->build_region_track_only) {
+            $self->_writeRegionData( $chr, $regionData{$chr});
+            
+            if($self->join) {
+              $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+            }
+          }
+
+          if( !$self->completionMeta->okToBuild($chr) ) {
+            $pm2->finish(0);
+          }
           
           my (%siteData, %sitesCoveredByTX);
 
@@ -223,7 +248,7 @@ sub buildTrack {
             }
 
             for my $txData ( @{ $allData{$chr}->{$txStart} } ) {
-              my $txNumber = $txData->{txNumber};
+              my $txNumber = $txData->{$self->txNumber_field_name};
 
               $self->log('info', "Starting to make transcript \#$txNumber for $chr");
 
@@ -249,8 +274,8 @@ sub buildTrack {
                 $regionData{$chr}->{$txNumber}{$txErrorDbname} = $txInfo->transcriptErrors;
               }
 
-              if($txData->{txEnd} > $largestTxEnd) {
-                $largestTxEnd = $txData->{txEnd};
+              if($txData->{$self->txEnd_field_name} > $largestTxEnd) {
+                $largestTxEnd = $txData->{$self->txEnd_field_name};
               }
 
               $self->log('info', "Finished making transcript \#$txNumber for $chr");
@@ -259,7 +284,10 @@ sub buildTrack {
 
           $self->log('info', "Finished building transcripts for $file");
           
-          $self->_writeRegionData( $chr, $regionData{$chr} );
+          $self->_writeRegionData( $chr, $regionData{$chr});
+          if($self->join) {
+            $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+          }
 
           if(%siteData) {
             $self->_writeMainData( $chr, \%siteData );
@@ -319,34 +347,69 @@ sub _writeRegionData {
 
   my @txNumbers = keys %$regionDataHref;
 
-  my %out;
-  my $count = 0;
-
   for my $txNumber (@txNumbers) {
-    if($count >= $self->commitEvery) {
-      # We put instead of patch, because we don't store the data identified by
-      # its track dbName
-      $self->dbPutBulk($dbName, \%out);
-
-      undef %out;
-      $count = 0;
-    }
-
-    #Only region tracks store their data directly, anything going into the
-    #main database needs to prepare the data first (store at it's dbName)
-    $out{$txNumber} = $regionDataHref->{$txNumber};
-    
-    $count += 1;
-  }
-
-  if(%out) {
-    $self->dbPutBulk($dbName, \%out);
-
-    undef %out;
+    # Patch one at a time, because we assume performance isn't an issue
+    # And neither is size, so hash keys are fine
+    $self->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber}, 1);
   }
 
   $self->log('info', "Finished _writeRegionData for $chr");
 }
+
+############ Joining some other track to Gene track's region db ################
+my %haveMadeIntoArray;
+
+# Not safe for old value, but we don't really care
+my $mergFunc = sub {
+  my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
+
+  my $newValue = $oldValue;
+  if(!$haveMadeIntoArray{$chr}{$pos}) {
+    $newValue = [$oldValue];
+    $haveMadeIntoArray{$chr}{$pos} = 1;
+  }
+  
+  push @$newValue, $dataToAdd;
+  return \@$newValue;
+};
+
+my $tracks = Seq::Tracks->new();
+
+sub _joinTracksToGeneTrackRegionDb {
+  my ($self, $chr, $txStartData) = @_;
+
+  if(!$self->join) {
+    return $self->log('warn', "Join not set in _joinTracksToGeneTrackRegionDb");
+  }
+
+  # Gene tracks cover certain positions, record the start and stop
+  my @positionRanges;
+  my @txNumbers;
+
+  for my $txStart (keys %$txStartData) {
+    foreach ( @{ $txStartData->{$txStart} } ) {
+      my $txNumber = $_->[1];
+      my $txEnd = $_->[0];
+      push @positionRanges, [ $txStart, $txEnd ];
+      push @txNumbers, $txNumber;
+    }
+  }
+
+  my $dbName = $self->regionTrackPath($chr);
+
+  $joinTrack->joinTrack($chr, \@positionRanges, $joinTrackFeatures, sub {
+    # Called every time a match is found
+    # Index is the index of @ranges that this update belongs to
+    my ($hrefToAdd, $index) = @_;
+
+    my $txNumber = $txNumbers[$index];
+
+    $self->dbPatchHash($dbName, $txNumber, $hrefToAdd, undef, $mergeFunc);
+  });
+
+}
+
+############### Writing gene reference & tx data to main database ##############
 
 sub _writeMainData {
   my ($self, $chr, $mainDataHref) = @_;
@@ -377,6 +440,9 @@ sub _writeMainData {
     
   $self->log('info', "Finished _writeMainData for $chr");
 }
+
+############### Writing nearest gene data to main database #####################
+
 
 # Find all of the nearest genes, for any intergenic regions
 # Genic regions by our definition are nearest to themselves

@@ -3,10 +3,8 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Gene::Definition;
-use Moose::Role 2;
+use Moose 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
-
-requires 'name';
 
 #these is features used in the region database
 has geneTxErrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
@@ -49,5 +47,5 @@ has ucscGeneAref => (
   }
 );
 
-no Moose::Role;
+__PACKAGE__->meta->make_immutable;
 1;

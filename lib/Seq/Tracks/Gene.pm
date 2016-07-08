@@ -29,13 +29,15 @@ extends 'Seq::Tracks::Get';
 use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
+use Seq::Tracks::Gene::Definition;
 
 #exports regionTrackPath
 with 'Seq::Tracks::Region::RegionTrackPath',
-#allUCSCgeneFeatures
-'Seq::Tracks::Gene::Definition',
+
 #dbReadAll
 'Seq::Role::DBManager';
+
+state $geneDef = Seq::Tracks::Gene::Definition->new();
 
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
 state $siteUnpacker = Seq::Tracks::Gene::Site->new();
@@ -64,7 +66,7 @@ state $truncated = 'TruncatedCodon';
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
-  default => sub{ my $self = shift; return $self->allUCSCgeneFeatures; },
+  default => sub{ return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; },
 );
 
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
@@ -188,7 +190,7 @@ sub get {
     }
   }
 
-  # If we want to be ~ 20% faster, move this before the Populate Gene Tracks section
+  # If we want to be ~ 20-50% faster, move this before the Populate Gene Tracks section
   if(!$hasCodon) {
     return \%out;
   }

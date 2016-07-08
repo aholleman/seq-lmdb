@@ -69,8 +69,6 @@ has overwrite => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
 # Flag for deleting tracks instead of inserting during patch* methods
 has delete => (is => 'ro', isa => 'Bool', default => 0, lazy => 1);
 
-has dbMergeFunc => (is => 'ro', isa => 'Maybe[CodeRef]', default => undef);
-
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
   #using state to make implicit singleton for the state that we want
@@ -200,7 +198,7 @@ sub dbRead {
 # $pos can be any string, identifies a key within the kv database
 # dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 sub dbPatchHash {
-  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite) = @_;
+  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc) = @_;
 
   if(ref $dataHref ne 'HASH') {
     return $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
@@ -234,12 +232,14 @@ sub dbPatchHash {
       # Deletion and insertion are mutually exclusive
       if($self->delete) {
         delete $href->{$trackKey};
+      } elsif($mergeFunc) {
+        &$mergeFunc($chr, $pos, $trackKey, $href, $dataHref);
       } else {
         # If not overwriting, nothing to do, return from function
         if(!$overwrite) { return; }
 
         # Merge with righthand hash taking precedence, https://ideone.com/SBbfYV
-        if($overwrite) { $href = merge $href, $dataHref; }
+        $href = merge $href, $dataHref;
       }
     } else {
       $href->{$trackKey} = $trackValue;
@@ -266,7 +266,7 @@ sub dbPatchHash {
 # are multiple entries for this key
 # To do that, we can convert the value into an array. If the value is already an
 sub dbPatchBulkArray {
-  my ( $self, $chr, $posHref, $overrideOverwrite) = @_;
+  my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
@@ -329,9 +329,9 @@ sub dbPatchBulkArray {
           next;
         }
 
-        if($self->dbMergeFunc) {
+        if($mergeFunc) {
           # Old , New
-          $aref->[$trackIndex] = $self->dbMergeFunc($aref->[$trackIndex], $trackValue);
+          $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
 
           say "after merge func, we have";
           p $aref->[$trackIndex];
