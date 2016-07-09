@@ -63,33 +63,23 @@ my $genotypes = Seq::Genotypes->new();
 my $statisticsHandler;
 
 # Names and indices of input fields that will be added as the first few output fields
-my $chrFieldIdx;
-my $referenceFieldIdx;
-my $positionFieldIdx;
-my $alleleFieldIdx;
-my $typeFieldIdx;
+# Initialized after inputter reads first file line, to account for snp version diffs
+my ($chrFieldIdx, $referenceFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx);
 
-my $chrKey;
-my $positionKey;
-# my $allelesKey;
-my $typeKey;
+# Field names we'll add from our input file, to the output
+my ($chrKey, $positionKey, $typeKey);
 
-# We will get the individual genotypes of samples, and therefore need to know
-# Their indices
-my $sampleIDsToIndexesMap;
+# We will get the individual genotypes of samples, and therefore need to know their indices
+# This also depends on the header line
+# Store the names of the samples, for output in the het/compound/homIdsKey columns
+my ($sampleIDsToIndexesMap, $sampleIDaref);
 
-# Store the names of the samples
-my $sampleIDaref;
-
-# Reference track and all other track getters. Reference is separate because
-# It is used to calculate discordant bases, and because we pass its reference
-# base to all other getters, because we don't rely on the input file reference base
-my $refTrackGetter;
-my $trackGettersExceptReference;
+# Ref track separate for others so that we can caluclate discordant bases, and 
+# pass the true reference base to other getters, like CADD, that may want it
+my ($refTrackGetter, $trackGettersExceptReference);
 
 # We may want to log progress. So we'll stat the file, and chunk the input into N bytes
-my $fileSize;
-my $chunkSize;
+my ($fileSize, $chunkSize);
 
 sub BUILD {
   my $self = shift;
@@ -116,12 +106,13 @@ sub annotate_snpfile {
   my $self = shift; $self->log( 'info', 'Beginning annotation' );
   
   if($self->statistics) {
-    $statisticsHandler = Seq::Statistics->new( {  %{$self->statistics}, (
+    $statisticsHandler = Seq::Statistics->new( { %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey,
       homozygoteIdsKey => $homozygoteIdsKey, minorAllelesKey => $minorAllelesKey,
     ) } );
   }
 
+  # File size is available to logProgressAndStatistics
   my $fh;
   ($fileSize, $fh) = $self->get_read_fh($self->inputFilePath);
 
@@ -190,8 +181,7 @@ sub annotate_snpfile {
 
     my @lines;
 
-    open my $MEM_FH, '<', $slurp_ref;
-    binmode $MEM_FH, ':raw';
+    open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
     while ( <$MEM_FH>) {
       if (/$taint_check_regex/) {
@@ -231,7 +221,6 @@ sub annotate_snpfile {
   }
 
   ################ Compress if wanted ##########
-
   if($self->compress) {
     $self->log('info', "Compressing output");
     $self->compressPath($self->out_file);
