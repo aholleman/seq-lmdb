@@ -5,7 +5,7 @@ use warnings;
 use Data::Dump qw/ dump /;
 use Path::Tiny;
 use Test::More qw(no_plan);
-use Test::Moose::More;
+use Test::Mouse::More;
 use Test::Deep;
 use Seq::Sites::Indels;
 use Seq::KCManager;

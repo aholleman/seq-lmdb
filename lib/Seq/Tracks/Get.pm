@@ -7,7 +7,7 @@ package Seq::Tracks::Get;
 # TODO: make this a role?
 our $VERSION = '0.001';
 
-use Moose 2;
+use Mouse 2;
 
 extends 'Seq::Tracks::Base';
 

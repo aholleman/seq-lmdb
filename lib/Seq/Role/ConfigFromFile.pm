@@ -25,8 +25,7 @@ Used in:
 Extended by: None
 
 =cut
-use Moose::Role 2;
-use MooseX::Types::Path::Tiny qw/ Path /;
+use Mouse::Role 2;
 
 use Carp qw/ croak /;
 use namespace::autoclean;
@@ -36,7 +35,7 @@ use Scalar::Util qw/ reftype /;
 use YAML::XS qw/ Load /;
 use DDP;
 
-with 'Seq::Role::IO', 'MooseX::Getopt';
+with 'Seq::Role::IO', 'MouseX::Getopt';
 
 state $tracksKey = 'tracks';
 #The only "Trick" added here is that we take everything that is outside the
@@ -99,6 +98,6 @@ sub get_config_from_file {
   return Load($cleaned_txt);
 }
 
-no Moose::Role;
+no Mouse::Role;
 
 1;

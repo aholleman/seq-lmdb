@@ -3,7 +3,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-use Moose 2;
+use Mouse 2;
 use Search::Elasticsearch;
 
 my $e = Search::Elasticsearch->new();
@@ -73,6 +73,11 @@ sub makeOutputString {
             next CHILD;
           }
 
+          if( @{ $href->{$feature} } == 1 ) {
+            push @singleLineOutput, $href->{$feature}[0];
+            next PARENT;
+          }
+
           my $accum = '';
           ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
             if(!defined $_) {
@@ -112,6 +117,11 @@ sub makeOutputString {
 
       if(! @{ $href->{$feature} } ) {
         push @singleLineOutput, 'NA';
+        next PARENT;
+      }
+
+      if( @{ $href->{$feature} } == 1 ) {
+        push @singleLineOutput, $href->{$feature}[0];
         next PARENT;
       }
 

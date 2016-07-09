@@ -76,7 +76,7 @@ sub worker {
       print Dumper( \%user_choices );
 
       my ( $snpfile, $yaml_config, $out_file, $debug ) = coerce_inputs( \%user_choices );
-      # sanity checks mostly now not needed, will be checked in Seq.pm using MooseX:Type:Path:Tiny
+      # sanity checks mostly now not needed, will be checked in Seq.pm using MouseX:Type:Path:Tiny
       if ( -f $out_file && !$force ) {
         say "ERROR: '$out_file' already exists. Use '--force' switch to over write it.";
         exit;

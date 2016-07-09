@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: A moose role for all of our file handle needs
 # VERSION
 
-use Moose::Role;
+use Mouse::Role;
 
 use PerlIO::utf8_strict;
 use PerlIO::gzip;
@@ -203,6 +203,6 @@ sub getFileSize {
   return $raw[8];
 }
 
-no Moose::Role;
+no Mouse::Role;
 
 1;

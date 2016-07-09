@@ -8,8 +8,8 @@ our $VERSION = '0.001';
 
 # ABSTRACT: Annotate a snp file
 
-use Moose 2;
-use MooseX::Types::Path::Tiny qw/AbsFile AbsPath/;
+use Mouse 2;
+use Types::Path::Tiny qw/Path AbsPath/;
 use namespace::autoclean;
 
 use DDP;
@@ -21,7 +21,6 @@ use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
 use Seq::Tracks;
-use Seq::Genotypes;
 use Seq::Statistics;
 use Seq::DBManager;
 
@@ -33,14 +32,14 @@ has snpfile => (is => 'ro', isa => AbsFile, coerce => 1, required => 1,
 has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
   handles => { outputFilePath => 'stringify' });
 
+# Tracks configuration hash
+has tracks => (is => 'ro', required => 1);
+
 # The statistics package config options
-has statistics => (is => 'ro', isa => 'Maybe[HashRef]', default => undef);
+has statistics => (is => 'ro');
 
 # Do we want to compress?
-has compress => (is => 'ro', lazy => 1, default => undef);
-
-# Tracks configuration hash
-has tracks => (is => 'ro', isa => 'HashRef', required => 1);
+has compress => (is => 'ro');
 
 # We also add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
@@ -56,37 +55,37 @@ my $inputFileProcessor = Seq::InputFile->new();
 # Creates the output file
 my $outputter = Seq::Output->new();
 
-# Handles figuring out genotype issues
-my $genotypes = Seq::Genotypes->new();
+my $iupac = Seq::IUPAC->new();
 
 # Handle statistics, initialize in BUILD, needs args
 my $statisticsHandler;
 
+# We need to read from our database
+my $db;
 # Names and indices of input fields that will be added as the first few output fields
 # Initialized after inputter reads first file line, to account for snp version diffs
 my ($chrFieldIdx, $referenceFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx);
-
 # Field names we'll add from our input file, to the output
 my ($chrKey, $positionKey, $typeKey);
-
 # We will get the individual genotypes of samples, and therefore need to know their indices
 # This also depends on the header line
 # Store the names of the samples, for output in the het/compound/homIdsKey columns
 my ($sampleIDsToIndexesMap, $sampleIDaref);
-
 # Ref track separate for others so that we can caluclate discordant bases, and 
 # pass the true reference base to other getters, like CADD, that may want it
 my ($refTrackGetter, $trackGettersExceptReference);
-
 # We may want to log progress. So we'll stat the file, and chunk the input into N bytes
 my ($fileSize, $chunkSize);
 
 sub BUILD {
   my $self = shift;
 
+  # Expects DBManager to have been given a database_dir
+  $db = Seq::DBManager->new();
+
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
-  $self->db->setDbReadOnly(1);
+  $db->setDbReadOnly(1);
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
@@ -130,6 +129,7 @@ sub annotate_snpfile {
     $self->log('fatal', "First line of input file has illegal characters");
   }
 
+  ########## Gather the input fields we want to use ################
   $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
   $referenceFieldIdx = $inputFileProcessor->referenceFieldIdx;
   $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
@@ -140,23 +140,25 @@ sub annotate_snpfile {
   $positionKey = $inputFileProcessor->positionFieldName;
   $typeKey = $inputFileProcessor->typeFieldName;
 
-  # Prepend these input fields to the output header record
+  ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
+  # Prepend these headers
   $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey,
     $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
 
   # Outputter needs to know which fields we're going to pass it
   $outputter->setOutputDataFieldsWanted( $headers->get() );
 
-  $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
-
-  $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
-
   my $outFh = $self->get_write_fh( $self->outputFilePath );
 
   # Write the header
   say $outFh $headers->getString();
+
+  ############# Set the sample ids ###############
+  $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
+
+  $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
 
   my $allStatisticsHref = {};
 
@@ -233,8 +235,7 @@ sub logProgressAndStatistics {
   my $self = shift;
   my $allStatsHref = shift;
 
-  my $total = 0;
-  my $progress = 0;
+  my ($total, $progress) = (0, 0);
 
   my $hasPublisher = $self->hasPublisher;
 
@@ -287,7 +288,7 @@ sub annotateLines {
     if(!$wantedChr || $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
       if(@positions) {
         # Get db data for all @positions accumulated up to this point
-        my $dataFromDatabaseAref = $self->db->dbRead($wantedChr, \@positions); 
+        my $dataFromDatabaseAref = $db->dbRead($wantedChr, \@positions); 
 
         # It's possible that we were only asking for 1 record
         # finishAnnotatingLines expects an array
@@ -335,7 +336,7 @@ sub annotateLines {
 
   # Leftovers
   if(@positions) {
-    my $dataFromDatabaseAref = $self->db->dbRead($wantedChr, \@positions, 1); 
+    my $dataFromDatabaseAref = $db->dbRead($wantedChr, \@positions, 1); 
 
     # finishAnnotatingLines expects an array
     if(ref $dataFromDatabaseAref ne "ARRAY") {
@@ -355,6 +356,12 @@ sub annotateLines {
   MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
 }
 
+###Private genotypes: used to decide whether sample is het, hom, or compound###
+my %hets = {K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1};
+my %homs = {A => 1,C => 1,G => 1,T => 1,D => 1,I => 1};
+my %iupac = { A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
+  Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*'};
+
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
@@ -366,7 +373,7 @@ sub finishAnnotatingLines {
 
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
-      $self->log('fatal', "$chr: $inputAref->[$i][1] not found. Maybe wrong assembly");
+      $self->log('fatal', "$chr: $inputAref->[$i][1] not found. Wrong assembly?");
     }
 
     $outAref->[$i]{$refTrackName} = $refTrackGetter->get($dataFromDbAref->[$i]);
@@ -383,17 +390,11 @@ sub finishAnnotatingLines {
     if(!defined $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } ) {
       my @alleles;
       for my $allele ( split(',', $inputAref->[$i][$alleleFieldIdx] ) ) {
-        if($allele ne $givenRef) {
-          push @alleles, $allele;
-        }
+        if($allele ne $givenRef) { push @alleles, $allele; }
       }
 
       # If have only one allele, pass on only one allele
-      if(@alleles == 1) {
-        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = $alleles[0];
-      } else {
-        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = \@alleles;
-      }
+      $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = @alleles == 1 ? $alleles[0] : \@alleles;
     }
  
     ############### Gather all track data (besides reference) #################
@@ -420,26 +421,16 @@ sub finishAnnotatingLines {
         next SAMPLE_LOOP;
       }
 
-      if ( $genotypes->isHet($geno) ) {
+      if ( exists $hets{$geno} ) {
         push @{$outAref->[$i]{$heterozygoteIdsKey} }, $id;
 
-        if( $genotypes->isCompoundHet($geno, $inputAref->[$i][$referenceFieldIdx] ) ) {
+        if( index($iupac{$geno}, $inputAref->[$i][$referenceFieldIdx] ) == -1 ) {
           push @{ $outAref->[$i]{$compoundIdsKey} }, $id;
         }
-      } elsif( $genotypes->isHom($geno) ) {
+      } elsif( exists $homs{$geno} ) {
         push @{ $outAref->[$i]{$homozygoteIdsKey} }, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
-      }
-
-      if( $outAref->[$i]{$heterozygoteIdsKey} && @{$outAref->[$i]{$heterozygoteIdsKey}} == 1) {
-         $outAref->[$i]{$heterozygoteIdsKey} = $outAref->[$i]{$heterozygoteIdsKey}[0];
-      }
-      if( $outAref->[$i]{$compoundIdsKey} && @{$outAref->[$i]{$compoundIdsKey}} == 1 ) {
-         $outAref->[$i]{$compoundIdsKey} = $outAref->[$i]{$compoundIdsKey}[0];
-      }
-      if( $outAref->[$i]{$homozygoteIdsKey} && @{$outAref->[$i]{$homozygoteIdsKey}} == 1 ) {
-         $outAref->[$i]{$homozygoteIdsKey} = $outAref->[$i]{$homozygoteIdsKey}[0];
       }
     }
   }

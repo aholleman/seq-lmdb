@@ -9,24 +9,23 @@ our $VERSION = '0.001';
 # ABSTRACT: A base class for Tracks::*:BUILD classes
 # VERSION
 
-use Moose 2;
+use Mouse 2;
+use MouseX::NativeTraits;
 use namespace::autoclean;
 use Path::Tiny qw/path/;
+use Types::Path::Tiny qw/AbsDir/;
+use Scalar::Util qw/looks_like_number/;
 use DDP;
 
-use MooseX::Types::Path::Tiny qw/AbsDir/;
-use Scalar::Util qw/looks_like_number/;
-
-extends 'Seq::Tracks::Base';
-
 use Seq::DBManager;
-#all build methods need to read files
-with 'Seq::Role::IO';
-
 use Seq::Tracks::Build::CompletionMeta;
 
+extends 'Seq::Tracks::Base';
+# All builders need get_read_fh
+with 'Seq::Role::IO';
+
 # Every builder needs access to the database
-has db => (is => 'ro', init_arg => undef, lazy => 1, default => sub { Seq::DBManager->new() });
+has db => (is => 'ro', init_arg => undef, default => sub { Seq::DBManager->new() });
 
 # Allows consumers to record track completion
 has completionMeta => (
@@ -71,7 +70,7 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 #could also make this private, and not allow it to change, but I don't like
 #the lack of flexibility, since the goal is to help people avoid having to
 #modify their input files
-has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1, );
+has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1);
 
 # name => 'command'
 has build_row_filters => (
@@ -83,7 +82,6 @@ has build_row_filters => (
     allFieldsToFilterOn => 'keys',
   },
   lazy => 1,
-  required => 0,
   default => sub { {} },
 );
 
@@ -96,7 +94,6 @@ has build_field_transformations => (
     allFieldsToTransform => 'keys',
   },
   lazy => 1,
-  required => 0,
   default => sub { {} },
 );
 
@@ -359,28 +356,6 @@ sub _isTransformOperator {
   }
   return 0;
 }
-
-#Future API
-
-# sub deleteTrack {
-#   my $self = shift;
-
-#   MCE::Loop->init({
-#     max_workers => 26,
-#     chunk_size => 1,
-#   });
-
-#   my @err= mce_loop {
-#     my $err = $self->dbDeleteKeys($_. $self->dbName);
-
-#     if($err) {
-#       MCE->gather($err);
-#     }
-#   } $self->allWantedChrs;
-
-#   return @err;
-# }
-
 
 __PACKAGE__->meta->make_immutable;
 

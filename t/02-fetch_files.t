@@ -29,7 +29,7 @@ use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
 check_isa( $package,
-  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Moose::Object' ] );
+  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

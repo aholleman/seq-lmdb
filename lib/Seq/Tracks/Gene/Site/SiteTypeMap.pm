@@ -4,8 +4,8 @@ use warnings;
 
 package Seq::Tracks::Gene::Site::SiteTypeMap;
 
-use Moose 2;
-use Moose::Util::TypeConstraints;
+use Mouse 2;
+use Mouse::Util::TypeConstraints;
 use DDP;
 # define allowable types
 # not at the moment exposing these publicly, no real need

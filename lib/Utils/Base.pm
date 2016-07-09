@@ -6,12 +6,12 @@ package Utils::Base;
 
 # A base class for utilities. Just a place to store common attributes
 
-use Moose 2;
+use Mouse 2;
 
 with 'Seq::Role::Message';
 with 'Seq::Role::IO';
 
-use MooseX::Types::Path::Tiny qw/AbsFile/;
+use MouseX::Types::Path::Tiny qw/AbsFile/;
 use List::MoreUtils qw/first_index/;
 use YAML::XS qw/LoadFile Dump/;
 use Path::Tiny qw/path/;

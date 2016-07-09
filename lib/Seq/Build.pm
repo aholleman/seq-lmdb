@@ -21,7 +21,7 @@ use DDP;
 
 =cut
 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 use DDP;
 extends 'Seq::Base';

@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Builds a plain text genome used for binary genome creation
 # VERSION
 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 extends 'Seq::Tracks::Build';
 

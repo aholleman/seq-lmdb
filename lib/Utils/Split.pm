@@ -9,7 +9,7 @@ package Utils::Split;
 
 our $VERSION = '0.001';
 
-use Moose 2;
+use Mouse 2;
 
 use namespace::autoclean;
 use Path::Tiny qw/path/;

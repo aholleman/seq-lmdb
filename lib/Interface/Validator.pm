@@ -3,11 +3,11 @@ use 5.10.0;
 
 package Interface::Validator;
 
-use Moose::Role;
+use Mouse::Role;
 use namespace::autoclean;
 
 #also prrovides ->is_file function
-use MooseX::Types::Path::Tiny qw/File AbsFile AbsPath AbsDir/;
+use Types::Path::Tiny qw/File AbsFile AbsPath AbsDir/;
 
 use DDP;
 

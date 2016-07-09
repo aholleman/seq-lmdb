@@ -13,10 +13,10 @@ plan tests => 64;
 
 my %attr_2_type = (
   type               => 'GenomeSizedTrackType',
-  genome_str_file    => 'MooseX::Types::Path::Tiny::AbsPath',
-  genome_bin_file    => 'MooseX::Types::Path::Tiny::AbsPath',
-  genome_offset_file => 'MooseX::Types::Path::Tiny::AbsPath',
-  _local_files       => 'MooseX::Types::Path::Tiny::AbsPaths',
+  genome_str_file    => 'MouseX::Types::Path::Tiny::AbsPath',
+  genome_bin_file    => 'MouseX::Types::Path::Tiny::AbsPath',
+  genome_offset_file => 'MouseX::Types::Path::Tiny::AbsPath',
+  _local_files       => 'MouseX::Types::Path::Tiny::AbsPaths',
   score_min          => 'Num',
   score_max          => 'Num',
   score_R            => 'Num',
@@ -37,7 +37,7 @@ my $package = "Seq::Config::GenomeSizedTrack";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of Seq::Config::Track
-check_isa( $package, [ 'Seq::Config::Track', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

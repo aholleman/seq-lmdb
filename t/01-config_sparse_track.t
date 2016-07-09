@@ -14,7 +14,7 @@ plan tests => 50;
 my %attr_2_type = (
   type              => 'SparseTrackType',
   sql_statement     => 'Str',
-  _local_files      => 'MooseX::Types::Path::Tiny::AbsPaths',
+  _local_files      => 'MouseX::Types::Path::Tiny::AbsPaths',
   features          => 'ArrayRef[Str]',
   gene_track_fields => 'ArrayRef',
   snp_track_fields  => 'ArrayRef',
@@ -32,7 +32,7 @@ my $package = "Seq::Config::SparseTrack";
 use_ok($package) || die "$package cannot be loaded";
 
 # check is moose object
-check_isa( $package, [ 'Seq::Config::Track', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

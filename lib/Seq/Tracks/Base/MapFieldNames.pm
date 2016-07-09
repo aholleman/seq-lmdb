@@ -11,16 +11,17 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Base::MapFieldNames;
-use Moose::Role 2;
+use Mouse 2;
 use List::Util qw/max/;
 use DDP;
 use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
-#the feature name
-requires 'name';
+has name => (is => 'ro', isa => 'Str', required => 1);
+has debug => (is => 'ro', lazy => 1, default => 0);
 
+################ Priavte ##################
 #the hash of names => dbName map
 state $fieldNamesMap;
 #the hash of dbNames => names
@@ -30,21 +31,25 @@ state $fieldDbNamesMap;
 #consuming class' $self->name
 #in roles that extend this role, this key's default can be overloaded
 state $metaKey = 'fields';
+
+state $db;
+sub BUILD {
+  $db = $db || Seq::DBManager->new();
+}
+############## Public #################
 #For a $self->name (track name) get a specific field database name
 #Expected to be used during database building
 #If the fieldName doesn't have a corresponding database name, make one, store,
 #and return it
 #may be called millions of times, so skipping assignment of args
-has debug => (is => 'ro');
 
-my $db = Seq::DBManager->new();
 sub getFieldDbName {
   #my ($self, $fieldName) = @_;
   
   #$self = $_[0]
   #$fieldName = $_[1]
   if (! exists $fieldNamesMap->{$_[0]->name} ) {
-    $_[0]->fetchMetaFields();
+    $_[0]->_fetchMetaFields();
   }
 
   if(! exists $fieldNamesMap->{$_[0]->name}->{ $_[1] } ) {
@@ -64,7 +69,7 @@ sub getFieldName {
   #$self = $_[0]
   #$fieldNumber = $_[1]
   if (! exists $fieldNamesMap->{ $_[0]->name } ) {
-    $_[0]->fetchMetaFields();
+    $_[0]->_fetchMetaFields();
   }
 
   if(! exists $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] } ) {
@@ -75,13 +80,13 @@ sub getFieldName {
 }
 
 
-sub fetchMetaFields {
+sub _fetchMetaFields {
   my $self = shift;
 
   my $dataHref = $db->dbReadMeta($self->name, $metaKey) ;
 
   if ($self->debug) {
-    say "Currently, fetchMetaFields found";
+    say "Currently, _fetchMetaFields found";
     p $dataHref;
   }
 
@@ -137,5 +142,5 @@ sub addMetaField {
   $fieldDbNamesMap->{$self->name}->{$fieldNumber} = $fieldName;
 }
 
-no Moose::Role;
+__PACKAGE__->meta->make_immutable;
 1;

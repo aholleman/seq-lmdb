@@ -12,9 +12,9 @@ use YAML qw/ LoadFile /;
 plan tests => 65;
 
 my %attr_2_type_ro = (
-  snpfile            => 'MooseX::Types::Path::Tiny::AbsFile',
-  config_file        => 'MooseX::Types::Path::Tiny::AbsFile',
-  out_file           => 'MooseX::Types::Path::Tiny::AbsPath',
+  snpfile            => 'MouseX::Types::Path::Tiny::AbsFile',
+  config_file        => 'MouseX::Types::Path::Tiny::AbsFile',
+  out_file           => 'MouseX::Types::Path::Tiny::AbsPath',
   ignore_unknown_chr => 'Bool',
   overwrite          => 'Bool',
   debug              => 'Int',
@@ -42,7 +42,7 @@ my $package = "Seq";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, ['Moose::Object'] );
+check_isa( $package, ['Mouse::Object'] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

@@ -4,7 +4,7 @@ use 5.10.0;
 use lib './lib';
 use strict;
 use warnings;
-use Moose;
+use Mouse;
 with 'Seq::Tracks::Definition';
 
 1;

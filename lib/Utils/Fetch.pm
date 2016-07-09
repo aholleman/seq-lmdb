@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Fetch anything specified by remote_dir + remote_files 
 # or sql_statement
 
-use Moose 2;
+use Mouse 2;
 
 extends 'Utils::Base';
 

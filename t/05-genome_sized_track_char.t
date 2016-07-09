@@ -27,7 +27,7 @@ use_ok($package) || die "$package cannot be loaded";
 
 # check extends
 check_isa( $package,
-  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Moose::Object' ] );
+  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # Attribute tests for class
 my @ro_attrs = qw/ bin_seq chr_len /;

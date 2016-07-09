@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Reference::MapBases;
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 
 # Abstract: Maps bases to integers, which saves space in the db

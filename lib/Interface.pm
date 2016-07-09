@@ -5,10 +5,10 @@ package Interface;
 
 use File::Basename;
 
-use Moose;
+use Mouse;
 
-use MooseX::Types::Path::Tiny qw/Path File AbsFile AbsPath/;
-use Moose::Util::TypeConstraints;
+use Types::Path::Tiny qw/Path File AbsFile AbsPath/;
+use Mouse::Util::TypeConstraints;
 
 use namespace::autoclean;
 
@@ -20,14 +20,14 @@ use Path::Tiny;
 use Getopt::Long::Descriptive;
 
 use Seq;
-with 'MooseX::Getopt::Usage','MooseX::Getopt::Usage::Role::Man', 'Seq::Role::Message';
+with 'MouseX::Getopt', 'Seq::Role::Message';
 
 #without this, Getopt won't konw how to handle AbsFile, AbsPath, and you'll get
 #Invalid 'config_file' : File '/mnt/icebreaker/data/home/akotlar/my_projects/seq/1' does not exist
 #but it won't understand AbsFile=> and AbsPath=> mappings directly, so below
 #we use it's parental inference property 
-#http://search.cpan.org/~ether/MooseX-Getopt-0.68/lib/MooseX/Getopt.pm
-MooseX::Getopt::OptionTypeMap->add_option_type_to_map(
+#http://search.cpan.org/~ether/MouseX-Getopt-0.68/lib/MouseX/Getopt.pm
+MouseX::Getopt::OptionTypeMap->add_option_type_to_map(
     'Path::Tiny' => '=s',
 );
 
@@ -195,7 +195,7 @@ sub BUILD {
   $self->validateState;
 }
 
-#I wish for a neater way; but can't find method in MooseX::GetOpt to return just these arguments
+#I wish for a neater way; but can't find method in MouseX::GetOpt to return just these arguments
 sub _buildAnnotatorArguments {
   my $self = shift;
   my %args;

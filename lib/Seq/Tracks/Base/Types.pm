@@ -10,8 +10,8 @@ our $VERSION = '0.001';
 # track casting (data) types
 # VERSION
 
-use Moose::Role;
-use Moose::Util::TypeConstraints; 
+use Mouse::Role;
+use Mouse::Util::TypeConstraints; 
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
 
@@ -82,6 +82,6 @@ sub int {
 #like wig or multi-fasta (or fasta)
 # enum BedFieldType => ['chrom', 'chromStart', 'chromEnd'];
 
-no Moose::Role;
-no Moose::Util::TypeConstraints;
+no Mouse::Role;
+no Mouse::Util::TypeConstraints;
 1;

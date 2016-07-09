@@ -11,52 +11,38 @@ package Seq::Base;
 
 # VERSION
 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 use Seq::DBManager;
-
+use DDP;
 #exports new_with_config
 with 'Seq::Role::ConfigFromFile', 
 #setLogLevel, setLogPath, setPublisher
 'Seq::Role::Message',
-################## Exports #######################
-has db => ( is => 'ro', init_arg => undef, writer => '_setDb');
-
 ############# Required Arguments ###########
 has database_dir => (is => 'ro', required => 1);
 
 ############# Optional Arguments #############
-has publisherMessageBase => (
-  is => 'ro',
-  default => undef,
-);
+has publisherMessageBase => (is => 'ro');
 
-has publisherAddress => (
-  is => 'ro',
-  default => undef,
-);
+has publisherAddress => (is => 'ro');
 
-has logPath => (
-  is => 'ro',
-  default => undef,
-);
+has logPath => (is => 'ro');
 
-has debug => (
-  is => 'ro',
-  default => undef,
-);
+has debug => (is => 'ro');
 
 sub BUILD {
   my $self = shift;
 
+  say "databaseDir is";
+  p $self->database_dir;
+  
   # DBManager has two singleton properties
   # 1) database_dir : Where our database resides (accepted from command line or YAML)
   # 2) readOnly : Whether we plan to do any writing.
   # Since we never have more than one database_dir, it's a global property we can set
   # in this package, which Seq.pm and Seq::Build extend from
   my $db = Seq::DBManager->new({database_dir => $self->database_dir});
-
-  $self->_setDb($db);
 
   # Seq::Role::Message settigns
   if($self->publisherMessageBase && $self->publisherAddress) {

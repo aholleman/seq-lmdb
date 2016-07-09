@@ -7,7 +7,7 @@ package Seq::Tracks::Cadd;
 #A track whose features are only reported if they match the minor allele 
 #present in the sample
 #Called cadd because at the time of writing it's the 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 extends 'Seq::Tracks::Get';
 

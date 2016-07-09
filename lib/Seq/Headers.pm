@@ -1,5 +1,5 @@
 package Seq::Headers;
-use Moose 2;
+use Mouse 2;
 
 # Abstract: Responsible for building the header object and string
 use 5.10.0;

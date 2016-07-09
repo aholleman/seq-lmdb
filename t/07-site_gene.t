@@ -35,7 +35,7 @@ my $package = "Seq::Site::Gene";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, [ 'Seq::Site', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Site', 'Mouse::Object' ] );
 
 # check attributes, their type constraint, and 'ro'/'rw' status
 for my $attr_name ( sort keys %attr_2_type ) {

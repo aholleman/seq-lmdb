@@ -4,8 +4,8 @@ use strict;
 
 package MockAnnotationClass;
 use lib './lib';
-use Moose;
-use MooseX::Types::Path::Tiny qw/AbsDir/;
+use Mouse;
+use MouseX::Types::Path::Tiny qw/AbsDir/;
 extends 'Seq::Base';
 use Seq::Tracks;
 

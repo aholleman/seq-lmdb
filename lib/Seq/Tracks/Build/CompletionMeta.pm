@@ -6,7 +6,7 @@ package Seq::Tracks::Build::CompletionMeta;
   
   # Keeps track of track build completion
   # TODO: better error handling, not sure how w/ present LMDB API without perf loss
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 use DDP;
 #exports dbPatchMeta, dbReadMeta
@@ -19,7 +19,11 @@ has skip_completion_check => ( is => 'rw', required => 1, writer => 'setSkipComp
 
 state $metaKey = 'completed';
 
-my $db = Seq::DBManager->new();
+state $db;
+
+sub BUILD {
+  $db = $db || Seq::DBManager->new();
+}
 
 sub okToBuild {
   my ($self, $chr) = @_;

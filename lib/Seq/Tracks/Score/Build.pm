@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Build a sparse track file
 # VERSION
 
-use Moose 2;
+use Mouse 2;
 
 use namespace::autoclean;
 use Parallel::ForkManager;

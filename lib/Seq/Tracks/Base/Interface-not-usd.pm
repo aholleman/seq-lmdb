@@ -5,11 +5,11 @@ use warnings;
 
 package Seq::Tracks::Base::Interface;
 
-use Moose::Role 2;
+use Mouse::Role 2;
 use namespace::autoclean;
 
 #every track requires a get method to retrieve all data
 requires 'get';
 
-no Moose::Role;
+no Mouse::Role;
 1;

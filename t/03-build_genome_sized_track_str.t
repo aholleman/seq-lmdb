@@ -31,9 +31,9 @@ my $package = "Seq::Build::GenomeSizedTrackStr";
 # load package
 use_ok($package) || die "$package cannot be loaded";
 
-# check package extends Seq::Config::GenomeSizedTrack which is a Moose::Object
+# check package extends Seq::Config::GenomeSizedTrack which is a Mouse::Object
 check_isa( $package,
-  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Moose::Object' ] );
+  [ 'Seq::Config::GenomeSizedTrack', 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # check roles
 for my $role (qw/ MooX::Role::Logger Seq::Role::IO Seq::Role::Genome /) {

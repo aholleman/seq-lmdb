@@ -10,7 +10,7 @@ use warnings;
 #except _get_gene_data moved to Seq::Tracks::GeneTrack::Build
 package Seq::Tracks::Gene::Site;
 
-use Moose 2;
+use Mouse 2;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
 

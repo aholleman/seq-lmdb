@@ -15,8 +15,8 @@ my %attr_2_type = (
   name             => 'Str',
   genome_chrs      => 'ArrayRef[Str]',
   next_chr         => 'HashRef',
-  genome_index_dir => 'MooseX::Types::Path::Tiny::Path',
-  genome_raw_dir   => 'MooseX::Types::Path::Tiny::Path',
+  genome_index_dir => 'MouseX::Types::Path::Tiny::Path',
+  genome_raw_dir   => 'MouseX::Types::Path::Tiny::Path',
   local_files      => 'ArrayRef',
   remote_dir       => 'Str',
   remote_files     => 'ArrayRef',
@@ -35,7 +35,7 @@ my $package = "Seq::Config::Track";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of Seq::Config::Track
-check_isa( $package, ['Moose::Object'] );
+check_isa( $package, ['Mouse::Object'] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

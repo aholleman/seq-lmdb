@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: The getter for any sparse track
 # VERSION
 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 
 extends 'Seq::Tracks::Get';

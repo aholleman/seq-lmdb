@@ -7,7 +7,7 @@ package Utils::SqlWriter;
 our $VERSION = '0.001';
 
 # ABSTRACT: Fetch and write some data using UCSC's public SQL db
-use Moose 2;
+use Mouse 2;
 
 use DBI;
 use namespace::autoclean;

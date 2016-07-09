@@ -6,7 +6,7 @@ use warnings;
 #Stores all 64 possible codons mapped to single-leter amino-acids
 package Seq::Tracks::Gene::Site::CodonMap;
 use DDP;
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 
 # Store both normal and truncated AA, to remove ambiguity for consumers

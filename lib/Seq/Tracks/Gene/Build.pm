@@ -13,7 +13,7 @@ our $VERSION = '0.001';
     #If $self->nearest defined, inserts a <Int> @ $self->nearestFeatureName
 
 
-use Moose 2;
+use Mouse 2;
 use namespace::autoclean;
 
 use Parallel::ForkManager;

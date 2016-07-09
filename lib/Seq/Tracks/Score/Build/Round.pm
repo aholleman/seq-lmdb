@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Score::Build::Round;
-use Moose 2;
+use Mouse 2;
 use POSIX qw/abs/;
 
 #TODO: Combined this with Tracks::Build::MapTypes other conversion functions

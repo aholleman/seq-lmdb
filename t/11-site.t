@@ -37,7 +37,7 @@ my $package = "Seq::Annotate::Site";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, ['Moose::Object'] );
+check_isa( $package, ['Mouse::Object'] );
 
 # check role
 #does_role( $package, 'Seq::Role::Serialize' );

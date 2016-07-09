@@ -7,7 +7,7 @@ our $VERSION = '0.001';
 
 # ABSTRACT: A class for communicating to log and to some plugged in messaging service
 # VERSION
-use Moose::Role 2;
+use Mouse::Role 2;
 
 #doesn't work with Parallel::ForkManager;
 #for more on AnyEvent::Log
@@ -159,5 +159,5 @@ sub log {
   }
 }
 
-no Moose::Role;
+no Mouse::Role;
 1;

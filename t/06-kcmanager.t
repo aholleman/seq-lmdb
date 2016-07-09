@@ -31,7 +31,7 @@ my $package = "Seq::KCManager";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, ['Moose::Object'] );
+check_isa( $package, ['Mouse::Object'] );
 
 # check roles
 does_role( $package, 'Seq::Role::IO' );

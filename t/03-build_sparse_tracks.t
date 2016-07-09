@@ -32,7 +32,7 @@ use_ok($package) || die "$package cannot be loaded";
 
 # check extends
 check_isa( $package,
-  [ 'Seq::Config::SparseTrack', 'Seq::Config::Track', 'Moose::Object' ] );
+  [ 'Seq::Config::SparseTrack', 'Seq::Config::Track', 'Mouse::Object' ] );
 
 # check roles
 for my $role (qw/ MooX::Role::Logger /) {

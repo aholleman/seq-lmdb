@@ -4,7 +4,9 @@ use 5.16.0;
 use strict;
 use warnings;
 
-use Moose::Role 2;
+use Mouse::Role;
+
+requires 'name';
 
 sub regionTrackPath {
   my ($self, $chr) = @_;
@@ -12,5 +14,5 @@ sub regionTrackPath {
   return $self->name . "/$chr";
 }
 
-no Moose::Role;
+no Mouse::Role;
 1;

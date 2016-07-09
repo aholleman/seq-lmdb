@@ -14,9 +14,9 @@ plan tests => 34;
 
 my %attr_2_type = (
   genome_str_track => 'Seq::Build::GenomeSizedTrackStr',
-  genome_hasher    => 'MooseX::Types::Path::Tiny::AbsFile',
-  genome_scorer    => 'MooseX::Types::Path::Tiny::AbsFile',
-  genome_cadd      => 'MooseX::Types::Path::Tiny::AbsFile',
+  genome_hasher    => 'MouseX::Types::Path::Tiny::AbsFile',
+  genome_scorer    => 'MouseX::Types::Path::Tiny::AbsFile',
+  genome_cadd      => 'MouseX::Types::Path::Tiny::AbsFile',
   wanted_chr       => 'Str',
 );
 my %attr_to_is = map { $_ => 'ro' } ( keys %attr_2_type );
@@ -32,7 +32,7 @@ my $package = "Seq::Build";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, [ 'Seq::Assembly', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Assembly', 'Mouse::Object' ] );
 
 # check roles
 for my $role (qw/ Seq::Role::IO MooX::Role::Logger /) {

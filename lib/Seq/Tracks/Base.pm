@@ -9,14 +9,19 @@ package Seq::Tracks::Base;
 
 our $VERSION = '0.001';
 
-use Moose 2;
+use Mouse 2;
+use MouseX::NativeTraits;
+
 use DDP;
 use List::MoreUtils qw/first_index/;
 
 use Seq::Tracks::Base::MapTrackNames;
+use Seq::Tracks::Base::MapFieldNames;
+
 # TODO: move Base::Types  to a role
 #exports TrackType, DataTypes
 with 'Seq::Tracks::Base::Types';
+with 'Seq::Role::Message';
 
 ###################### Required Arguments ############################
 # the track name
@@ -25,6 +30,7 @@ has name => ( is => 'ro', isa => 'Str', required => 1);
 #TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
+has debug => ( is => 'ro' );
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
 #during building should be defined here
@@ -39,17 +45,13 @@ has chromosomes => (
   required => 1,
 );
 
-# Exports getFieldName and getFieldDbName , requires name
-# TODO: move this to a class instead of role
-with 'Seq::Tracks::Base::MapFieldNames';
+has fieldNames => (is => 'ro', init_arg => undef, default => sub {
+  my $self = shift;
+  return Seq::Tracks::Base::MapFieldNames->new({name => $self->name, debug => $self->debug});
+}, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
-has wantedChr => (
-  is => 'ro',
-  isa => 'Maybe[Str]',
-  lazy => 1,
-  default => undef,
-);
+has wantedChr => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef);
 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int
@@ -112,20 +114,19 @@ has join => (
     noJoinFeatures => 'is_empty',
     allJoinFeatures => 'elements',
   },
-  predicate => 'hasNearest',
+  predicate => 'hasJoin',
   lazy => 1,
   default => sub{ [] },
 );
 
 ################# Public Exports ##########################
-# Note the -9; this means we MUST set this in our BUILD method here (or a consuming track in their BUILD)
-has dbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setDbName', default => -9, );
+has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
 
 # Some tracks may have a nearest property; these are stored as their own track, but
 # conceptually are a sub-track, 
 has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
 
-has nearestDbName => ( is => 'ro', init_arg => undef, lazy => 1, writer => '_setNearestDbName', default => -9, );
+has nearestDbName => ( is => 'ro', init_arg => undef, writer => '_setNearestDbName');
 
 #### Initialize / make dbnames for features and tracks before forking occurs ###
 sub BUILD {
@@ -138,7 +139,7 @@ sub BUILD {
   for my $featureName ($self->allFeatureNames) {
     $self->getFieldDbName($featureName);
   }
-    
+  
   #Set the nearest track names first, because they may be applied genome wide
   #And if we use array format to store data (to save space) good to have
   #Genome-wide tracks have lower indexes, so that higher indexes can be used for 

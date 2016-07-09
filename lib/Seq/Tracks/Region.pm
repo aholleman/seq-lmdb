@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Region;
-use Moose 2;
+use Mouse 2;
 
 our $VERSION = '0.001';
 

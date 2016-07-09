@@ -9,10 +9,10 @@ use 5.10.0;
 use strict;
 use warnings;
 
-use Moose 2;
+use Mouse 2;
 
-use MooseX::Types::Path::Tiny qw/AbsPath/;
-use Moose::Util::TypeConstraints;
+use Types::Path::Tiny qw/AbsPath/;
+use Mouse::Util::TypeConstraints;
 use File::Which qw(which);
 use File::Basename;
 use List::MoreUtils qw(firstidx);

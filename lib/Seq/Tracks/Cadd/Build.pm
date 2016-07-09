@@ -5,7 +5,7 @@ use warnings;
   # Reads CADD's bed-like format
 package Seq::Tracks::Cadd::Build;
 
-use Moose;
+use Mouse;
 extends 'Seq::Tracks::Build';
 
 use List::MoreUtils qw/first_index/;

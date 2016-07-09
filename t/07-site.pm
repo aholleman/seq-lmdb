@@ -28,7 +28,7 @@ my $package = "Seq::Site";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, ['Moose::Object'] );
+check_isa( $package, ['Mouse::Object'] );
 
 # check attributes, their type constraint, and 'ro'/'rw' status
 for my $attr_name ( sort keys %attr_2_type ) {

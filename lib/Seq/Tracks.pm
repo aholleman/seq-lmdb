@@ -27,8 +27,7 @@ use warnings;
 
 package Seq::Tracks;
 
-use Moose 2;
-
+use Mouse 2;
 #defines refType, scoreType, etc
 with 'Seq::Tracks::Base::Types',
 'Seq::Role::Message';

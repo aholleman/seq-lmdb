@@ -19,12 +19,13 @@ our $VERSION = '0.001';
 
 =cut
 
-use Moose 2;
+use Mouse 2;
 
 use namespace::autoclean;
 use DDP;
 
 extends 'Seq::Tracks::Get';
+with 'Seq::Tracks::Region::RegionTrackPath';
 
 use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
@@ -32,10 +33,10 @@ use Seq::Tracks::Gene::Site::CodonMap;
 use Seq::Tracks::Gene::Definition;
 use Seq::DBManager;
 
-#exports regionTrackPath
-with 'Seq::Tracks::Region::RegionTrackPath',
+# #exports regionTrackPath
+# with 'Seq::Tracks::Region::RegionTrackPath',
 
-state $db = Seq::DBManager->new();
+state $db;
 state $geneDef = Seq::Tracks::Gene::Definition->new();
 
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
@@ -70,13 +71,14 @@ has '+features' => (
 
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
-
 state $nearestSubTrackName;
 
 #### Add our other "features", everything we find for this site ####
 sub BUILD {
   my $self = shift;
-
+  # Must instantiate in BUILD or after, to make sure it has been configured
+  # with the database directory
+  $db = $db || Seq::DBManager->new();
   # 1 to prepend
   $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->codonSequenceKey,
     $newCodonKey, $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonPositionKey,
@@ -125,7 +127,6 @@ sub get {
 
   #<ArrayRef> $unpackedSites ; <ArrayRef|Int> $txNumbers
   my ($siteData, $txNumbers, $multiple);
-
 
   # is an <ArrayRef>, where every other element is siteData
   if( $href->[$self->dbName] ) {

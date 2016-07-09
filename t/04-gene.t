@@ -48,8 +48,8 @@ my $package = "Seq::Gene";
 # load package
 use_ok($package) || die "$package cannot be loaded";
 
-# check package extends Seq::Gene which is a Moose::Object
-check_isa( $package, ['Moose::Object'] );
+# check package extends Seq::Gene which is a Mouse::Object
+check_isa( $package, ['Mouse::Object'] );
 
 # check attributes, their type constraint, and 'ro'/'rw' status
 for my $attr_name ( sort keys %attr_2_type ) {

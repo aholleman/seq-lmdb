@@ -9,18 +9,22 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Base::MapTrackNames;
-use Moose 2;
+use Mouse 2;
 use List::Util qw/max/;
 use DDP;
 use Seq::DBManager;
 
-$db = Seq::DBManager->new();
-
 with 'Seq::Role::Message';
 
+################### Public Exports ##########################
 # The name of the track is required
 has name => ( is => 'ro', isa => 'Str', required => 1 );
 
+# Unlike MapFieldNames, there is only a single name for each $self->name
+# So, we store this into a memoized name.
+has dbName => (is => 'ro', init_arg => undef, lazy => 1, builder => 'buildDbName');
+
+############## Private variables ##############
 #Unlike MapFieldNames, this class stores meta for all tracks
 #We may move MapFieldNames to a similar system if it proves more efficient
 #the hash of names => dbName map
@@ -28,22 +32,15 @@ state $trackNamesMap = {};
 #the hash of dbNames => names
 state $trackDbNamesMap = {};
 
-# Unlike MapFieldNames, there is only a single name for each $self->name
-# So, we store this into a memoized name.
-has dbName => (
-  is => 'ro',
-  isa => 'Str',
-  init_arg => undef,
-  lazy => 1,
-  builder => 'buildDbName',
-);
+# Track names are stroed under a database ('table') called $self->name_$metaKey
+my $metaKey = 'name';
+state $db;
+sub BUILD {
+  # Must be instantiated during build, to make the DBManager has been configured w/ database_dir
+  $db = $db || Seq::DBManager->new;
+}
 
-#Under which key fields are mapped in the meta database belonging to the
-#consuming class' $self->name
-#in roles that extend this role, this key's default can be overloaded
-
-state $metaKey = 'name';
-
+####################### Public methods ################
 #For a $self->name (track name) get a specific field database name
 #Expected to be used during database building
 #If the fieldName doesn't have a corresponding database name, make one, store,
@@ -62,6 +59,8 @@ sub buildDbName {
 
   return $trackNamesMap->{$self->name};
 }
+
+################### Private Methods ###################
 
 sub _fetchTrackNameMeta {
   my $self = shift;

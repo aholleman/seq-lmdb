@@ -30,9 +30,9 @@ my $package = "Seq::Site::Snp";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, [ 'Seq::Site', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Site', 'Mouse::Object' ] );
 
-# check package extends Seq::Gene which is a Moose::Object
+# check package extends Seq::Gene which is a Mouse::Object
 does_role( $package, 'Seq::Role::Serialize' );
 
 # check attributes, their type constraint, and 'ro'/'rw' status

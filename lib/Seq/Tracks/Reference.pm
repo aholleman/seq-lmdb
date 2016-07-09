@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: The getter for the reference track
 # VERSION
 
-use Moose 2;
+use Mouse 2;
 use DDP;
 
 use namespace::autoclean;

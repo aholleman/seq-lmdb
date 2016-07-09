@@ -36,7 +36,7 @@ my $package = "Seq::Annotate::Indel";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, [ 'Seq::Annotate::Site', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Annotate::Site', 'Mouse::Object' ] );
 
 # check role
 #does_role( $package, 'Seq::Role::Serialize' );

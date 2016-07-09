@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 package Seq::Statistics;
-use Moose 2;
+use Mouse 2;
 
 use Sort::XS;
 use Seq::Tracks;

@@ -11,65 +11,50 @@ our $VERSION = '0.001';
 
 #TODO: Better errors; Seem to get bad perf if copy error after each db call
 
-use Moose::Role 2;
+use Mouse 2;
 with 'Seq::Role::Message';
 
 use Data::MessagePack;
 use LMDB_File qw(:all);
-use MooseX::Types::Path::Tiny qw/AbsPath/;
+use Types::Path::Tiny qw/AbsPath/;
 use Sort::XS;
 use DDP;
 use Hash::Merge::Simple qw/ merge /;
+use Path::Tiny;
 
 # Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
 
-# Has two singleton values, which we expect to be global
-# THe entire database exists in one location
+# We only want to allow one database directory, database_dir is global
+# This means that we can configure DBManager once, and N+1 instances don't need
+# any arguments
 state $databaseDir;
-has database_dir => (
-  is => 'ro',
-  isa => AbsPath,
-  coerce => 1,
-  default => sub{$databaseDir},
-  coerce   => 1,
-  handles => {
-    dbPath => 'stringify',
-  }
-);
+has database_dir => (is => 'ro', isa => AbsPath, coerce => 1, 
+  required => 1, default => sub {$databaseDir});
 
 state $dbReadOnly;
-has dbReadOnly => (is => 'rw', isa => 'Bool', default => $dbReadOnly, lazy => 1);
 
 # Consumers can choose whether or not their instance is read only
 # Read only mode removes any locking, but is not safe with concurrent writers
+# By default we are read-write
 sub setReadOnly {
-  $dbReadOnly = $_[1];
+  my ($self, $bool) = @_;
+  if(defined $dbReadOnly) {
+    $self->log('fatal', "Cannot set readOnly twice; expects to be configured once");
+  }
+  $dbReadOnly = $bool;
 }
 
 sub BUILD {
   my $self = shift;
 
-  if(defined $databaseDir) {
-    return;
-  }
+  if(defined $databaseDir) { return; }
 
-  if(!defined $databaseDir) {
-    if(!$self->database_dir) {
-      $self->log('fatal', "First time DBManager initialized, need database_dir");
-    }
-    if(!$self->database_dir->exists) {
-      $self->log('debug', 'database_dir '. $self->database_dir . 'doesn\'t exit. Creating');
-      $self->database_dir->mkpath;
-    }
+  if(!$self->database_dir->exists) { $self->database_dir->mkpath; }
+  if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir is not a directory'); }
 
-    if (!$self->database_dir->is_dir) {
-      $self->log('fatal', 'database_dir given is not a directory');
-    }
-
-    $databaseDir = $self->database_dir;
-  }
-}
+  $databaseDir = $self->database_dir;
+};
 
 #Transaction size
 #Consumers can choose to ignore it, and use arbitrarily large commit sizes
@@ -85,11 +70,10 @@ sub BUILD {
 has commitEvery => (is => 'rw', default => 1e4, lazy => 1);
 
 #0, 1, 2
-#TODO: make singleton
 has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 
 # Flag for deleting tracks instead of inserting during patch* methods
-has delete => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
+has delete => (is => 'rw', default => 0, lazy => 1);
 
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
@@ -104,19 +88,19 @@ sub _getDbi {
 
   return $dbis->{$name} if defined $dbis->{$name};
   
-  my $dbPath = $self->database_dir->child($name);
+  my $dbPath = $databaseDir->child($name);
 
   #create database unless dontCreate flag set
-  if(!$dontCreate && !$self->dbReadOnly) {
-    if(!$self->database_dir->child($name)->is_dir) {
-      $self->database_dir->child($name)->mkpath;
+  if(!$dontCreate && !$dbReadOnly) {
+    if(!$databaseDir->child($name)->is_dir) {
+      $databaseDir->child($name)->mkpath;
     }
   }
 
   $dbPath = $dbPath->stringify;
 
   my $flags;
-  if($self->dbReadOnly) {
+  if($dbReadOnly) {
     $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC;
   } else {
     $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;

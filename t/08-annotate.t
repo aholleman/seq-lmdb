@@ -37,7 +37,7 @@ my $package = "Seq::Annotate";
 use_ok($package) || die "$package cannot be loaded";
 
 # check extension of
-check_isa( $package, [ 'Seq::Assembly', 'Moose::Object' ] );
+check_isa( $package, [ 'Seq::Assembly', 'Mouse::Object' ] );
 
 # check roles
 does_role( $package, 'MooX::Role::Logger' );

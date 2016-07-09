@@ -12,7 +12,7 @@ our $VERSION = '0.001';
 
 =cut
 
-use Moose 2;
+use Mouse 2;
 
 use namespace::autoclean;
 use List::MoreUtils qw/firstidx/;

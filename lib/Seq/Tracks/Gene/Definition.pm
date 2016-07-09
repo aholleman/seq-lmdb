@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Gene::Definition;
-use Moose 2;
+use Mouse 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
 
 #these is features used in the region database

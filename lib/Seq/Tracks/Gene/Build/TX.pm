@@ -21,21 +21,18 @@ package Seq::Tracks::Gene::Build::TX;
 
 our $VERSION = '0.001';
 
-use Moose 2;
+use Mouse 2;
 
 # We need pre-initialized tracks
 use Seq::Tracks;
-
 use Seq::Tracks::Gene::Site;
 use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
 use namespace::autoclean;
-
 use DDP;
 
-my $db = Seq::DBManager->new();
 #how many bases away from exon bound we will call spliceAc or spliceDon site
 my $spliceSiteLength = 6;
 #placeholder for annotation in string
@@ -155,11 +152,13 @@ around BUILDARGS => sub {
 
   return $class->$orig($href);
 };
-#Each functino in build is responsible for 1 thing
-#and therefore can be tested separately
-#using Go-like error reporting
+
+state $db;
 sub BUILD {
   my $self = shift;
+
+  # Expects DBManager to have been previously configured
+  $db = $db || Seq::DBManager->new();
 
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref) = $self->_buildTranscript();
