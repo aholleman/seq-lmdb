@@ -5,61 +5,60 @@ our $VERSION = '0.002';
 
 package Seq::Base;
 
-# ABSTRACT: Take care of basic configuration for stuff needed everywhere
+# ABSTRACT: Configures singleton log and sets database directory
+
+# Also exports db object, since we configure the database class anyway
 
 # VERSION
 
 use Moose 2;
 use namespace::autoclean;
+use Seq::DBManager;
 
 #exports new_with_config
 with 'Seq::Role::ConfigFromFile', 
 #setLogLevel, setLogPath, setPublisher
 'Seq::Role::Message',
-#exports all the methods prefaced with db* like dbGet
-'Seq::Role::DBManager';
+################## Exports #######################
+has db => ( is => 'ro', init_arg => undef, writer => '_setDb');
 
+############# Required Arguments ###########
+has database_dir => (is => 'ro', required => 1);
+
+############# Optional Arguments #############
 has publisherMessageBase => (
   is => 'ro',
-  isa => 'Maybe[HashRef]',
-  lazy => 1,
   default => undef,
 );
 
 has publisherAddress => (
   is => 'ro',
-  isa => 'Maybe[ArrayRef]',
-  lazy => 1,
   default => undef,
 );
 
 has logPath => (
   is => 'ro',
-  lazy => 1,
-  default => '',
+  default => undef,
 );
 
 has debug => (
   is => 'ro',
-  lazy => 1,
-  default => 0,
+  default => undef,
 );
 
 sub BUILD {
   my $self = shift;
 
-  if(!$self->database_dir->exists) {
-    $self->log('debug', 'database_dir '. $self->database_dir . 'doesn\'t exit. Creating');
-    $self->database_dir->mkpath;
-  }
+  # DBManager has two singleton properties
+  # 1) database_dir : Where our database resides (accepted from command line or YAML)
+  # 2) readOnly : Whether we plan to do any writing.
+  # Since we never have more than one database_dir, it's a global property we can set
+  # in this package, which Seq.pm and Seq::Build extend from
+  my $db = Seq::DBManager->new({database_dir => $self->database_dir});
 
-  if (!$self->database_dir->is_dir) {
-    $self->log('fatal', 'database_dir given is not a directory');
-  }
-  
-  #needs to be initialized before dbmanager can be used
-  $self->setDbPath( $self->database_dir );
+  $self->_setDb($db);
 
+  # Seq::Role::Message settigns
   if($self->publisherMessageBase && $self->publisherAddress) {
     $self->setPublisher($self->publisherMessageBase, $self->publisherAddress);
   }

@@ -2,7 +2,7 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Role::DBManager;
+package Seq::DBManager;
 
 our $VERSION = '0.001';
 
@@ -25,12 +25,12 @@ use Hash::Merge::Simple qw/ merge /;
 $LMDB_File::die_on_err = 0;
 
 # Has two singleton values, which we expect to be global
+# THe entire database exists in one location
 state $databaseDir;
 has database_dir => (
   is => 'ro',
   isa => AbsPath,
   coerce => 1,
-  required => 1,
   default => sub{$databaseDir},
   coerce   => 1,
   handles => {
@@ -38,15 +38,37 @@ has database_dir => (
   }
 );
 
-sub setDbPath {
-  $databaseDir = $_[1]; #$_[0] is $self
-}
-
 state $dbReadOnly;
 has dbReadOnly => (is => 'rw', isa => 'Bool', default => $dbReadOnly, lazy => 1);
 
-sub setDbReadOnly {
+# Consumers can choose whether or not their instance is read only
+# Read only mode removes any locking, but is not safe with concurrent writers
+sub setReadOnly {
   $dbReadOnly = $_[1];
+}
+
+sub BUILD {
+  my $self = shift;
+
+  if(defined $databaseDir) {
+    return;
+  }
+
+  if(!defined $databaseDir) {
+    if(!$self->database_dir) {
+      $self->log('fatal', "First time DBManager initialized, need database_dir");
+    }
+    if(!$self->database_dir->exists) {
+      $self->log('debug', 'database_dir '. $self->database_dir . 'doesn\'t exit. Creating');
+      $self->database_dir->mkpath;
+    }
+
+    if (!$self->database_dir->is_dir) {
+      $self->log('fatal', 'database_dir given is not a directory');
+    }
+
+    $databaseDir = $self->database_dir;
+  }
 }
 
 #Transaction size
@@ -60,14 +82,14 @@ sub setDbReadOnly {
 #Even compaction, using mdb_copy may not be enough to fix it it seems
 #requiring a clean re-write using single transactions
 #as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
-has commitEvery => (is => 'rw', init_arg => undef, default => 1e4, lazy => 1);
+has commitEvery => (is => 'rw', default => 1e4, lazy => 1);
 
 #0, 1, 2
 #TODO: make singleton
-has overwrite => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
+has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 
 # Flag for deleting tracks instead of inserting during patch* methods
-has delete => (is => 'ro', isa => 'Bool', default => 0, lazy => 1);
+has delete => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
@@ -528,7 +550,7 @@ sub dbPatchMeta {
   return;
 }
 
-no Moose::Role;
+__PACKAGE__->meta->make_immutable;
 
 1;
 

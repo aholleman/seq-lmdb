@@ -23,30 +23,24 @@ use Seq::Headers;
 use Seq::Tracks;
 use Seq::Genotypes;
 use Seq::Statistics;
+use Seq::DBManager;
 
 extends 'Seq::Base';
 
-has snpfile => (
-  is       => 'ro',
-  isa      => AbsFile,
-  coerce   => 1,
-  required => 1,
-  handles  => { inputFilePath => 'stringify' }
-);
+has snpfile => (is => 'ro', isa => AbsFile, coerce => 1, required => 1,
+  handles  => { inputFilePath => 'stringify' });
 
-has out_file => (
-  is        => 'ro',
-  isa       => AbsPath,
-  coerce    => 1,
-  required  => 1,
-  handles   => { outputFilePath => 'stringify' }
-);
+has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
+  handles => { outputFilePath => 'stringify' });
 
 # The statistics package config options
-has statistics => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
+has statistics => (is => 'ro', isa => 'Maybe[HashRef]', default => undef);
 
 # Do we want to compress?
 has compress => (is => 'ro', lazy => 1, default => undef);
+
+# Tracks configuration hash
+has tracks => (is => 'ro', isa => 'HashRef', required => 1);
 
 # We also add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
@@ -97,25 +91,17 @@ my $trackGettersExceptReference;
 my $fileSize;
 my $chunkSize;
 
-# The track configuration array reference. The only required value: the tracks configuration (typically from YAML)
-has tracks => (is => 'ro', isa => 'ArrayRef[HashRef]', required => 1);
-
 sub BUILD {
   my $self = shift;
 
-  my $tracks = Seq::Tracks->new( {tracks => $self->tracks, gettersOnly => 1} );
-
-  # We won't be building anything, optimize locking for read (no locks)
-  $self->dbReadOnly(1);
-
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
-  $self->setDbReadOnly(1);
+  $self->db->setDbReadOnly(1);
 
-  #the reference base can be used for many purposes
-  #and so to benefit encapsulation, I separate it from other tracks during getting
-  #this way, tracks can just accept the first four fields of the input file
-  # chr, pos, ref, alleles, using the empirically found ref
+  my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
+
+  # We seperate out the reference track getter so that we can check for discordant
+  # bases, and pass the true reference base to other getters that may want it (like CADD)
   $refTrackGetter = $tracks->getRefTrackGetter();
 
   # All other tracks
@@ -127,16 +113,8 @@ sub BUILD {
 }
 
 sub annotate_snpfile {
-  my $self = shift;
-
-  $self->log( 'info', 'Beginning annotation' );
-
-  my $headers = Seq::Headers->new();
+  my $self = shift; $self->log( 'info', 'Beginning annotation' );
   
-  my $fh;
-
-  # TODO: maybe make this more configurable, take the IdsKey values from 
-  # YAML
   if($self->statistics) {
     $statisticsHandler = Seq::Statistics->new( {  %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey,
@@ -144,63 +122,56 @@ sub annotate_snpfile {
     ) } );
   }
 
+  my $fh;
   ($fileSize, $fh) = $self->get_read_fh($self->inputFilePath);
-    
+
   my $taint_check_regex = $self->taint_check_regex; 
-  my $endOfLineChar = $self->endOfLineChar;
   my $delimiter = $self->delimiter;
 
   # Get the header fields we want in the output, and print the header to the output
   my $firstLine = <$fh>;
 
   chomp $firstLine;
+  
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
-    $firstLine = [ split $delimiter, $1 ];
-
-    $inputFileProcessor->checkInputFileHeader($firstLine);
-
-    $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
-    $referenceFieldIdx = $inputFileProcessor->referenceFieldIdx;
-    $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
-    $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
-    $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
-
-    $chrKey = $inputFileProcessor->chrFieldName;
-    $positionKey = $inputFileProcessor->positionFieldName;
-    # $allelesKey = $inputFileProcessor->alleleFieldName;
-    $typeKey = $inputFileProcessor->typeFieldName;
-
-    # Prepend these input fields to the output header record
-    $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey,
-      $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
-
-    # Outputter needs to know which fields we're going to pass it
-    $outputter->setOutputDataFieldsWanted( $headers->get() );
-
-    $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
-
-    $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
-
+    $inputFileProcessor->checkInputFileHeader([ split $delimiter, $1 ]);
   } else {
     $self->log('fatal', "First line of input file has illegal characters");
   }
 
+  $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
+  $referenceFieldIdx = $inputFileProcessor->referenceFieldIdx;
+  $positionFieldIdx = $inputFileProcessor->positionFieldIdx;
+  $alleleFieldIdx = $inputFileProcessor->alleleFieldIdx;
+  $typeFieldIdx = $inputFileProcessor->typeFieldIdx;
+
+  $chrKey = $inputFileProcessor->chrFieldName;
+  $positionKey = $inputFileProcessor->positionFieldName;
+  $typeKey = $inputFileProcessor->typeFieldName;
+
+  # Prepend these input fields to the output header record
+  my $headers = Seq::Headers->new();
+
+  $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey,
+    $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
+
+  # Outputter needs to know which fields we're going to pass it
+  $outputter->setOutputDataFieldsWanted( $headers->get() );
+
+  $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
+
+  $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
+
   my $outFh = $self->get_write_fh( $self->outputFilePath );
-  
+
   # Write the header
   say $outFh $headers->getString();
 
   my $allStatisticsHref = {};
-  # Initialize our parallel processes; re-uses forked processes
+
   my $a = MCE::Loop::init {
-    #slurpio is optimized with auto chunk
-    chunk_size => 'auto',
-    max_workers => 32,
-    use_slurpio => 1,
+    max_workers => 32, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
-    #doesn't seem to improve performance
-    #and apparently slow on shared storage
-    parallel_io => 1,
   };
 
   # We need to know the chunk size, and only way to do that 
@@ -242,22 +213,24 @@ sub annotate_snpfile {
     }
     close  $MEM_FH;
 
-    # annotateLines annotates N lines, writes them to disk
-    # TODO: decide whether to return statistics from here, or use MCE::Shared
+    # Annotate lines, write the data, and MCE->Gather any statistics
     $self->annotateLines(\@lines, $outFh);
 
     # Write progress
-    # 1 is a placedholder for some statistics hash reference
     MCE->gather(undef);
   } $fh;
 
+  ################ Finished writing file. If statistics, print those ##########
   my $ratiosAndQcHref;
+
   if($statisticsHandler) {
     $self->log('info', "Gathering and printing statistics");
 
     $ratiosAndQcHref = $statisticsHandler->makeRatios($allStatisticsHref);
     $statisticsHandler->printStatistics($ratiosAndQcHref, $self->outputFilePath);
   }
+
+  ################ Compress if wanted ##########
 
   if($self->compress) {
     $self->log('info', "Compressing output");
@@ -311,28 +284,25 @@ sub logProgressAndStatistics {
 sub annotateLines {
   my ($self, $linesAref, $outFh) = @_;
 
-  my @output;
-  my @inputData;
+  my (@inputData, @output);
+  my ($wantedChr, @positions);
 
   # if chromosomes are out of order, or one batch has more than 1 chr,
   # we will need to make fetches to the db before the last input record is read
   # in this case, let's accumulate the incomplete results
   my $outputString = '';
 
-  my $wantedChr; 
-  my @positions;
-
   #Note: Expects first 3 fields to be chr, position, reference
   for my $fieldsAref (@$linesAref) {
-    # if chromosomes are out of order, or one batch has more than 1 chr,
-    # we will need to make fetches to the db before the last input record is read
-    if($wantedChr) {
-      if($fieldsAref->[$chrFieldIdx] ne $wantedChr) {
-        # get db data for all @positions accumulated up to this point
-        my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions); 
+    # Chromosomes may be out of order, get data for 1 chromosome at a time
+    if(!$wantedChr || $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
+      if(@positions) {
+        # Get db data for all @positions accumulated up to this point
+        my $dataFromDatabaseAref = $self->db->dbRead($wantedChr, \@positions); 
 
-        #it's possible that we were only asking for 1 record
-        if(!ref $dataFromDatabaseAref) {
+        # It's possible that we were only asking for 1 record
+        # finishAnnotatingLines expects an array
+        if(ref $dataFromDatabaseAref ne "ARRAY") {
           $dataFromDatabaseAref = [$dataFromDatabaseAref];
         }
 
@@ -345,23 +315,19 @@ sub annotateLines {
           MCE->gather( $statisticsHandler->countTransitionsAndTransversions(\@output) );
         }
 
-        # and prepare those reults for output, save the accumulated string value
-        # This should come last, makeOutputString may mutate @output
-        # TODO: figure out whether we want to allow mutation (for Elasticsearch)
+        # Accumulate the output
         $outputString .= $outputter->makeOutputString(\@output);
 
-        #erase accumulated values; relies on finishAnnotatingLines being synchronous
-        #this will let us repeat the finishAnnotatingLines process
-        undef @positions;
-        undef @output;
-        undef @inputData;
-
-        #grab the new allele
-        $wantedChr = $wantedChr = $fieldsAref->[$chrFieldIdx];
+        @positions = (); @output = (); @inputData = ();
       }
-      
-    } else {
-      $wantedChr = $fieldsAref->[$chrFieldIdx];
+
+      my $chr = $fieldsAref->[$chrFieldIdx];
+
+      $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
+    }
+
+    if(!$wantedChr) {
+      next;
     }
 
     if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
@@ -378,12 +344,12 @@ sub annotateLines {
     push @inputData, $fieldsAref; 
   }
 
-  #finish anything left over
+  # Leftovers
   if(@positions) {
-    my $dataFromDatabaseAref = $self->dbRead($wantedChr, \@positions, 1); 
+    my $dataFromDatabaseAref = $self->db->dbRead($wantedChr, \@positions, 1); 
 
-    #it's possible that we were only asking for 1 record
-    if(!ref $dataFromDatabaseAref) {
+    # finishAnnotatingLines expects an array
+    if(ref $dataFromDatabaseAref ne "ARRAY") {
       $dataFromDatabaseAref = [$dataFromDatabaseAref];
     }
 
@@ -411,14 +377,15 @@ sub finishAnnotatingLines {
 
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
-      $self->log('fatal', "$chr: " . $inputAref->[$i][1] . " not found.
-        You may have chosen the wrong assembly.");
+      $self->log('fatal', "$chr: $inputAref->[$i][1] not found. Maybe wrong assembly");
     }
 
     $outAref->[$i]{$refTrackName} = $refTrackGetter->get($dataFromDbAref->[$i]);
 
+    # The reference base we found on this line in the input file
     my $givenRef = $inputAref->[$i][$referenceFieldIdx];
 
+    # May not match the reference assembly
     if( $outAref->[$i]{$refTrackName} ne $givenRef) {
       $self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
     }
@@ -452,7 +419,6 @@ sub finishAnnotatingLines {
 
     $outAref->[$i]{$chrKey} = $inputAref->[$i][$chrFieldIdx];
     $outAref->[$i]{$positionKey} = $inputAref->[$i][$positionFieldIdx];
-    # $outAref->[$i]{$allelesKey} = $inputAref->[$i][$alleleFieldIdx];
     $outAref->[$i]{$typeKey} = $inputAref->[$i][$typeFieldIdx];
 
     $outAref->[$i]{$minorAllelesKey} = $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] };

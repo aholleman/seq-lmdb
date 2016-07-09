@@ -139,12 +139,6 @@ sub getRefTrackBuilder {
 }
 
 sub BUILD {
-  goto &initialize;
-}
-
-#Initialize once, then use forever
-# Using an initialize method allows consumers to get an instance of Tracks
-sub initialize {
   my $self = shift;
 
   if(%$trackGetters && $self->gettersOnly) {

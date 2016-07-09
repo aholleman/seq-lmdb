@@ -12,8 +12,11 @@ package Seq::Tracks::Base::MapTrackNames;
 use Moose 2;
 use List::Util qw/max/;
 use DDP;
+use Seq::DBManager;
 
-with 'Seq::Role::Message', 'Seq::Role::DBManager';
+$db = Seq::DBManager->new();
+
+with 'Seq::Role::Message';
 
 # The name of the track is required
 has name => ( is => 'ro', isa => 'Str', required => 1 );
@@ -63,7 +66,7 @@ sub buildDbName {
 sub _fetchTrackNameMeta {
   my $self = shift;
 
-  my $nameNumber = $self->dbReadMeta($self->name, $metaKey) ;
+  my $nameNumber = $db->dbReadMeta($self->name, $metaKey) ;
 
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
@@ -98,7 +101,7 @@ sub _addTrackNameMeta {
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
-  $self->dbPatchMeta($self->name, $metaKey, $nameNumber);
+  $db->dbPatchMeta($self->name, $metaKey, $nameNumber);
 
   $trackNamesMap->{$self->name} = $nameNumber;
   $trackDbNamesMap->{$nameNumber} = $self->name;

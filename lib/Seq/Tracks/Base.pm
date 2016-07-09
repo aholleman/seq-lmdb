@@ -14,12 +14,9 @@ use DDP;
 use List::MoreUtils qw/first_index/;
 
 use Seq::Tracks::Base::MapTrackNames;
-
 # TODO: move Base::Types  to a role
 #exports TrackType, DataTypes
-with 'Seq::Tracks::Base::Types',
-# exports db* methods, overwrite, delete, dbReadOnly, database_dir attributes
-'Seq::Role::DBManager';
+with 'Seq::Tracks::Base::Types';
 
 ###################### Required Arguments ############################
 # the track name
@@ -69,7 +66,9 @@ has features => (
   },
 );
 
-has _featureDataTypes => (
+# Public, but not expected to be set by calling class, derived from features
+# in BUILDARG
+has featureDataTypes => (
   is => 'ro',
   isa => 'HashRef[DataType]',
   lazy => 1,
@@ -210,7 +209,7 @@ around BUILDARGS => sub {
       my ($name, $type) = %$feature; #Thomas Wingo method
 
       push @featureLabels, $name;
-      $data{_featureDataTypes}{$name} = $type;
+      $data{featureDataTypes}{$name} = $type;
 
       next;
     }

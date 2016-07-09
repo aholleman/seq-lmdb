@@ -31,19 +31,6 @@ has chromEnd_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chr
 # We skip entries that span more than this number of bases
 has max_variant_size => (is => 'ro', isa => 'Int', lazy => 1, default => 32);
 
-has dbMergeFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => sub {
-  my ($self, $old, $new);
-  my @return;
-
-  # All of our data is stored as an array
-  if(ref $old->[0]) {
-    return [$old, $new];
-  }
-
-  return [@$old, $new];
-
-});
-
 sub buildTrack {
   my $self = shift;
 
@@ -178,7 +165,7 @@ sub buildTrack {
           if (%data) {
             if(!$wantedChr){ $self->log('fatal', 'Have data, but no chr on line ' . $.)}
 
-            $self->dbPatchBulkArray($wantedChr, \%data);
+            $self->db->dbPatchBulkArray($wantedChr, \%data);
 
             undef %data;
             $count = 0;
@@ -260,7 +247,7 @@ sub buildTrack {
           $count++;
         
           if($count >= $self->commitEvery) {
-            $self->dbPatchBulkArray($wantedChr, \%data);
+            $self->db->dbPatchBulkArray($wantedChr, \%data);
 
             undef %data;
             $count = 0;
@@ -276,7 +263,7 @@ sub buildTrack {
           return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
 
-        $self->dbPatchBulkArray($wantedChr, \%data);
+        $self->db->dbPatchBulkArray($wantedChr, \%data);
       }
 
       # Record completion. Safe because detected errors throw, kill process

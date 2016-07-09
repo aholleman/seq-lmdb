@@ -14,8 +14,9 @@ package Seq::Tracks::Base::MapFieldNames;
 use Moose::Role 2;
 use List::Util qw/max/;
 use DDP;
+use Seq::DBManager;
 
-with 'Seq::Role::Message', 'Seq::Role::DBManager';
+with 'Seq::Role::Message';
 
 #the feature name
 requires 'name';
@@ -36,6 +37,7 @@ state $metaKey = 'fields';
 #may be called millions of times, so skipping assignment of args
 has debug => (is => 'ro');
 
+my $db = Seq::DBManager->new();
 sub getFieldDbName {
   #my ($self, $fieldName) = @_;
   
@@ -76,7 +78,7 @@ sub getFieldName {
 sub fetchMetaFields {
   my $self = shift;
 
-  my $dataHref = $self->dbReadMeta($self->name, $metaKey) ;
+  my $dataHref = $db->dbReadMeta($self->name, $metaKey) ;
 
   if ($self->debug) {
     say "Currently, fetchMetaFields found";
@@ -127,7 +129,7 @@ sub addMetaField {
   #but I may have mistook one issue for another
   #passing 1 to overwrite existing fields
   #since the below mapping ends up relying on our new values
-  $self->dbPatchMeta($self->name, $metaKey, {
+  $db->dbPatchMeta($self->name, $metaKey, {
     $fieldName => $fieldNumber
   }, 1);
 

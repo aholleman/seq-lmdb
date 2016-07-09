@@ -27,17 +27,19 @@ use Moose 2;
 use Seq::Tracks;
 
 use Seq::Tracks::Gene::Site;
+use Seq::DBManager;
 
-with 'Seq::Role::Message', 'Seq::Role::DBManager';
+with 'Seq::Role::Message';
 
 use namespace::autoclean;
 
 use DDP;
 
+my $db = Seq::DBManager->new();
 #how many bases away from exon bound we will call spliceAc or spliceDon site
-state $spliceSiteLength = 6;
+my $spliceSiteLength = 6;
 #placeholder for annotation in string
-state $annBase = '0';
+my $annBase = '0';
 
 # stores all of our individual sites
 # these can be used by the consumer to write per-reference-position
@@ -243,7 +245,7 @@ sub _buildTranscript {
     # say "sequence positions are";
     # p @sequencePositions;
     
-    my $dAref = $self->dbRead($self->chrom, $exonPosHref, 1); 
+    my $dAref = $db->dbRead($self->chrom, $exonPosHref, 1); 
 
     #Now get the base for each item found in $dAref;
     #This is handled by the refTrack of course

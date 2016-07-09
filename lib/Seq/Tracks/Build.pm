@@ -18,10 +18,15 @@ use MooseX::Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 
 extends 'Seq::Tracks::Base';
+
+use Seq::DBManager;
 #all build methods need to read files
 with 'Seq::Role::IO';
 
 use Seq::Tracks::Build::CompletionMeta;
+
+# Every builder needs access to the database
+has db => (is => 'ro', init_arg => undef, lazy => 1, default => sub { Seq::DBManager->new() });
 
 # Allows consumers to record track completion
 has completionMeta => (
@@ -95,20 +100,22 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
-sub BUILD {
-  my $self = shift;
+################# General Merge Function ##################
+my %haveMadeIntoArray;
 
-  my @allLocalFiles = $self->allLocalFiles;
+# Not safe for old value, but we don't really care
+has mergFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => { return sub {
+  my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
 
-  #exported by Seq::Tracks::Base
-  my @allWantedChrs = $self->allWantedChrs;
-
-  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
-    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
-      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
-      . "and that one chromosome isn't accounted for.");
+  my $newValue = $oldValue;
+  if(!$haveMadeIntoArray{$chr}{$pos}) {
+    $newValue = [$oldValue];
+    $haveMadeIntoArray{$chr}{$pos} = 1;
   }
-}
+  
+  push @$newValue, $dataToAdd;
+  return \@$newValue;
+} } );
 
 # some tracks may have required fields (defined by the Readme)
 # For instance: SparseTracks require bed format chrom\tchromStart\tchromEnd
@@ -156,6 +163,21 @@ around BUILDARGS => sub {
   return $class->$orig(\%data);
 };
 
+sub BUILD {
+  my $self = shift;
+
+  my @allLocalFiles = $self->allLocalFiles;
+
+  #exported by Seq::Tracks::Base
+  my @allWantedChrs = $self->allWantedChrs;
+
+  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
+    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
+      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
+      . "and that one chromosome isn't accounted for.");
+  }
+}
+
 ###################Prepare Data For Database Insertion ##########################
 #The role of this func is to wrap the data that each individual build method
 #creates, in a consistent schema. This should match the way that Seq::Tracks::Base
@@ -186,23 +208,23 @@ sub prepareData {
 #This is stored in Build.pm because this only needs to happen during insertion into db
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
-  # my ($self, $dataStr) = @_;
+  my ($self, $feature, $dataStr) = @_;
 
   # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
   # Output.pm chooses to represent missing data as.
-  if($_[2] =~ /NA/i) {
+  if($dataStr =~ /NA/i) {
     return undef;
   }
 
-  my $type = $_[0]->noFeatureTypes ? undef : $_[0]->getFeatureType( $_[1] );
+  my $type = $self->noFeatureTypes ? undef : $self->getFeatureType( $feature );
 
   #even if we don't have a type, let's coerce anything that is split by a 
   #delimiter into an array; it's more efficient to store, and array is implied by the delim
   my @parts;
-  if( ~index( $_[2], $_[0]->multi_delim ) ) { #bitwise compliment, return 0 only for -N
-    my @vals = split( $_[0]->multi_delim, $_[2] );
+  if( ~index( $dataStr, $self->multi_delim ) ) { #bitwise compliment, return 0 only for -N
+    my @vals = split( $self->multi_delim, $dataStr );
 
-    #use defined to allow 0 values as types; that is a remote possibility
+    #use defined to allow 0 valuess as types; that is a remote possibility
     #though more applicable for the name we store the thing as
     if(!defined $type) { 
       return \@vals;
@@ -212,7 +234,7 @@ sub coerceFeatureType {
     # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
     # modifying the value here actually modifies the value in the array
     for my $val (@vals) {
-      $val = $_[0]->convert($val, $type);
+      $val = $self->convert($val, $type);
     }
 
     # In order to allow fields to be well-indexed by ElasticSearch or other engines
@@ -221,7 +243,7 @@ sub coerceFeatureType {
     return \@vals;
   }
 
-  return defined $type ? $_[0]->convert($_[2], $type) : $_[2];
+  return defined $type ? $self->convert($dataStr, $type) : $dataStr;
 }
 
 state $cachedFilters;
@@ -230,7 +252,6 @@ sub passesFilter {
     return &{ $cachedFilters->{$_[1]} }($_[2]);
   }
 
-  #   $_[0],      $_[1],    $_[2]
   my ($self, $featureName, $featureValue) = @_;
 
   my $command = $self->build_row_filters->{$featureName};

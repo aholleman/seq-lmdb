@@ -30,13 +30,12 @@ use Seq::Tracks::Gene::Site;
 use Seq::Tracks::Gene::Site::SiteTypeMap;
 use Seq::Tracks::Gene::Site::CodonMap;
 use Seq::Tracks::Gene::Definition;
+use Seq::DBManager;
 
 #exports regionTrackPath
 with 'Seq::Tracks::Region::RegionTrackPath',
 
-#dbReadAll
-'Seq::Role::DBManager';
-
+state $db = Seq::DBManager->new();
 state $geneDef = Seq::Tracks::Gene::Definition->new();
 
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
@@ -119,7 +118,7 @@ sub get {
   ################# Cache track's region data ##############
   state $geneTrackRegionHref = {};
   if(!defined $geneTrackRegionHref->{$self->name}{$chr} ) {
-    $geneTrackRegionHref->{$self->name}{$chr} = $self->dbReadAll( $self->regionTrackPath($chr) );
+    $geneTrackRegionHref->{$self->name}{$chr} = $db->dbReadAll( $self->regionTrackPath($chr) );
   }
 
   ####### Get all transcript numbers, and site data for this position #########
@@ -291,13 +290,13 @@ sub _annotateIndel {
 
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
-    $dbDataAref = $self->dbRead( $chr, [ $dbPosition + 1 ] );
+    $dbDataAref = $db->dbRead( $chr, [ $dbPosition + 1 ] );
   } elsif($type eq '-') {
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
     #get everything including the current dbPosition, in order to simplify code
     #small perf hit because few indels
-    $dbDataAref = $self->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
+    $dbDataAref = $db->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
   } else {
     $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
       as valid indel (must start with - or +)");

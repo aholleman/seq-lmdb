@@ -10,12 +10,16 @@ use Moose 2;
 use namespace::autoclean;
 use DDP;
 #exports dbPatchMeta, dbReadMeta
-with 'Seq::Role::DBManager', 'Seq::Role::Message';
+use Seq::DBManager;
+
+with 'Seq::Role::Message';
 
 has name => ( is => 'ro', isa => 'Str', required => 1 );
 has skip_completion_check => ( is => 'rw', required => 1, writer => 'setSkipCompletionCheck');
 
 state $metaKey = 'completed';
+
+my $db = Seq::DBManager->new();
 
 sub okToBuild {
   my ($self, $chr) = @_;
@@ -46,7 +50,7 @@ sub recordCompletion {
   }
 
   # overwrite any existing entry for $chr
-  my $err = $self->dbPatchMeta($self->name, $metaKey, { $chr => 1 }, 1 );
+  my $err = $db->dbPatchMeta($self->name, $metaKey, { $chr => 1 }, 1 );
 
   if($err) {
     return $self->log('fatal', $err);
@@ -61,7 +65,7 @@ sub eraseCompletionMeta {
   my ($self, $chr) = @_;
   
   # overwrite any existing entry for $chr
-  my $err = $self->dbPatchMeta($self->name, $metaKey, { $chr => 0 }, 1 );
+  my $err = $db->dbPatchMeta($self->name, $metaKey, { $chr => 0 }, 1 );
 
   if($err) {
     return $self->log('fatal', $err);

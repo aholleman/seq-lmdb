@@ -79,7 +79,7 @@ sub buildTrack {
       if(%out) {
         if(!$wantedChr) { $self->log('fatal', "Changed chr @ $_; out w/o wantedChr"); }
         
-        $self->dbPatchBulkArray($wantedChr, \%out);
+        $self->db->dbPatchBulkArray($wantedChr, \%out);
         undef %out; $count = 0;
       }
 
@@ -119,7 +119,7 @@ sub buildTrack {
     undef @score;
 
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulkArray($wantedChr, \%out);
+      $self->db->dbPatchBulkArray($wantedChr, \%out);
 
       undef %out;
       $count = 0;
@@ -137,7 +137,7 @@ sub buildTrack {
       $self->log('warn', "At end of $file have uncommited scores: " . join(',', @score) ); 
     }
 
-    $self->dbPatchBulkArray($wantedChr, \%out);
+    $self->db->dbPatchBulkArray($wantedChr, \%out);
   }
 
   # Since any detected errors are fatal, we have confidence that anything visited

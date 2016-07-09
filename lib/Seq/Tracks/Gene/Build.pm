@@ -214,6 +214,10 @@ sub buildTrack {
 
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;
+          if( !$self->completionMeta->okToBuild($chr) ) {
+            $pm2->finish(0);
+          }
+
           # We may want to just update the region track, 
           if($self->build_region_track_only) {
             $self->_writeRegionData( $chr, $regionData{$chr});
@@ -221,9 +225,7 @@ sub buildTrack {
             if($self->join) {
               $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
             }
-          }
 
-          if( !$self->completionMeta->okToBuild($chr) ) {
             $pm2->finish(0);
           }
           
@@ -237,8 +239,7 @@ sub buildTrack {
           my $largestTxEnd = 0; my $count = 0;
           for my $txStart ( @allTxStartsAscending ) {
             if($largestTxEnd < $txStart && $count >= $self->commitEvery) {
-              $self->log('info', "largestTxEnd is $largestTxEnd and txStart is $txStart."
-               . " Can't overlap, and $count >= commit limit, so writing accumulated siteData");
+              $self->log('debug', "largestTxEnd $largestTxEnd > txStart $txStart, writing");
               # After we;ve moved past the last covered transcript, no risk of missing an overlap,
               # assuming all txStart > txEnd, which is the case according to
               # http://www.noncode.org/cgi-bin/hgTables?db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_doSchema=describe+table+schema
@@ -350,28 +351,13 @@ sub _writeRegionData {
   for my $txNumber (@txNumbers) {
     # Patch one at a time, because we assume performance isn't an issue
     # And neither is size, so hash keys are fine
-    $self->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber}, 1);
+    $self->db->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber}, 1);
   }
 
   $self->log('info', "Finished _writeRegionData for $chr");
 }
 
 ############ Joining some other track to Gene track's region db ################
-my %haveMadeIntoArray;
-
-# Not safe for old value, but we don't really care
-my $mergFunc = sub {
-  my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
-
-  my $newValue = $oldValue;
-  if(!$haveMadeIntoArray{$chr}{$pos}) {
-    $newValue = [$oldValue];
-    $haveMadeIntoArray{$chr}{$pos} = 1;
-  }
-  
-  push @$newValue, $dataToAdd;
-  return \@$newValue;
-};
 
 my $tracks = Seq::Tracks->new();
 
@@ -404,7 +390,7 @@ sub _joinTracksToGeneTrackRegionDb {
 
     my $txNumber = $txNumbers[$index];
 
-    $self->dbPatchHash($dbName, $txNumber, $hrefToAdd, undef, $mergeFunc);
+    $self->db->dbPatchHash($dbName, $txNumber, $hrefToAdd, undef, $self->mergeFunc);
   });
 
 }
@@ -421,7 +407,7 @@ sub _writeMainData {
 
   for my $pos ( keys %$mainDataHref ) {
     if($count >= $self->commitEvery) {
-      $self->dbPatchBulkArray($chr, \%out);
+      $self->db->dbPatchBulkArray($chr, \%out);
 
       undef %out;
       $count = 0;
@@ -433,7 +419,7 @@ sub _writeMainData {
   }
 
   if(%out) {
-    $self->dbPatchBulkArray($chr, \%out);
+    $self->db->dbPatchBulkArray($chr, \%out);
 
     undef %out;
   }
@@ -454,7 +440,7 @@ sub _writeNearestGenes {
   $self->log('info', "Starting _writeNearestGenes for $chr");      
   
   # Get database length : assumes reference track already in the db
-  my $genomeNumberOfEntries = $self->dbGetNumberOfEntries($chr);
+  my $genomeNumberOfEntries = $self->db->dbGetNumberOfEntries($chr);
 
   my @allTranscriptStarts = sort { $a <=> $b } keys %$txStartData;
 
@@ -577,7 +563,7 @@ sub _writeNearestGenes {
 
     for my $pos (keys %out) {
       if($count >= $self->commitEvery) {
-        $self->dbPatchBulkArray($chr, \%outAccumulator);
+        $self->db->dbPatchBulkArray($chr, \%outAccumulator);
 
         undef %outAccumulator;
         $count = 0;
@@ -595,7 +581,7 @@ sub _writeNearestGenes {
 
     # leftovers
     if(%outAccumulator) {
-      $self->dbPatchBulkArray($chr, \%outAccumulator);
+      $self->db->dbPatchBulkArray($chr, \%outAccumulator);
 
       undef %outAccumulator; #force free memory, though shouldn't be needed
     }

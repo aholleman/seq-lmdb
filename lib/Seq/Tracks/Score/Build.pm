@@ -28,16 +28,17 @@ has '+based' => (
   default => 1,
 );
 
-my $pm = Parallel::ForkManager->new(26);
-
 sub buildTrack{
   my $self = shift;
 
   my $fStep = 'fixedStep';
   my $vStep = 'variableStep';
   my $headerRegex = qr/^($fStep|$vStep)\s+chrom=(\S+)\s+start=(\d+)\s+step=(\d+)/;
+    
+  my @allChrs = $self->allLocalFiles;
+  my $chrPerFile = @allChrs > 1 ? 1 : 0;
   
-  my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
+  my $pm = Parallel::ForkManager->new(@allChrs == 1 ? 0 : scalar @allChrs);
 
   for my $file ( $self->allLocalFiles ) {
     $pm->start($file) and next; 
@@ -87,7 +88,7 @@ sub buildTrack{
 
             # we found something new, so let's write if we have reason
             if(%data) {
-              $self->dbPatchBulkArray($wantedChr, \%data);
+              $self->db->dbPatchBulkArray($wantedChr, \%data);
             }
              
             #since this is new, let's reset our data and count
@@ -132,7 +133,7 @@ sub buildTrack{
 
         $count++;
         if($count >= $self->commitEvery) {
-          $self->dbPatchBulkArray($wantedChr, \%data );
+          $self->db->dbPatchBulkArray($wantedChr, \%data );
           %data = ();
           $count = 0;
 
@@ -148,7 +149,7 @@ sub buildTrack{
           return $self->log('fatal', "at end of $file no wantedChr && data found");
         }
 
-        $self->dbPatchBulkArray($wantedChr, \%data );
+        $self->db->dbPatchBulkArray($wantedChr, \%data );
       }
 
       # Record completion. Safe because detected errors throw, kill process
