@@ -20,7 +20,7 @@ use Seq::Build;
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose,
   $help,        $wantedChr,        
-  $debug,       $overwrite,  $delete,
+  $debug,       $overwrite,  $delete, $regionTrackOnly,
 );
 
 $debug = 0;
@@ -35,6 +35,7 @@ GetOptions(
   'o|overwrite=i'  => \$overwrite,
   'chr|wanted_chr=s' => \$wantedChr,
   'dlt|delete' => \$delete,
+  'build_region_track_only' => \$regionTrackOnly,
 );
 
 if ($help) {
@@ -72,6 +73,7 @@ my $builder_options_href = {
   debug        => $debug,
   logPath      => $logPath,
   delete       => $delete || 0,
+  build_region_track_only => $regionTrackOnly || 0,
 };
   
 

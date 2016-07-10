@@ -10,7 +10,7 @@ our $VERSION = '0.001';
 # track casting (data) types
 # VERSION
 
-use Mouse::Role;
+use Mouse 2;
 use Mouse::Util::TypeConstraints; 
 use namespace::autoclean;
 use Scalar::Util qw/looks_like_number/;
@@ -84,4 +84,6 @@ sub int {
 
 no Mouse::Role;
 no Mouse::Util::TypeConstraints;
+__PACKAGE__->meta->make_immutable;
+
 1;

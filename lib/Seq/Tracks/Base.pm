@@ -18,28 +18,32 @@ use List::MoreUtils qw/first_index/;
 use Seq::Tracks::Base::MapTrackNames;
 use Seq::Tracks::Base::MapFieldNames;
 
-# TODO: move Base::Types  to a role
-#exports TrackType, DataTypes
-with 'Seq::Tracks::Base::Types';
+# automatically imports TrackType
+use Seq::Tracks::Base::Types;
+
 with 'Seq::Role::Message';
 
 ################# Public Exports ##########################
+# Not lazy because every track will use this 100%, and rest are trivial values
+# Not worth complexity of Maybe[Type], default => undef,
 has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
 
 # Some tracks may have a nearest property; these are stored as their own track, but
 # conceptually are a sub-track, 
-has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
+has nearestName => ( is => 'ro', isa => 'Str', init_arg => undef, default => 'nearest');
 
-has nearestDbName => ( is => 'ro', init_arg => undef, writer => '_setNearestDbName');
+has nearestDbName => ( is => 'ro', isa => 'Str', init_arg => undef, writer => '_setNearestDbName');
+
+has joinTrackFeatures => (is => 'ro', isa => 'ArrayRef', init_arg => undef, writer => '_setJoinTrackFeatures');
+
+has joinTrackName => (is => 'ro', isa => 'Str', init_arg => undef, writer => '_setJoinTrackName');
 
 ###################### Required Arguments ############################
 # the track name
 has name => ( is => 'ro', isa => 'Str', required => 1);
 
-#TrackType exported from Tracks::Base::Type
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
-has debug => ( is => 'ro' );
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
 #during building should be defined here
@@ -60,7 +64,7 @@ has fieldNames => (is => 'ro', init_arg => undef, default => sub {
 }, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
-has wantedChr => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef);
+has wantedChr => (is => 'ro', isa => 'Str');
 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int
@@ -108,14 +112,9 @@ has nearest => (
   default => sub{ [] },
 );
 
-# We allow a "join" property to be defined for any tracks
-# Although it won't make sense for some (like reference)
-# It's up to the consuming class to decide if they need it
-# It is a property that, when set, may have 0 or more features
-# Used like a pre-calculated join
-# Expects track: someName ; features key optional
-has join => (is => 'ro');
+has join => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
 
+has debug => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0 );
 
 #### Initialize / make dbnames for features and tracks before forking occurs ###
 sub BUILD {
@@ -150,6 +149,15 @@ sub BUILD {
   $self->_setDbName($dbNameBuilder->dbName);
 
   $self->log('debug', "Track " . $self->name . " dbName is " . $self->dbName);
+
+  if(defined $self->join ) {
+    if(!defined $self->join->{track}) {
+      $self->log('fatal', "'join' requires track key");
+    }
+
+    $self->_setJoinTrackName($self->join->{track});
+    $self->_setJoinTrackFeatures($self->join->{features});
+  }
 }
 
 ############ Argument configuration to meet YAML config spec ###################
@@ -172,14 +180,6 @@ sub BUILDARGS {
     } else {
       $class->log('fatal', 'Wanted chromosome not listed in chromosomes in YAML config');
     }
-  }
-
-  if(defined $data->{join} ) {
-    if(!defined $data->{join}->{track}) {
-      $class->log('fatal', "'join' requires track key");
-    }
-    # Features are optional, some tracks we may join won't have any
-    return $data;
   }
 
   if(! defined $data->{features} ) {

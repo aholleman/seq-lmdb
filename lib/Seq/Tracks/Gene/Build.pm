@@ -23,7 +23,6 @@ use Seq::Tracks::Gene::Definition;
 use Seq::Tracks;
 
 extends 'Seq::Tracks::Build';
-
 #exports regionTrackPath
 with 'Seq::Tracks::Region::RegionTrackPath';
 
@@ -38,32 +37,23 @@ my $geneDef = Seq::Tracks::Gene::Definition->new();
 has chrom_field_name => (is => 'ro', lazy => 1, default => 'chrom' );
 has txStart_field_name => (is => 'ro', lazy => 1, default => 'txStart' );
 has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
-has txNumber_field_name => (is => 'ro', lazy => 1, default => 'txNumber' );
 
 has build_region_track_only => (is => 'ro', lazy => 1, default => 0);
+has join => (is => 'ro', isa => 'HashRef');
 
 # These are the features stored in the Gene track's region database
-# Provide default in case user doesn't specify any
 # Does not include $geneDef->geneTxErrorName here, because that is something
 # that is not actually present in UCSC refSeq or knownGene records, we add ourselves
-has '+features' => (
-  default => sub{ $geneDef->allUCSCgeneFeatures; },
-);
+has '+features' => (default => sub{ $geneDef->allUCSCgeneFeatures; });
 
+my $txNumberKey = 'txNumber';
 my $joinTrack;
-my $joinTrackFeatures;
 sub BUILD {
   my $self = shift;
 
   # geneTxErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
   $self->getFieldDbName($geneDef->geneTxErrorName);
-
-  if($self->join) {
-    my $tracks = Seq::Tracks->new();
-    $joinTrack = $tracks->getTrackBuilderByName( $self->join->{track} );
-    $joinTrackFeatures = $self->join->{features};
-  }
 }
 
 # 1) Store a reference to the corresponding entry in the gene database (region database)
@@ -80,7 +70,12 @@ sub buildTrack {
   my @allFiles = $self->allLocalFiles;
 
   my $pm = Parallel::ForkManager->new(scalar @allFiles);
-  
+
+  if($self->join) {
+    my $tracks = Seq::Tracks->new();
+    $joinTrack = $tracks->getTrackBuilderByName($self->joinTrackName);
+  }
+
   # Assume one file per loop, or all sites in one file. Tracks::Build warns if not
   for my $file (@allFiles) {
     $pm->start($file) and next;
@@ -101,9 +96,9 @@ sub buildTrack {
       }
 
       # Except w.r.t the chromosome field, txStart, txEnd, txNumber definitely need these
-      if( !defined $allIdx{$self->chrom_field_name} || !defined $allIdx{$self->txStart_field_name}
-      || !defined $allIdx{$self->txEnd_field_name} || !defined $allIdx{$self->txNumber_field_name}) {
-        $self->log('fatal', 'must provide chrom, txStart, txEnd, txNumber fields');
+      if(!defined $allIdx{$self->chrom_field_name} || !defined $allIdx{$self->txStart_field_name}
+      || !defined $allIdx{$self->txEnd_field_name} ) {
+        $self->log('fatal', 'must provide chrom, txStart, txEnd fields');
       }
 
       # Region database features; as defined by user in the YAML config, or our default
@@ -155,8 +150,14 @@ sub buildTrack {
 
         my $allDataHref;
         ACCUM_VALUES: for my $fieldName (keys %allIdx) {
-          $allDataHref->{$fieldName} = $fields[ $allIdx{$fieldName} ];
-            
+          my $data = $self->coerceFeatureType($fieldName, $fields[ $allIdx{$fieldName} ]);
+          
+          if(!defined $data) {
+            next;
+          }
+
+          $allDataHref->{$fieldName} = $data;
+
           if(!defined $regionIdx{$fieldName} ) {
             next ACCUM_VALUES;
           }
@@ -189,7 +190,7 @@ sub buildTrack {
           $txStartData{$wantedChr}{$txStart} = [ [$txNumber, $txEnd] ];
         }
 
-        $allDataHref->{$self->txNumber_field_name} = $txNumber;
+        $allDataHref->{$txNumberKey} = $txNumber;
 
         push @{ $allData{$wantedChr}{$txStart} }, $allDataHref;
 
@@ -215,7 +216,7 @@ sub buildTrack {
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;
           if( !$self->completionMeta->okToBuild($chr) ) {
-            $pm2->finish(0);
+            return $pm2->finish(0);
           }
 
           # We may want to just update the region track, 
@@ -226,9 +227,9 @@ sub buildTrack {
               $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
             }
 
-            $pm2->finish(0);
+            return $pm2->finish(0);
           }
-          
+
           my (%siteData, %sitesCoveredByTX);
 
           $self->log('info', "Starting to build transcript for $file");
@@ -249,7 +250,7 @@ sub buildTrack {
             }
 
             for my $txData ( @{ $allData{$chr}->{$txStart} } ) {
-              my $txNumber = $txData->{$self->txNumber_field_name};
+              my $txNumber = $txData->{$txNumberKey};
 
               $self->log('info', "Starting to make transcript \#$txNumber for $chr");
 
@@ -286,6 +287,7 @@ sub buildTrack {
           $self->log('info', "Finished building transcripts for $file");
           
           $self->_writeRegionData( $chr, $regionData{$chr});
+
           if($self->join) {
             $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
           }
@@ -351,7 +353,7 @@ sub _writeRegionData {
   for my $txNumber (@txNumbers) {
     # Patch one at a time, because we assume performance isn't an issue
     # And neither is size, so hash keys are fine
-    $self->db->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber}, 1);
+    $self->db->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber});
   }
 
   $self->log('info', "Finished _writeRegionData for $chr");
@@ -374,8 +376,8 @@ sub _joinTracksToGeneTrackRegionDb {
 
   for my $txStart (keys %$txStartData) {
     foreach ( @{ $txStartData->{$txStart} } ) {
-      my $txNumber = $_->[1];
-      my $txEnd = $_->[0];
+      my $txNumber = $_->[0];
+      my $txEnd = $_->[1];
       push @positionRanges, [ $txStart, $txEnd ];
       push @txNumbers, $txNumber;
     }
@@ -383,7 +385,10 @@ sub _joinTracksToGeneTrackRegionDb {
 
   my $dbName = $self->regionTrackPath($chr);
 
-  $joinTrack->joinTrack($chr, \@positionRanges, $joinTrackFeatures, sub {
+  say "joinTrackFeatures are";
+  p $self->joinTrackFeatures;
+
+  $joinTrack->joinTrack($chr, \@positionRanges, $self->joinTrackFeatures, sub {
     # Called every time a match is found
     # Index is the index of @ranges that this update belongs to
     my ($hrefToAdd, $index) = @_;

@@ -21,16 +21,14 @@
 #} 
 #}
 
+package Seq::Tracks;
 use 5.10.0;
 use strict;
 use warnings;
-
-package Seq::Tracks;
+use DDP;
 
 use Mouse 2;
-#defines refType, scoreType, etc
-with 'Seq::Tracks::Base::Types',
-'Seq::Role::Message';
+with 'Seq::Role::Message';
 
 use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
@@ -46,6 +44,7 @@ use Seq::Tracks::Region::Build;
 use Seq::Tracks::Gene::Build;
 use Seq::Tracks::Cadd::Build;
 
+use Seq::Tracks::Base::Types;
 ########################### Configuration ##################################
 has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
 
@@ -105,36 +104,38 @@ sub getTrackGettersByType {
 
 ################### Individual track getters ##################
 
+my $types = Seq::Tracks::Base::Types->new();
+
 #only 1 refere
 sub getRefTrackGetter {
   my $self = shift;
-  return $trackGettersByType->{$self->refType}[0];
+  return $trackGettersByType->{$types->refType}[0];
 }
 
 sub allRegionTrackBuilders {
   my $self = shift;
-  return $trackBuildersByType->{$self->regionType};
+  return $trackBuildersByType->{$types->regionType};
 }
 
 sub allScoreTrackBuilders {
   my $self = shift;
-  return $trackBuildersByType->{$self->scoreType};
+  return $trackBuildersByType->{$types->scoreType};
 }
 
 sub allSparseTrackBuilders {
   my $self = shift;
-  return $trackBuildersByType->{$self->sparseType};
+  return $trackBuildersByType->{$types->sparseType};
 }
 
 sub allGeneTrackBuilders {
   my $self = shift;
-  return $trackBuildersByType->{$self->geneType};
+  return $trackBuildersByType->{$types->geneType};
 }
 
 #only one ref track allowed, so we return the first
 sub getRefTrackBuilder {
   my $self = shift;
-  return $trackBuildersByType->{$self->refType}[0];
+  return $trackBuildersByType->{$types->refType}[0];
 }
 
 sub BUILD {

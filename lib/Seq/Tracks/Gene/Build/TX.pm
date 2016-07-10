@@ -22,7 +22,7 @@ package Seq::Tracks::Gene::Build::TX;
 our $VERSION = '0.001';
 
 use Mouse 2;
-
+use MouseX::NativeTraits;
 # We need pre-initialized tracks
 use Seq::Tracks;
 use Seq::Tracks::Gene::Site;
@@ -144,13 +144,21 @@ has debug => (
 state $codonPacker = Seq::Tracks::Gene::Site->new();
 
 #coerce our exon starts and ends into an array
-around BUILDARGS => sub {
-  my ($orig, $class, $href) = @_;
+sub BUILDARGS {
+  my ($orig, $href) = @_;
 
-  $href->{exonStarts} = [ split(',', $href->{exonStarts} ) ];
-  $href->{exonEnds} = [ split(',', $href->{exonEnds} ) ];
-
-  return $class->$orig($href);
+  # The original data is a comma-delimited string
+  # But since Seqant often coerces delimited things into arrays,
+  # We may be given an array instead; If not, coerce into an array
+  if(index(@{$href->{exonStarts}}, ',') > -1) {
+    $href->{exonStarts} = [ split(',', @{ $href->{exonStarts} } ) ];
+  }
+  
+  if(index(@{ $href->{exonStarts} }, ',') > -1) {
+    $href->{exonEnds} = [ split(',', @{ $href->{exonEnds} } ) ];
+  }
+  
+  return $href;
 };
 
 state $db;

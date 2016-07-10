@@ -114,6 +114,7 @@ has build_field_transformations => (
   lazy => 1,
   default => sub { {} },
 );
+
 ################# General Merge Function ##################
 my %haveMadeIntoArray;
 
@@ -121,6 +122,9 @@ my %haveMadeIntoArray;
 sub mergeFunc {
   my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
 
+  say "haveMadeIntoArray is";
+  p %haveMadeIntoArray;
+  
   my $newValue = $oldValue;
   if(!$haveMadeIntoArray{$chr}{$pos}) {
     $newValue = [$oldValue];
@@ -157,7 +161,7 @@ sub BUILDARGS {
     }
     for my $nameHref (@{ $data{required_fields_map} } ){
       if(ref $nameHref ne 'HASH') {
-        $class->log('fatal', 'Each entry of required_field_map must be a name: required_name pair');
+        $class->log('fatal', 'Each required_field_map entry must be a name: required_name pair');
       }
       my ($mapped_name, $required_name) = %$nameHref;
       $data{$required_name . "_field_name"} = $mapped_name;
@@ -190,9 +194,9 @@ sub BUILD {
   my @allWantedChrs = $self->allWantedChrs;
 
   if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
-    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for " . $self->name . ", but "
-      . scalar @allWantedChrs . " chromosomes. We will assume there is only one chromosome per file, "
-      . "and that one chromosome isn't accounted for.");
+    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for "
+      . $self->name . ", but " . scalar @allWantedChrs . " chromosomes. We will "
+      . "assume there is only one chromosome per file, and that 1 chromosome isn't accounted for.");
   }
 }
 

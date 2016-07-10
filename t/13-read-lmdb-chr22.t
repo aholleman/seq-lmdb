@@ -43,9 +43,6 @@ my $tracks = MockAnnotationClass->new_with_config(
   { config =>'./config/hg19.lmdb_test.yml'}
 );
 
-say "tracks are";
-p $tracks->singletonTracks;
-
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
 my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp146');
 my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
