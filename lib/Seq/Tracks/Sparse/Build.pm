@@ -73,7 +73,7 @@ sub buildTrack {
       
 
       my ($featureIdxHref, $reqIdxHref, $fieldsToTransformIdx, $fieldsToFilterOnIdx, $numColumns) = 
-        $self->_getHeaderFields($firstLine);
+        $self->_getHeaderFields($file, $firstLine);
 
       my @allWantedFeatureIdx = keys %$featureIdxHref;
       ############## Read file and insert data into main database #############
@@ -84,14 +84,20 @@ sub buildTrack {
 
       # Record which chromosomes were recorded for completionMeta
       my %visitedChrs;
-      FH_LOOP: for my $line ( $fh->getline() ) {
+      FH_LOOP: while (my $line = $fh->getline() ) {
         chomp $line;
 
         my @fields = split("\t", $line);
 
-        $self->_checkLine(\@fields, $reqIdxHref, $numColumns);
+        if(! $self->_validLine(\@fields, $., $reqIdxHref, $numColumns) ) {
+          next FH_LOOP;
+        }
 
-        $self->_transformAndFilter($fieldsToTransformIdx, $fieldsToFilterOnIdx, \@fields);
+        $self->_transform($fieldsToTransformIdx, \@fields);
+
+        if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
+          next FH_LOOP;
+        }
 
         my $chr = $fields[ $reqIdxHref->{$chrom} ];
 
@@ -118,7 +124,7 @@ sub buildTrack {
           next FH_LOOP;
         }
 
-        my ($start, $end) = $self->getPositions(\@fields);
+        my ($start, $end) = $self->_getPositions(\@fields, $reqIdxHref);
 
         if($end + 1 - $start > $self->max_variant_size) {
           $self->log('info', "Line spans > " . $self->max_variant_size . " skipping: $_");
@@ -213,26 +219,34 @@ sub buildTrack {
 sub joinTrack {
   my ($self, $wantedChr, $wantedPositionsAref, $wantedFeaturesAref, $callback) = @_;
 
+  my %wantedFeatures = map { $_ => 1 } @$wantedFeaturesAref;
+
   for my $file ($self->allLocalFiles) {
     my $fh = $self->get_read_fh($file);
 
     ############# Get Headers ##############
     my $firstLine = <$fh>;
     
-
     my ($featureIdxHref, $reqIdxHref, $fieldsToTransformIdx, $fieldsToFilterOnIdx, $numColumns) = 
-      $self->_getHeaderFields($firstLine);
+      $self->_getHeaderFields($file, $firstLine);
 
     my @allWantedFeatureIdx = keys %$featureIdxHref;
 
-    FH_LOOP: for my $line( $fh->getLine() ) {
+    FH_LOOP: while( my $line = $fh->getline() ) {
       chomp $line;
-
       my @fields = split("\t", $line);
 
-      $self->_checkLine(\@fields, $reqIdxHref, $numColumns);
+      if(! $self->_validLine(\@fields, $., $reqIdxHref, $numColumns) ) {
+        $self->log('warn', "Line # $. is invalid: $line");
+        next FH_LOOP;
+      }
 
-      $self->_transformAndFilter($fieldsToTransformIdx, $fieldsToFilterOnIdx, \@fields);
+      $self->_transform($fieldsToTransformIdx, \@fields);
+
+      if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
+        $self->log('warn', "Line # $. didn't pass all filters");
+        next FH_LOOP;
+      }
 
       my $chr = $fields[ $reqIdxHref->{$chrom} ];
 
@@ -241,15 +255,25 @@ sub joinTrack {
         next FH_LOOP;
       }
 
-      my ($start, $end) = $self->getPositions(\@fields);
+      my ($start, $end) = $self->_getPositions(\@fields, $reqIdxHref);
 
-      my %wantedFeatures = map {}
-      foreach (@$wantedPositionsAref) {
-        my $wantedStart = $_->[0];
-        my $wantedEnd = $_->[1];
+      my %wantedData;
 
-        if($start >= $wantedStart && $end <= $wantedEnd) {
+      FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
+        if(! exists $wantedFeatures{$name}) { next; }
 
+        my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
+          
+        $wantedData{$name} = $value;
+      }
+
+      for (my $i = 0; $i < @$wantedPositionsAref; $i++) {
+        my $wantedStart = $wantedPositionsAref->[$i][0];
+        my $wantedEnd = $wantedPositionsAref->[$i][1];
+
+        if( ($start >= $wantedStart && $start <= $wantedEnd)
+        || ($end >= $wantedStart && $end <= $wantedEnd) ) {
+          &$callback(\%wantedData, $i);
         }
       }
     }
@@ -264,16 +288,16 @@ sub _getHeaderFields {
 
   my $numColumns = @fields;
 
-  my $featureIdxHref;
-  my $reqIdxHref;
-  my $fieldsToTransformIdx;
-  my $fieldsToFilterOnIdx;
+  my %featureIdx;
+  my %reqIdx;
+  my %fieldsToTransformIdx;
+  my %fieldsToFilterOnIdx;
 
   # Which fields are required (chrom, chromStart, chromEnd)
   REQ_LOOP: for my $field (@requiredFields) {
     my $idx = firstidx {$_ eq $field} @fields; #returns -1 if not found
     if(~$idx) { #bitwise complement, makes -1 0
-      $reqIdxHref->{$field} = $idx;
+      $reqIdx{$field} = $idx;
       next REQ_LOOP; #label for clarity
     }
     
@@ -284,7 +308,7 @@ sub _getHeaderFields {
   FEATURE_LOOP: for my $fname ($self->allFeatureNames) {
     my $idx = firstidx {$_ eq $fname} @fields;
     if(~$idx) { #only non-0 when non-negative, ~0 > 0
-      $featureIdxHref->{ $fname } = $idx;
+      $featureIdx{ $fname } = $idx;
       next FEATURE_LOOP;
     }
     $self->log('fatal', "Feature $fname missing in $file header");
@@ -294,7 +318,7 @@ sub _getHeaderFields {
   FILTER_LOOP: for my $fname ($self->allFieldsToFilterOn) {
     my $idx = firstidx {$_ eq $fname} @fields;
     if(~$idx) { #only non-0 when non-negative, ~0 > 0
-      $fieldsToFilterOnIdx->{ $fname } = $idx;
+      $fieldsToFilterOnIdx{ $fname } = $idx;
       next FILTER_LOOP;
     }
     $self->log('fatal', "Feature $fname missing in $file header");
@@ -304,49 +328,55 @@ sub _getHeaderFields {
   TRANSFORM_LOOP: for my $fname ($self->allFieldsToTransform) {
     my $idx = firstidx {$_ eq $fname} @fields;
     if(~$idx) { #only non-0 when non-negative, ~0 > 0
-      $fieldsToTransformIdx->{ $fname } = $idx;
+      $fieldsToTransformIdx{ $fname } = $idx;
       next TRANSFORM_LOOP;
     }
     $self->log('fatal', "Feature $fname missing in $file header");
   }
 
-  return ($featureIdxHref, $reqIdxHref, $fieldsToTransformIdx,
-    $fieldsToFilterOnIdx, $numColumns);
+  return (\%featureIdx, \%reqIdx, \%fieldsToTransformIdx,
+    \%fieldsToFilterOnIdx, $numColumns);
 }
 
-sub _checkLine {
-  my ($self, $fieldAref, $reqIdxHref, $numColumns) = @_;
+sub _validLine {
+  my ($self, $fieldAref, $lineNumber, $reqIdxHref, $numColumns) = @_;
 
   if(@$fieldAref != $numColumns) {
-    $self->log('warn', "Line $. has fewer columns than expected, skipping: $_");
-    next FH_LOOP;
+    $self->log('warn', "Line $lineNumber has fewer columns than expected, skipping");
+    return;
   }
 
   # Some files are misformatted, ex: clinvar's tab delimited
   if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$cStart} ] )
   || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$cEnd} ] ) ) {
-    $self->log('warn', "Start or stop doesn't look like a number on line $., skipping: $_ ");
-    next FH_LOOP;
+    $self->log('warn', "Start or stop doesn't look like a number on line lineNumber, skipping");
+    return;
   }
+
+  return 1;
 }
 
-sub _transformAndFilter {
-  my ($self, $fieldsToTransformIdx, $fieldsToFilterOnIdx, $fieldsAref) = @_;
+sub _transform {
+  my ($self, $fieldsToTransformIdx, $fieldsAref) = @_;
   #If the user wants to modify the values of any fields, do that first
   for my $fieldName ($self->allFieldsToTransform) {
     $fieldsAref->[ $fieldsToTransformIdx->{$fieldName} ] = 
       $self->transformField($fieldName, $fieldsAref->[ $fieldsToTransformIdx->{$fieldName} ] );
   }
+}
 
+sub _passesFilter {
+  my ($self, $fieldsToFilterOnIdx, $fieldsAref) = @_;
   # Then, if the user wants to exclude rows that don't pass some criteria
   # that they defined in the YAML file, allow that.
   for my $fieldName ($self->allFieldsToFilterOn) {
     #say "testing $fieldName filter, whose value is " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
     if(!$self->passesFilter($fieldName, $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
       #say "$fieldName doesn't pass with value " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
-      next FH_LOOP;
+      return;
     }
   }
+  return 1;
 }
 
 sub _getPositions {

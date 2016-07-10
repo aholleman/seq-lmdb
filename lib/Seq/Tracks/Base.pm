@@ -157,6 +157,15 @@ sub BUILD {
 
     $self->_setJoinTrackName($self->join->{track});
     $self->_setJoinTrackFeatures($self->join->{features});
+
+    #Each track gets its own private naming of join features
+    #Since the track may choose to store these features as arrays
+    #Again, needs to happen outside of thread, first time it's ever called
+    if($self->joinTrackFeatures) {
+      for my $feature (@{$self->joinTrackFeatures}) {
+        $self->getFieldDbName($feature);
+      }
+    }
   }
 }
 

@@ -57,71 +57,6 @@ sub BUILD {
   if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir not a directory'); }
 };
 
-sub _getDbi {
-  my ($self, $name, $dontCreate) = @_;
-  #using state to make implicit singleton for the state that we want
-  #shared across all instances, without requiring exposing to public
-  #at the moment we generate a new environment for each $name
-  #because we can only have one writer per environment,
-  #across all threads
-  #and because there is some minor overhead with opening many named databases
-  state $dbis;
-  state $envs;
-
-  return $dbis->{$name} if defined $dbis->{$name};
-  
-  my $dbPath = $self->database_dir->child($name);
-
-  #create database unless dontCreate flag set
-  if(!$dontCreate && !$dbReadOnly) {
-    if(!$dbPath->child($name)->is_dir) {
-      $dbPath->child($name)->mkpath;
-    }
-  }
-
-  $dbPath = $dbPath->stringify;
-
-  my $flags;
-  if($dbReadOnly) {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC;
-  } else {
-    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
-  }
-
-  $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
-    mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
-    #maxdbs => 20, # Some databases
-    mode   => 0600,
-    #can't just use ternary that outputs 0 if not read only...
-    #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
-    #in the docs
-    flags => $flags,
-    maxreaders => 1000,
-    maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
-  });
-
-  #if we passed $dontCreate, we may not successfully make a new env
-  if(!$envs->{$name} ) {
-    $self->log('warn', "Failed to open database because $LMDB_File::last_err");
-    $LMDB_File::last_err = 0;
-    return;
-  }
-
-  my $txn = $envs->{$name}->BeginTxn();
-  
-  my $DB = $txn->OpenDB();
-
-  # ReadMode 1 gives memory pointer for perf reasons, not safe
-  $DB->ReadMode(1);
-
-  # Now db is open
-  $txn->commit();
-
-  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
-
-  return $dbis->{$name};
-}
-
 # Our packing function
 my $mp = Data::MessagePack->new();
 $mp->prefer_integer(); #treat "1" as an integer, save more space
@@ -213,7 +148,7 @@ sub dbPatchHash {
 
   if($json) {
     my $href = $mp->unpack($json);
-
+    
     my ($trackKey, $trackValue) = %{$dataHref};
 
     if( defined $href->{$trackKey} ) {
@@ -221,7 +156,7 @@ sub dbPatchHash {
       if($self->delete) {
         delete $href->{$trackKey};
       } elsif($mergeFunc) {
-        &$mergeFunc($chr, $pos, $trackKey, $href, $dataHref);
+        $href->{$trackKey} = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
       } else {
         # If not overwriting, nothing to do, return from function
         if(!$overwrite) { return; }
@@ -514,6 +449,71 @@ sub dbPatchMeta {
   $self->dbPatchHash($databaseName . $metaDbNamePart, $metaKey, $data, 1);
 
   return;
+}
+
+sub _getDbi {
+  my ($self, $name, $dontCreate) = @_;
+  #using state to make implicit singleton for the state that we want
+  #shared across all instances, without requiring exposing to public
+  #at the moment we generate a new environment for each $name
+  #because we can only have one writer per environment,
+  #across all threads
+  #and because there is some minor overhead with opening many named databases
+  state $dbis;
+  state $envs;
+
+  return $dbis->{$name} if defined $dbis->{$name};
+  
+  my $dbPath = $self->database_dir->child($name);
+
+  #create database unless dontCreate flag set
+  if(!$dontCreate && !$dbReadOnly) {
+    if(!$dbPath->child($name)->is_dir) {
+      $dbPath->child($name)->mkpath;
+    }
+  }
+
+  $dbPath = $dbPath->stringify;
+
+  my $flags;
+  if($dbReadOnly) {
+    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC;
+  } else {
+    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
+  }
+
+  $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
+    mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
+    #maxdbs => 20, # Some databases
+    mode   => 0600,
+    #can't just use ternary that outputs 0 if not read only...
+    #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
+    #in the docs
+    flags => $flags,
+    maxreaders => 1000,
+    maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
+  });
+
+  #if we passed $dontCreate, we may not successfully make a new env
+  if(!$envs->{$name} ) {
+    $self->log('warn', "Failed to open database because $LMDB_File::last_err");
+    $LMDB_File::last_err = 0;
+    return;
+  }
+
+  my $txn = $envs->{$name}->BeginTxn();
+  
+  my $DB = $txn->OpenDB();
+
+  # ReadMode 1 gives memory pointer for perf reasons, not safe
+  $DB->ReadMode(1);
+
+  # Now db is open
+  $txn->commit();
+
+  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
+
+  return $dbis->{$name};
 }
 
 __PACKAGE__->meta->make_immutable;

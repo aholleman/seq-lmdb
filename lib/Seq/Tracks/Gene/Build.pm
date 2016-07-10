@@ -27,7 +27,7 @@ extends 'Seq::Tracks::Build';
 with 'Seq::Tracks::Region::RegionTrackPath';
 
 use DDP;
-
+use List::Util qw/first/;
 my $geneDef = Seq::Tracks::Gene::Definition->new();
 
 # Unlike original GeneTrack, we don't remap field names
@@ -370,6 +370,7 @@ sub _joinTracksToGeneTrackRegionDb {
     return $self->log('warn', "Join not set in _joinTracksToGeneTrackRegionDb");
   }
 
+  $self->log('info', "Starting _joinTracksToGeneTrackRegionDb for $chr");
   # Gene tracks cover certain positions, record the start and stop
   my @positionRanges;
   my @txNumbers;
@@ -383,21 +384,82 @@ sub _joinTracksToGeneTrackRegionDb {
     }
   }
 
-  my $dbName = $self->regionTrackPath($chr);
+  my $mergeFunc = sub {
+    my ($chr, $pos, $oldVal, $newVal) = @_;
 
-  say "joinTrackFeatures are";
-  p $self->joinTrackFeatures;
+    my @updated;
+
+    if(ref $oldVal) {
+      @updated = @$oldVal;
+
+      for my $val (ref $newVal ? @$newVal : $newVal) {
+        if(!defined $val) {
+          next;
+        }
+
+        if(first{ $val eq $_ } @$oldVal) {
+          # If not array I want to see an error
+          next;
+        }
+
+        push @updated, $val;
+      }
+    } else {
+      for my $val (ref $newVal ? @$newVal : $newVal) {
+        if(!defined $val) {
+          next;
+        }
+
+        if($oldVal ne $val) {
+          # If not array I want to see an error
+          push @updated, $val;
+        }
+      }
+    }
+
+    if(@updated == 0) {
+      return undef;
+    }
+
+    if(@updated == 1) {
+      return $updated[0];
+    }
+
+    return \@updated;
+  };
+
+  my $dbName = $self->regionTrackPath($chr);
 
   $joinTrack->joinTrack($chr, \@positionRanges, $self->joinTrackFeatures, sub {
     # Called every time a match is found
     # Index is the index of @ranges that this update belongs to
     my ($hrefToAdd, $index) = @_;
 
+    my %out;
+    foreach (keys %$hrefToAdd) {
+      if(defined $hrefToAdd->{$_}) {
+        if(ref $hrefToAdd->{$_} eq 'ARRAY') {
+          my @arr;
+          my %uniq;
+          for my $entry (@{$hrefToAdd->{$_}}) {
+            if(defined $entry) {
+              if(!$uniq{$entry}) {
+                push @arr, $entry;
+              }
+              $uniq{$entry} = 1;
+            }
+          }
+          $hrefToAdd->{$_} = \@arr;
+        }
+        $out{$self->getFieldDbName($_)} = $hrefToAdd->{$_};
+      }
+    }
+    
     my $txNumber = $txNumbers[$index];
-
-    $self->db->dbPatchHash($dbName, $txNumber, $hrefToAdd, undef, $self->mergeFunc);
+    $self->db->dbPatchHash($dbName, $txNumber, \%out, undef, $mergeFunc);
   });
 
+  $self->log('info', "Finished _joinTracksToGeneTrackRegionDb for $chr");
 }
 
 ############### Writing gene reference & tx data to main database ##############

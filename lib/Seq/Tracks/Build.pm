@@ -88,7 +88,7 @@ has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 #could also make this private, and not allow it to change, but I don't like
 #the lack of flexibility, since the goal is to help people avoid having to
 #modify their input files
-has multi_delim => ( is => 'ro', isa => 'Str', default => ',', lazy => 1);
+has multi_delim => ( is => 'ro', lazy => 1, default => sub{qr/[,;]/});
 
 # name => 'command'
 has build_row_filters => (
@@ -115,26 +115,6 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
-################# General Merge Function ##################
-my %haveMadeIntoArray;
-
-# Not safe for old value, but we don't really care
-sub mergeFunc {
-  my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
-
-  say "haveMadeIntoArray is";
-  p %haveMadeIntoArray;
-  
-  my $newValue = $oldValue;
-  if(!$haveMadeIntoArray{$chr}{$pos}) {
-    $newValue = [$oldValue];
-    $haveMadeIntoArray{$chr}{$pos} = 1;
-  }
-  
-  push @$newValue, $dataToAdd;
-  return \@$newValue;
-}
-
 # some tracks may have required fields (defined by the Readme)
 # For instance: SparseTracks require bed format chrom\tchromStart\tchromEnd
 # We allow users to tell us what the corresponding fields are called in their files
@@ -153,18 +133,16 @@ sub BUILDARGS {
   my ($class, $href) = @_;
 
   my %data = %$href;
-  
+  say "build data is";
+  p %data;
   #First map required_field_mappings to required_field
   if(defined $data{required_fields_map} ) {
-    if(ref $data{required_fields_map} ne 'ARRAY') {
-      $class->log('fatal','required_field_map must be an array (Ex: -name: required_name )');
+    if(ref $data{required_fields_map} ne 'HASH') {
+      $class->log('fatal','required_field_map must be an array (Ex: name: required_name )');
     }
-    for my $nameHref (@{ $data{required_fields_map} } ){
-      if(ref $nameHref ne 'HASH') {
-        $class->log('fatal', 'Each required_field_map entry must be a name: required_name pair');
-      }
-      my ($mapped_name, $required_name) = %$nameHref;
-      $data{$required_name . "_field_name"} = $mapped_name;
+
+    for my $requiredField (keys %{ $data{required_fields_map} } ){
+      $data{$requiredField . "_field_name"} = $data{required_fields_map}{$requiredField};
     }
   }
 
@@ -234,7 +212,7 @@ sub coerceFeatureType {
 
   # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
   # Output.pm chooses to represent missing data as.
-  if($dataStr =~ /NA/i) {
+  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
     return undef;
   }
 
@@ -242,30 +220,24 @@ sub coerceFeatureType {
 
   #even if we don't have a type, let's coerce anything that is split by a 
   #delimiter into an array; it's more efficient to store, and array is implied by the delim
-  my @parts;
-  if( ~index( $dataStr, $self->multi_delim ) ) { #bitwise compliment, return 0 only for -N
-    my @vals = split( $self->multi_delim, $dataStr );
+  my @vals = split( $self->multi_delim, $dataStr );
 
-    #use defined to allow 0 valuess as types; that is a remote possibility
-    #though more applicable for the name we store the thing as
-    if(!defined $type) { 
-      return \@vals;
+  # Function convert is exported by Seq::Tracks::Base
+  # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
+  # modifying the value here actually modifies the value in the array
+  for my $val (@vals) {
+    if($val =~/^\s*$/) {
+      $val = undef;
     }
 
-    # Function convert is exported by Seq::Tracks::Base
-    # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
-    # modifying the value here actually modifies the value in the array
-    for my $val (@vals) {
+    if(defined $type) {
       $val = $self->convert($val, $type);
     }
-
-    # In order to allow fields to be well-indexed by ElasticSearch or other engines
-    # and to normalize delimiters in the output, anything that has a comma
-    # (or whatever multi_delim set to), return as an array reference
-    return \@vals;
   }
-
-  return defined $type ? $self->convert($dataStr, $type) : $dataStr;
+  # In order to allow fields to be well-indexed by ElasticSearch or other engines
+  # and to normalize delimiters in the output, anything that has a comma
+  # (or whatever multi_delim set to), return as an array reference
+  return @vals == 1 ? $vals[0] : \@vals;
 }
 
 state $cachedFilters;
