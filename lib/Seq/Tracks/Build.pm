@@ -27,6 +27,9 @@ with 'Seq::Role::IO';
 has overwrite => (is => 'ro');
 has delete => (is => 'ro');
 
+# Anything that could be used in a thread/process isn't lazy, prevent accessor
+# from being re-generated?
+
 # Every builder needs access to the database
 has db => (is => 'ro', init_arg => undef, default => sub {
   my $self = shift;
@@ -38,7 +41,6 @@ has completionMeta => (
   is => 'ro',
   isa => 'Seq::Tracks::Build::CompletionMeta',
   init_arg => undef,
-  lazy => 1,
   default => sub { 
     my $self = shift;
     #self->overwrite specified in dbManager, which is a Role, so auto-imported
@@ -61,9 +63,6 @@ has completionMeta => (
 has commitEvery => (is => 'rw', isa => 'Int', lazy => 1, default => 1e4);
 
 ########## Arguments taken from YAML config file or passed some other way ##############
-
-has files_dir => ( is => 'ro', isa => AbsDir, coerce => 1, required => 1 );
-
 has local_files => (
   is      => 'ro',
   isa     => 'ArrayRef',
@@ -168,15 +167,16 @@ sub BUILDARGS {
   my @localFiles;
   my $fileDir = $href->{files_dir};
 
+  if(!$fileDir) {
+    $class->log('fatal', "files_dir required for track builders");
+  }
+
   for my $localFile (@{$href->{local_files} } ) {
-    push @localFiles, path($fileDir)->child($href->{name} )
+    push @localFiles, path($fileDir)->child($href->{name})
       ->child($localFile)->absolute->stringify;
   }
 
   $data{local_files} = \@localFiles;
-
-  say "stuff is";
-  p %data;
 
   return \%data;
 };

@@ -153,10 +153,6 @@ sub log {
 
     die "[FATAL] $_[2]";
   }
-
-  if($debug) {
-    say $_[2];
-  }
 }
 
 no Mouse::Role;

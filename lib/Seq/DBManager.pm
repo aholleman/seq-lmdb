@@ -25,48 +25,37 @@ use Path::Tiny;
 # Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
 
-# We only want to allow one database directory, database_dir is global
-# This means that we can configure DBManager once, and N+1 instances don't need
-# any arguments
-state $databaseDir;
-has database_dir => (is => 'ro', isa => AbsPath, coerce => 1, 
-  required => 1, default => sub {$databaseDir});
-
-state $dbReadOnly;
-
-sub setDefaultDatabaseDir {
-  if(@_ == 2) {
-    $databaseDir = $_[1];
-  } else {
-    $databaseDir = $_[0];
-  }
-
-  say "databaseDir set";
-  p $databaseDir;
-}
-# Consumers can choose whether or not their instance is read only
-# Read only mode removes any locking, but is not safe with concurrent writers
-# By default we are read-write
-sub setReadOnly {
-  my ($self, $bool) = @_;
-  if(defined $dbReadOnly) {
-    $self->log('fatal', "Cannot set readOnly twice; expects to be configured once");
-  }
-  $dbReadOnly = $bool;
-}
-
-sub BUILD {
-  my $self = shift;
-
-  if(!$self->database_dir->exists) { $self->database_dir->mkpath; }
-  if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir is not a directory'); }
-};
-
+######### Public Attributes
 #0, 1, 2
 has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 
 # Flag for deleting tracks instead of inserting during patch* methods
 has delete => (is => 'rw', default => 0, lazy => 1);
+
+# We expect the class to be used with one database directory only.
+# It's formally possible to use others as well, so we allow consumer to decide
+# By providing a way to set a singleton default
+state $databaseDir;
+has database_dir => (is => 'ro', isa => AbsPath, coerce => 1, required => 1,
+    default => sub {$databaseDir});
+
+# Can call as class method (DBManager->setDefaultDatabaseDir), or as instance method
+sub setDefaultDatabaseDir {
+  $databaseDir = @_ == 2 ? $_[1] : $_[0];
+}
+
+# Read only state is shared across all instances. Lock-less reads are dangerous
+state $dbReadOnly;
+# Can call as class method (DBManager->setReadOnly), or as instance method
+sub setReadOnly {
+  $dbReadOnly = @_ == 2 ? $_[1] : $_[0];
+}
+
+sub BUILD {
+  my $self = shift;
+  if(!$self->database_dir->exists) { $self->database_dir->mkpath; }
+  if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir not a directory'); }
+};
 
 sub _getDbi {
   my ($self, $name, $dontCreate) = @_;
@@ -328,7 +317,7 @@ sub dbPatchBulkArray {
           next;
         }
 
-        if($mergeFunc) {
+        if(defined $mergeFunc) {
           # Old , New
           $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
 
