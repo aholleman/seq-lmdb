@@ -23,6 +23,15 @@ use Seq::Tracks::Base::MapFieldNames;
 with 'Seq::Tracks::Base::Types';
 with 'Seq::Role::Message';
 
+################# Public Exports ##########################
+has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
+
+# Some tracks may have a nearest property; these are stored as their own track, but
+# conceptually are a sub-track, 
+has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
+
+has nearestDbName => ( is => 'ro', init_arg => undef, writer => '_setNearestDbName');
+
 ###################### Required Arguments ############################
 # the track name
 has name => ( is => 'ro', isa => 'Str', required => 1);
@@ -99,34 +108,14 @@ has nearest => (
   default => sub{ [] },
 );
 
-# We allow a "link" property to be defined for any tracks
+# We allow a "join" property to be defined for any tracks
 # Although it won't make sense for some (like reference)
 # It's up to the consuming class to decide if they need it
 # It is a property that, when set, may have 0 or more features
 # Used like a pre-calculated join
-# Expects
-# join
-has join => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
-  handles => {
-    noJoinFeatures => 'is_empty',
-    allJoinFeatures => 'elements',
-  },
-  predicate => 'hasJoin',
-  lazy => 1,
-  default => sub{ [] },
-);
+# Expects track: someName ; features key optional
+has join => (is => 'ro');
 
-################# Public Exports ##########################
-has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
-
-# Some tracks may have a nearest property; these are stored as their own track, but
-# conceptually are a sub-track, 
-has nearestName => ( is => 'ro', init_arg => undef, lazy => 1, default => 'nearest');
-
-has nearestDbName => ( is => 'ro', init_arg => undef, writer => '_setNearestDbName');
 
 #### Initialize / make dbnames for features and tracks before forking occurs ###
 sub BUILD {
@@ -166,38 +155,38 @@ sub BUILD {
 ############ Argument configuration to meet YAML config spec ###################
 
 # Expects a hash, will crash and burn if it doesn't
-around BUILDARGS => sub {
-  my ($orig, $class, $dataHref) = @_;
+sub BUILDARGS {
+  my ($class, $data) = @_;
 
-  #don't mutate the input data
-  my %data = %$dataHref;
-
-  if(defined $data{chromosomes} &&  ref $data{chromosomes} eq 'ARRAY') {
-    my %chromosomes = map { $_ => 1 } @{$data{chromosomes} };
-    $data{chromosomes} = \%chromosomes;
+  # #don't mutate the input data
+  # my %data = %$dataHref;
+  
+  if(defined $data->{chromosomes} &&  ref $data->{chromosomes} eq 'ARRAY') {
+    my %chromosomes = map { $_ => 1 } @{$data->{chromosomes} };
+    $data->{chromosomes} = \%chromosomes;
   }
 
-  if(defined $data{wantedChr} ) {
-    if (exists $data{chromosomes}->{$data{wantedChr} } ) {
-      $data{chromosomes} = { $data{wantedChr} => 1, };
+  if(defined $data->{wantedChr} ) {
+    if (exists $data->{chromosomes}->{$data->{wantedChr} } ) {
+      $data->{chromosomes} = { $data->{wantedChr} => 1, };
     } else {
       $class->log('fatal', 'Wanted chromosome not listed in chromosomes in YAML config');
     }
   }
 
-  if(defined $data{join} ) {
-    if(!defined $data{join}->{track}) {
+  if(defined $data->{join} ) {
+    if(!defined $data->{join}->{track}) {
       $class->log('fatal', "'join' requires track key");
     }
     # Features are optional, some tracks we may join won't have any
-    return;
+    return $data;
   }
 
-  if(! defined $data{features} ) {
-    return $class->$orig(\%data);
+  if(! defined $data->{features} ) {
+    return $data;
   }
 
-  if( defined $data{features} && ref $data{features} ne 'ARRAY') {
+  if( defined $data->{features} && ref $data->{features} ne 'ARRAY') {
     #This actually works :)
     $class->log('fatal', 'features must be array');
   }
@@ -205,38 +194,38 @@ around BUILDARGS => sub {
   # If features are passed to as hashes (to accomodate their data type) get back to array
   my @featureLabels;
 
-  for my $feature (@{$data{features} } ) {
+  for my $feature (@{$data->{features} } ) {
     if (ref $feature eq 'HASH') {
       my ($name, $type) = %$feature; #Thomas Wingo method
 
       push @featureLabels, $name;
-      $data{featureDataTypes}{$name} = $type;
+      $data->{featureDataTypes}{$name} = $type;
 
       next;
     }
     
     push @featureLabels, $feature;
   }
-  $data{features} = \@featureLabels;
+  $data->{features} = \@featureLabels;
 
   # Currently requires features. Could allow for tracks w/o features in future
-  if( defined $data{nearest} ) {
-    if( ref $data{nearest} ne 'ARRAY' || !@{ $data{nearest} } ) {
+  if( defined $data->{nearest} ) {
+    if( ref $data->{nearest} ne 'ARRAY' || !@{ $data->{nearest} } ) {
       $class->log('fatal', 'Cannot set "nearest" property without providing 
        an array of feature names');
     }
     
-    for my $nearestFeatureName (@{ $data{nearest} } ) {
+    for my $nearestFeatureName (@{ $data->{nearest} } ) {
       #~ takes a -1 and makes it a 0
-      if(! ~first_index{ $_ eq $nearestFeatureName } @ { $data{features} } ) {
+      if(! ~first_index{ $_ eq $nearestFeatureName } @ { $data->{features} } ) {
         $class->log('fatal', "$nearestFeatureName, which you've defined under 
-          the nearest property, doesn't exist in the list of $data{name} 'feature' 
+          the nearest property, doesn't exist in the list of $data->{name} 'feature' 
           properties");
       }
     }
   }
   
-  return $class->$orig(\%data);
+  return $data;
 };
 
 __PACKAGE__->meta->make_immutable;

@@ -89,7 +89,7 @@ sub BUILD {
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
-  # We seperate out the reference track getter so that we can check for discordant
+  # We separate out the reference track getter so that we can check for discordant
   # bases, and pass the true reference base to other getters that may want it (like CADD)
   $refTrackGetter = $tracks->getRefTrackGetter();
 
@@ -162,7 +162,7 @@ sub annotate_snpfile {
 
   my $allStatisticsHref = {};
 
-  my $a = MCE::Loop::init {
+  MCE::Loop::init {
     max_workers => 32, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
   };

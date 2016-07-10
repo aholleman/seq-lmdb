@@ -41,7 +41,7 @@ has wantedName => (
 );
 
 # Tracks configuration hash
-has tracks => (is => 'ro', isa => 'HashRef', required => 1);
+has tracks => (is => 'ro', required => 1);
 
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 

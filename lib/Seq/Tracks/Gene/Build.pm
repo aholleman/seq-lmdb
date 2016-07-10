@@ -62,7 +62,7 @@ sub BUILD {
   if($self->join) {
     my $tracks = Seq::Tracks->new();
     $joinTrack = $tracks->getTrackBuilderByName( $self->join->{track} );
-    $joinTrackFeatures = $self->join->{track}{features};
+    $joinTrackFeatures = $self->join->{features};
   }
 }
 

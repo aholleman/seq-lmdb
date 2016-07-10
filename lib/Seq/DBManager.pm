@@ -34,6 +34,16 @@ has database_dir => (is => 'ro', isa => AbsPath, coerce => 1,
 
 state $dbReadOnly;
 
+sub setDefaultDatabaseDir {
+  if(@_ == 2) {
+    $databaseDir = $_[1];
+  } else {
+    $databaseDir = $_[0];
+  }
+
+  say "databaseDir set";
+  p $databaseDir;
+}
 # Consumers can choose whether or not their instance is read only
 # Read only mode removes any locking, but is not safe with concurrent writers
 # By default we are read-write
@@ -48,26 +58,9 @@ sub setReadOnly {
 sub BUILD {
   my $self = shift;
 
-  if(defined $databaseDir) { return; }
-
   if(!$self->database_dir->exists) { $self->database_dir->mkpath; }
   if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir is not a directory'); }
-
-  $databaseDir = $self->database_dir;
 };
-
-#Transaction size
-#Consumers can choose to ignore it, and use arbitrarily large commit sizes
-#this maybe moved to Tracks::Build, or enforce internally
-#transactions carry overhead
-#if a transaction fails/ process dies
-#the database should remain intact, just the last
-#$self->commitEvery records will be missing
-#The larger the transaction size, the greater the db inflation
-#Even compaction, using mdb_copy may not be enough to fix it it seems
-#requiring a clean re-write using single transactions
-#as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
-has commitEvery => (is => 'rw', default => 1e4, lazy => 1);
 
 #0, 1, 2
 has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
@@ -88,12 +81,12 @@ sub _getDbi {
 
   return $dbis->{$name} if defined $dbis->{$name};
   
-  my $dbPath = $databaseDir->child($name);
+  my $dbPath = $self->database_dir->child($name);
 
   #create database unless dontCreate flag set
   if(!$dontCreate && !$dbReadOnly) {
-    if(!$databaseDir->child($name)->is_dir) {
-      $databaseDir->child($name)->mkpath;
+    if(!$dbPath->child($name)->is_dir) {
+      $dbPath->child($name)->mkpath;
     }
   }
 

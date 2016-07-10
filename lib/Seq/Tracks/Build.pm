@@ -24,8 +24,14 @@ extends 'Seq::Tracks::Base';
 # All builders need get_read_fh
 with 'Seq::Role::IO';
 
+has overwrite => (is => 'ro');
+has delete => (is => 'ro');
+
 # Every builder needs access to the database
-has db => (is => 'ro', init_arg => undef, default => sub { Seq::DBManager->new() });
+has db => (is => 'ro', init_arg => undef, default => sub {
+  my $self = shift;
+  Seq::DBManager->new({ overwrite => $self->overwrite, delete => $self->delete})
+});
 
 # Allows consumers to record track completion
 has completionMeta => (
@@ -40,6 +46,19 @@ has completionMeta => (
       skip_completion_check => $self->overwrite, delete => $self->delete } );
   },
 );
+
+#Transaction size
+#Consumers can choose to ignore it, and use arbitrarily large commit sizes
+#this maybe moved to Tracks::Build, or enforce internally
+#transactions carry overhead
+#if a transaction fails/ process dies
+#the database should remain intact, just the last
+#$self->commitEvery records will be missing
+#The larger the transaction size, the greater the db inflation
+#Even compaction, using mdb_copy may not be enough to fix it it seems
+#requiring a clean re-write using single transactions
+#as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
+has commitEvery => (is => 'rw', isa => 'Int', lazy => 1, default => 1e4);
 
 ########## Arguments taken from YAML config file or passed some other way ##############
 
@@ -96,12 +115,11 @@ has build_field_transformations => (
   lazy => 1,
   default => sub { {} },
 );
-
 ################# General Merge Function ##################
 my %haveMadeIntoArray;
 
 # Not safe for old value, but we don't really care
-has mergFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => { return sub {
+sub mergeFunc {
   my ($chr, $pos, $trackKey, $oldValue, $dataToAdd);
 
   my $newValue = $oldValue;
@@ -112,7 +130,7 @@ has mergFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => { return su
   
   push @$newValue, $dataToAdd;
   return \@$newValue;
-} } );
+}
 
 # some tracks may have required fields (defined by the Readme)
 # For instance: SparseTracks require bed format chrom\tchromStart\tchromEnd
@@ -128,8 +146,8 @@ has mergFunc => (is => 'ro', isa => 'CodeRef', lazy => 1, default => { return su
 # We pass on to classes that extend this: 
 #   chrom_field_name with value "Chromosome"
 # @param <Str> local_files expected relative paths, relative to the files_dir
-around BUILDARGS => sub {
-  my ($orig, $class, $href) = @_;
+sub BUILDARGS {
+  my ($class, $href) = @_;
 
   my %data = %$href;
   
@@ -156,8 +174,11 @@ around BUILDARGS => sub {
   }
 
   $data{local_files} = \@localFiles;
-  
-  return $class->$orig(\%data);
+
+  say "stuff is";
+  p %data;
+
+  return \%data;
 };
 
 sub BUILD {

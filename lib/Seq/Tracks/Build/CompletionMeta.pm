@@ -20,7 +20,6 @@ has skip_completion_check => ( is => 'rw', required => 1, writer => 'setSkipComp
 state $metaKey = 'completed';
 
 state $db;
-
 sub BUILD {
   $db = $db || Seq::DBManager->new();
 }
@@ -87,7 +86,7 @@ sub isCompleted {
     return $completed->{$chr};
   }
 
-  my $allCompleted = $self->dbReadMeta($self->name, $metaKey);
+  my $allCompleted = $db->dbReadMeta($self->name, $metaKey);
   
   if($allCompleted && defined $allCompleted->{$chr} && $allCompleted->{$chr} == 1) {
     $completed->{$chr} = 1;
