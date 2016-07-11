@@ -237,14 +237,14 @@ sub joinTrack {
       my @fields = split("\t", $line);
 
       if(! $self->_validLine(\@fields, $., $reqIdxHref, $numColumns) ) {
-        $self->log('warn', "Line # $. is invalid: $line");
+        $self->log('info', "Line # $. is invalid: $line");
         next FH_LOOP;
       }
 
       $self->_transform($fieldsToTransformIdx, \@fields);
 
       if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
-        $self->log('warn', "Line # $. didn't pass all filters");
+        $self->log('info', "Line # $. didn't pass all filters: $line");
         next FH_LOOP;
       }
 
@@ -349,7 +349,7 @@ sub _validLine {
   # Some files are misformatted, ex: clinvar's tab delimited
   if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$cStart} ] )
   || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$cEnd} ] ) ) {
-    $self->log('warn', "Start or stop doesn't look like a number on line lineNumber, skipping");
+    $self->log('warn', "Start or stop doesn't look like a number on line $lineNumber, skipping");
     return;
   }
 
@@ -370,9 +370,8 @@ sub _passesFilter {
   # Then, if the user wants to exclude rows that don't pass some criteria
   # that they defined in the YAML file, allow that.
   for my $fieldName ($self->allFieldsToFilterOn) {
-    #say "testing $fieldName filter, whose value is " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
     if(!$self->passesFilter($fieldName, $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
-      #say "$fieldName doesn't pass with value " . $fields[ $fieldsToFilterOnIdx->{$fieldName} ];
+      $self->log('info', "$fieldName doesn't pass filter: $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ]");
       return;
     }
   }

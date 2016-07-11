@@ -133,8 +133,6 @@ sub BUILDARGS {
   my ($class, $href) = @_;
 
   my %data = %$href;
-  say "build data is";
-  p %data;
   #First map required_field_mappings to required_field
   if(defined $data{required_fields_map} ) {
     if(ref $data{required_fields_map} ne 'HASH') {
@@ -216,7 +214,11 @@ sub coerceFeatureType {
     return undef;
   }
 
-  my $type = $self->noFeatureTypes ? undef : $self->getFeatureType( $feature );
+  if($self->noFeatureTypes) {
+    return $dataStr;
+  }
+
+  my $type = $self->getFeatureType( $feature );
 
   #even if we don't have a type, let's coerce anything that is split by a 
   #delimiter into an array; it's more efficient to store, and array is implied by the delim
@@ -234,6 +236,7 @@ sub coerceFeatureType {
       $val = $self->convert($val, $type);
     }
   }
+
   # In order to allow fields to be well-indexed by ElasticSearch or other engines
   # and to normalize delimiters in the output, anything that has a comma
   # (or whatever multi_delim set to), return as an array reference
@@ -300,7 +303,7 @@ sub passesFilter {
 
 state $cachedTransform;
 #for now I only need string concatenation
-state $transformOperators = ['.',];
+state $transformOperators = ['.', 'split'];
 sub transformField {
   if( defined $cachedTransform->{$_[1]} ) {
     return &{ $cachedTransform->{$_[1]} }($_[2]);
@@ -321,6 +324,15 @@ sub transformField {
         # same as $_[0];
 
         return $_[0] . $rightHand;
+      }
+    }
+
+    if($leftHand eq 'split') {
+      $codeRef = sub {
+        # my $fieldValue = shift;
+        # same as $_[0];
+        my @data = split(/$rightHand/, $_[0]);
+        return @data == 1 ? $data[0] : \@data;
       }
     }
   } elsif($self->_isTransformOperator($rightHand) ) {

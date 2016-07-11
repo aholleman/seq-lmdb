@@ -32,7 +32,7 @@ use namespace::autoclean;
 use Type::Params qw/ compile /;
 use Types::Standard qw/ :types /;
 use Scalar::Util qw/ reftype /;
-use YAML::XS qw/ Load /;
+use YAML::XS qw/ LoadFile /;
 use DDP;
 
 with 'Seq::Role::IO', 'MouseX::Getopt';
@@ -50,16 +50,12 @@ sub new_with_config {
 
   my $config = $opts->{config};
 
-  if ( defined $config ) {
-    my $hash = $class->get_config_from_file($config);
-    no warnings 'uninitialized';
-    croak "get_config_from_file($config) did not return a hash (got $hash)"
-      unless reftype $hash eq 'HASH';
-    %opts = ( %$hash, %$opts );
-  }
-  else {
+  if ( !defined $config ) {
     croak "new_with_config() expects config";
   }
+
+  my $hash = LoadFile($config);
+  %opts = ( %$hash, %$opts );
 
   #Now push every single global option into each individual track
   #Since they are meant to operate as independent units
@@ -81,21 +77,6 @@ sub new_with_config {
   }
 
   $class->new( \%opts );
-}
-
-sub get_config_from_file {
-  #state $check = compile( Str, Object );
-  my ( $class, $file ) = @_;
-
-  my $fh = $class->get_read_fh($file);
-  my $cleaned_txt;
-
-  while ( my $line = $fh->getline ) {
-    chomp $line;
-    my $clean_line = $class->clean_line($line);
-    $cleaned_txt .= $clean_line . "\n" if ($clean_line);
-  }
-  return Load($cleaned_txt);
 }
 
 no Mouse::Role;
