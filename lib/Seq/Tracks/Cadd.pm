@@ -45,47 +45,47 @@ sub get {
 
   # if (!defined $order->{ $refBase} )
   if (!defined $order->{ $_[4] } ) {
-    #$self->log
+    # $self->log
     $_[0]->log('warn', "reference base $_[4] doesn't look valid, in Cadd.pm");
     
-    #explicitly return undef as a value, this is what our program treats as missing data
-    #simply returning nothing is not the same, in list context
+    # Eplicitly return undef as a value, this is what our program treats as missing data
+    # Returning nothing is not the same, in list context
     return undef;
   }
 
-  #note that if an allele doesn't have a defined value,
-  #this will push an "undef" value in the array of CADD alleles
-  #this is useful because we may want to know which CADD score belongs to 
-  #which allele
-  #if( !ref $altAlleles) { .. }
+  # Return undef for any allele that isn't defined for some reason
+  # To preserve order with respect to alleles
+  # if( !ref $altAlleles) { .. }
   if( !ref $_[5] ) {
-    # if (defined $order->{ $refBase }->{ $altAlleles } ) {
-    if (defined $order->{ $_[4] }->{ $_[5] } ) {
-      #return $href->{ $self->dbName }->[ $order->{ $refBase }->{ $altAlleles } ]
-      return $_[1]->[$_[0]->dbName][ $order->{ $_[4] }->{ $_[5] } ];
+    # if (defined $order->{ $refBase }{ $altAlleles } ) {
+    if (defined $order->{ $_[4] }{ $_[5] } ) {
+      #return $href->[ $self->dbName ]->[ $order->{ $refBase }{ $altAlleles } ]
+      return $_[1]->[$_[0]->dbName][ $order->{ $_[4] }{ $_[5] } ];
     }
 
     return undef;
   }
 
+  # We optimize the most likely scenario (above), where we have only 1 allele
+  # If multi-allelic, then return all alleles
   my @out;
 
   #for my $allele ( @{ $altAlleles } ) {
   for my $allele ( @{ $_[5] } ) {
-    #if($allele ne $refBase) {
+    # if($allele ne $refBase) {
     if($allele ne $_[4]) {
-      
-      #https://ideone.com/ZBQzNC
-      #if(defined $order->{ $refBase }->{ $allele } ) {
-      if(defined $order->{ $_[4] }->{ $allele } ) {
-        #push @out, $href->{ $self->dbName }->[ $order->{ $refBase }->{ $allele } ];
-        push @out, $_[1]->[$_[0]->dbName][ $order->{ $_[4] }->{ $allele } ];
+      # https://ideone.com/ZBQzNC
+      # if(defined $order->{ $refBase }{ $allele } ) {
+      if(defined $order->{ $_[4] }{ $allele } ) {
+        #push @out, $href->[ $self->dbName ]->[ $order->{ $refBase }->{ $allele } ];
+        push @out, $_[1]->[$_[0]->dbName][ $order->{ $_[4] }{ $allele } ];
+        next;
       }
-     
+      push @out, undef;
     }
   }
   
-  return \@out;
+  return @out || undef;
 }
 
 __PACKAGE__->meta->make_immutable;
