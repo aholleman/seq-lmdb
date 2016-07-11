@@ -30,7 +30,7 @@ $LMDB_File::die_on_err = 0;
 has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 
 # Flag for deleting tracks instead of inserting during patch* methods
-has delete => (is => 'rw', default => 0, lazy => 1);
+has delete => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 
 # We expect the class to be used with one database directory only.
 # It's formally possible to use others as well, so we allow consumer to decide

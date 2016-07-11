@@ -52,6 +52,25 @@ sub BUILD {
   $chrPerFile = @allChrs > 1 ? 1 : 0;
 }
 
+my %hasMadeIntoArray;
+my $mergeFunc = sub {
+  my ($chr, $pos, $valIdx, $oldVal, $newVal);
+  my @updated;
+  if(!$hasMadeIntoArray{$chr}{$pos}{$valIdx}) {
+    @updated = ($oldVal);
+    $hasMadeIntoArray{$chr}{$pos}{$valIdx} = 1;
+  } else {
+    @updated = @$oldVal;
+  }
+
+  for my $val (ref $newVal ? @$newVal : $newVal) {
+    # Don't check for defined, or exists; want to keep 1:1 correspondance
+    # With all other fields, to understand which record (row) this field belongs to
+    push @updated, $val;
+  }
+  return @updated;
+};
+
 sub buildTrack {
   my $self = shift;
 
@@ -106,7 +125,7 @@ sub buildTrack {
           if (%data) {
             if(!$wantedChr){ $self->log('fatal', 'Have data, but no chr on line ' . $.)}
 
-            $self->db->dbPatchBulkArray($wantedChr, \%data);
+            $self->db->dbPatchBulkArray($wantedChr, \%data, undef, $mergeFunc);
 
             undef %data;
             $count = 0;
@@ -174,7 +193,7 @@ sub buildTrack {
           $count++;
         
           if($count >= $self->commitEvery) {
-            $self->db->dbPatchBulkArray($wantedChr, \%data);
+            $self->db->dbPatchBulkArray($wantedChr, \%data, undef, $mergeFunc);
 
             undef %data;
             $count = 0;
@@ -190,7 +209,7 @@ sub buildTrack {
           return $self->log('fatal', 'After file read, data left, but no wantecChr');
         }
 
-        $self->db->dbPatchBulkArray($wantedChr, \%data);
+        $self->db->dbPatchBulkArray($wantedChr, \%data, undef, $mergeFunc);
       }
 
       # Record completion. Safe because detected errors throw, kill process

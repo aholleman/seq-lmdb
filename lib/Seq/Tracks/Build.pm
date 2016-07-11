@@ -24,45 +24,34 @@ extends 'Seq::Tracks::Base';
 # All builders need get_read_fh
 with 'Seq::Role::IO';
 
-has overwrite => (is => 'ro');
-has delete => (is => 'ro');
+############### Public Exports ###################
 
 # Anything that could be used in a thread/process isn't lazy, prevent accessor
 # from being re-generated?
 
 # Every builder needs access to the database
-has db => (is => 'ro', init_arg => undef, default => sub {
-  my $self = shift;
-  Seq::DBManager->new({ overwrite => $self->overwrite, delete => $self->delete})
+# Don't specify types because we do not allow consumers to set this attribute
+has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
+  return Seq::DBManager->new({ overwrite => $self->overwrite, delete => $self->delete})
 });
 
 # Allows consumers to record track completion
 has completionMeta => (
   is => 'ro',
-  isa => 'Seq::Tracks::Build::CompletionMeta',
   init_arg => undef,
-  default => sub { 
-    my $self = shift;
-    #self->overwrite specified in dbManager, which is a Role, so auto-imported
-    return Seq::Tracks::Build::CompletionMeta->new( { name => $self->name,
-      skip_completion_check => $self->overwrite, delete => $self->delete } );
+  default => sub { my $self = shift; return Seq::Tracks::Build::CompletionMeta->new( {
+    name => $self->name, skip_completion_check => $self->skip_completion_check || $self->overwrite} );
   },
 );
 
-#Transaction size
-#Consumers can choose to ignore it, and use arbitrarily large commit sizes
-#this maybe moved to Tracks::Build, or enforce internally
-#transactions carry overhead
-#if a transaction fails/ process dies
-#the database should remain intact, just the last
-#$self->commitEvery records will be missing
-#The larger the transaction size, the greater the db inflation
-#Even compaction, using mdb_copy may not be enough to fix it it seems
-#requiring a clean re-write using single transactions
-#as noted here https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
-has commitEvery => (is => 'rw', isa => 'Int', lazy => 1, default => 1e4);
+# Transaction size. If too large (some millions, used to be 1M, DBManager may fail to execute
+# If large, re-use of pages may be inefficient
+# https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
+has commitEvery => (is => 'rw', isa => 'Int', init_arg => undef, lazy => 1, default => 1e4);
 
 ########## Arguments taken from YAML config file or passed some other way ##############
+
+############# Required ##############
 has local_files => (
   is      => 'ro',
   isa     => 'ArrayRef',
@@ -78,19 +67,15 @@ has local_files => (
 #most things are 0 based, including anything in bed format from UCSC, fasta files
 has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
 
-#if a feature value is separated by this, it has multiple values
-#ex: a snp142 alleles field, separated by "," : A,T
-#the default is "," because this is what UCSC specifies in the bed format
-#and we only accept bed or wigfix formats
-#wigfix files don't have any features, and therefore this is meaningless to them
-#We could think about removing this from BUILD and making a SparseTrack base
-#to avoid option overload
-#could also make this private, and not allow it to change, but I don't like
-#the lack of flexibility, since the goal is to help people avoid having to
-#modify their input files
+# DB vars; we allow these to be set, don't specify much about them because
+# This package shouldn't be concerned with Seq::DBManager implementation details
+has overwrite => (is => 'ro');
+has delete => (is => 'ro');
+
+# The delimiter used in coercion commands
 has multi_delim => ( is => 'ro', lazy => 1, default => sub{qr/[,;]/});
 
-# name => 'command'
+# If a row has a field that doesn't pass this filter, skip it
 has build_row_filters => (
   is => 'ro',
   isa => 'HashRef',
@@ -103,6 +88,7 @@ has build_row_filters => (
   default => sub { {} },
 );
 
+# Transform a field in some way
 has build_field_transformations => (
   is => 'ro',
   isa => 'HashRef',
@@ -115,20 +101,13 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
-# some tracks may have required fields (defined by the Readme)
-# For instance: SparseTracks require bed format chrom\tchromStart\tchromEnd
-# We allow users to tell us what the corresponding fields are called in their files
-# So that they don't have to open huge source files to edit headers
-# In their config file, they specify: required_field_map : nameInHeader: <Str> requiredFieldName
-# At BUIDLARGS, we make a bunch of properties based on the mappings
-# As long as the consuming class defined them, they'll be used
-# example:
-# In config: 
+# Configure local_files as abs path, and configure required field (*_field_name)
+# *_field_name is a computed attribute that the consumer may choose to implement
+# Example. In config: 
 #  required_field_map:
-## - Chromosome : chrom
+##   chrom : Chromosome
 # We pass on to classes that extend this: 
 #   chrom_field_name with value "Chromosome"
-# @param <Str> local_files expected relative paths, relative to the files_dir
 sub BUILDARGS {
   my ($class, $href) = @_;
 
@@ -177,11 +156,8 @@ sub BUILD {
 }
 
 ###################Prepare Data For Database Insertion ##########################
-#The role of this func is to wrap the data that each individual build method
-#creates, in a consistent schema. This should match the way that Seq::Tracks::Base
-#retrieves data
-#use $_[0] for $self,$_[1] for $data to avoid assignemnt, 
-#since this is called a ton
+# prepareData should be used by any track that is inseting data into the main database
+# Soft-enforcement of a schema
 sub prepareData {
   #my ($self, $data) = @_;
   #so $_[0] is $self, $_[0] is $data
@@ -201,9 +177,7 @@ sub prepareData {
 #@params {String} $_[2] : data for that feature
 #@returns {String} : coerced type
 
-#We always return an array for anything split by multi-delim; arrays are implied by those
-#arrays are also more space efficient in msgpack
-#This is stored in Build.pm because this only needs to happen during insertion into db
+# This is stored in Build.pm because this only needs to happen during insertion into db
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   my ($self, $feature, $dataStr) = @_;
@@ -301,6 +275,7 @@ sub passesFilter {
   return &{ $cachedFilters->{$featureName} }($featureValue);
 }
 
+######################### Field Transformations ###########################
 state $cachedTransform;
 #for now I only need string concatenation
 state $transformOperators = ['.', 'split'];

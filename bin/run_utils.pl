@@ -10,7 +10,7 @@ use Getopt::Long;
 use Path::Tiny qw/path/;
 use Pod::Usage;
 
-use Utils::Split;
+use Utils::SplitCadd;
 use Utils::Fetch;
 
 use DDP;
@@ -20,7 +20,7 @@ use Seq::Build;
 my (
   $yaml_config, $wantedName,
   $help,         
-  $debug,       $overwrite, $fetch, $split, $header_rows, $compress
+  $debug,       $overwrite, $fetch, $split, $compress, $toBed
 );
 
 # usage
@@ -31,9 +31,9 @@ GetOptions(
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
   'fetch' => \$fetch,
-  'split' => \$split,
-  'header_rows=i' => \$header_rows,
+  'splitCadd' => \$split,
   'compress' => \$compress,
+  'to_bed'   => \$toBed,
 );
 
 if ( (!$fetch && !$split) || $help) {
@@ -48,16 +48,16 @@ unless ($yaml_config) {
 my %options = (
   config       => $yaml_config,
   compress     => $compress || 0,
-  header_rows  => $header_rows,
   name         => $wantedName || undef,
   debug        => $debug,
   overwrite    => $overwrite || 0,
+  to_bed        => $toBed || 0,
 );
 
 # If user wants to split their local files, needs to happen before we build
 # So that the YAML config file has a chance to update
 if($split) {
-  my $splitter = Utils::Split->new(\%options);
+  my $splitter = Utils::SplitCadd->new(\%options);
   $splitter->split();
 }
 

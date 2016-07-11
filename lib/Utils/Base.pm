@@ -11,7 +11,7 @@ use Mouse 2;
 with 'Seq::Role::Message';
 with 'Seq::Role::IO';
 
-use MouseX::Types::Path::Tiny qw/AbsFile/;
+use Types::Path::Tiny qw/AbsFile/;
 use List::MoreUtils qw/first_index/;
 use YAML::XS qw/LoadFile Dump/;
 use Path::Tiny qw/path/;
