@@ -44,6 +44,13 @@ has endOfLineChar => (
   default => "\n",
 ); 
 
+state $tar = which('tar');
+state $gzip = which('pigz') || which('gzip');
+$tar = "$tar --use-compress-program=$gzip";
+
+has gzipPath => (is => 'ro', isa => 'Str', init_arg => undef, lazy => 1,
+  default => sub {$gzip});
+
 #if we compress the output, the extension we store it with
 has _compressExtension => (
   is      => 'ro',
@@ -52,9 +59,6 @@ has _compressExtension => (
   init_arg => undef,
 );
 
-state $tar = which('tar');
-state $pigz = which('pigz') || which('gzip');
-$tar = "$tar --use-compress-program=$pigz";
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@return file handle
 
@@ -83,7 +87,7 @@ sub get_read_fh {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$pigz -d -c $file");
+    open ($fh, '-|', "$gzip -d -c $file");
   } catch {
     open($fh, '<:unix', "$filePath");
   };
@@ -93,7 +97,7 @@ sub get_read_fh {
 
   my $fileSize = $self->getFileSize($filePath, $compressed);
 
-  return ($fileSize, $fh);
+  return ($fileSize, $compressed, $fh);
 }
 
 sub get_write_fh {
@@ -103,7 +107,7 @@ sub get_write_fh {
 
   my $fh;
   if ( $file =~ m/\.gz\Z/ ) {
-    open($fh, ">:gzip", $file) or $self->log('fatal', "Couldn't open gzip $file for writing");
+    open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
   } else {
     open($fh, ">", $file) or die $self->log('fatal', "Couldn't open $file for writing");
   }
@@ -125,7 +129,6 @@ sub get_write_bin_fh {
 
 sub clean_line {
   #my ( $class, $line ) = @_;
-
   if ( $_[1] =~ m/$taint_check_regex/xm ) {
     return $1;
   }

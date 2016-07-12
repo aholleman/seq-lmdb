@@ -55,13 +55,12 @@ my $inputFileProcessor = Seq::InputFile->new();
 # Creates the output file
 my $outputter = Seq::Output->new();
 
-my $iupac = Seq::IUPAC->new();
-
 # Handle statistics, initialize in BUILD, needs args
 my $statisticsHandler;
 
 # We need to read from our database
 my $db;
+
 # Names and indices of input fields that will be added as the first few output fields
 # Initialized after inputter reads first file line, to account for snp version diffs
 my ($chrFieldIdx, $referenceFieldIdx, $positionFieldIdx, $alleleFieldIdx, $typeFieldIdx);
@@ -106,14 +105,14 @@ sub annotate_snpfile {
   
   if($self->statistics) {
     $statisticsHandler = Seq::Statistics->new( { %{$self->statistics}, (
-      heterozygoteIdsKey => $heterozygoteIdsKey,
-      homozygoteIdsKey => $homozygoteIdsKey, minorAllelesKey => $minorAllelesKey,
+      heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
+      minorAllelesKey => $minorAllelesKey,
     ) } );
   }
 
   # File size is available to logProgressAndStatistics
   my $fh;
-  ($fileSize, $fh) = $self->get_read_fh($self->inputFilePath);
+  ($fileSize, undef, $fh) = $self->get_read_fh($self->inputFilePath);
 
   my $taint_check_regex = $self->taint_check_regex; 
   my $delimiter = $self->delimiter;
@@ -143,9 +142,9 @@ sub annotate_snpfile {
   ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
-  # Prepend these headers
-  $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey,
-    $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
+  # Prepend these fields to the header
+  $headers->addFeaturesToHeader( [$chrKey, $positionKey, $typeKey, $heterozygoteIdsKey,
+    $homozygoteIdsKey, $compoundIdsKey, $minorAllelesKey ], undef, 1);
 
   # Outputter needs to know which fields we're going to pass it
   $outputter->setOutputDataFieldsWanted( $headers->get() );
@@ -176,19 +175,17 @@ sub annotate_snpfile {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
     if(!$chunkSize) {
-       $m1->synchronize( sub {
-         $chunkSize = $mce->chunk_size();
-      });
+       $m1->synchronize( sub { $chunkSize = $mce->chunk_size(); });
     }
 
     my @lines;
 
     open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
-    while ( <$MEM_FH>) {
-      if (/$taint_check_regex/) {
-        chomp;
-        my @fields = split $delimiter, $_;
+    while ( my $line = $MEM_FH->getline() ) {
+      if ($line =~ /$taint_check_regex/) {
+        chomp $line;
+        my @fields = split $delimiter, $line;
 
         if ( !$refTrackGetter->chrIsWanted($fields[0] ) ) {
           $self->log('info', "Didn't recognize $fields[0], skipping");
@@ -359,7 +356,7 @@ sub annotateLines {
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
 my %hets = {K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1};
 my %homs = {A => 1,C => 1,G => 1,T => 1,D => 1,I => 1};
-my %iupac = { A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
+my %iupac = {A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
   Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*'};
 
 #This iterates over some database data, and gets all of the associated track info

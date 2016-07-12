@@ -12,6 +12,7 @@ use Pod::Usage;
 
 use Utils::SplitCadd;
 use Utils::Fetch;
+use Utils::LiftOverCadd;
 
 use DDP;
 
@@ -19,7 +20,7 @@ use Seq::Build;
 
 my (
   $yaml_config, $wantedName,
-  $help,         
+  $help,        $liftOver, $liftOver_path, $liftOver_chain_path, 
   $debug,       $overwrite, $fetch, $split, $compress, $toBed
 );
 
@@ -29,14 +30,17 @@ GetOptions(
   'n|name=s'     => \$wantedName,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
-  'o|overwrite=i'  => \$overwrite,
+  'o|overwrite'  => \$overwrite,
   'fetch' => \$fetch,
   'splitCadd' => \$split,
+  'liftOver_cadd' => \$liftOver,
   'compress' => \$compress,
   'to_bed'   => \$toBed,
+  'liftOver_path=s' => \$liftOver_path,
+  'liftOver_chain_path=s' => \$liftOver_chain_path,
 );
 
-if ( (!$fetch && !$split) || $help) {
+if ( (!$fetch && !$split && !$liftOver) || $help) {
   Pod::Usage::pod2usage(1);
   exit;
 }
@@ -52,6 +56,9 @@ my %options = (
   debug        => $debug,
   overwrite    => $overwrite || 0,
   to_bed        => $toBed || 0,
+  overwrite    => $overwrite || 0,
+  liftOver_path => $liftOver_path || '',
+  liftOver_chain_path => $liftOver_chain_path || '',
 );
 
 # If user wants to split their local files, needs to happen before we build
@@ -64,6 +71,11 @@ if($split) {
 if($fetch) {
   my $fetcher = Utils::Fetch->new(\%options);
   $fetcher->fetch();
+}
+
+if($liftOver) {
+  my $liftOver = Utils::LiftOverCadd->new(\%options);
+  $liftOver->liftOver();
 }
 
 #say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';

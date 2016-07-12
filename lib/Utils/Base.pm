@@ -28,14 +28,17 @@ has config => ( is => 'ro',isa => AbsFile, coerce => 1, required => 1, handles =
 
 # Logging
 has logPath => ( is => 'ro', lazy => 1, default => sub {
-  my $self = shift; return "./fetch_" . $self->name . ".$localtime.log";
+  my $self = shift; return "./utils_" . $self->name . ".$localtime.log";
 });
 
 # Debug log level?
-has debug => (is => 'ro', lazy => 1, default => 0);
+has debug => (is => 'ro', isa => 'Bool', lazy => 1, default => 0);
 
 # Compress the output?
-has compress => (is => 'ro',lazy => 1,default => 0);
+has compress => (is => 'ro', isa => 'Bool', lazy => 1,default => 0);
+
+# Overwrite files if they exist?
+has overwrite => (is => 'ro', isa => 'Bool', lazy => 1,default => 0);
 
 has publisherMessageBase => (is => 'ro', lazy => 1, default => undef);
 has publisherAddress => (is => 'ro', lazy => 1, default => undef);

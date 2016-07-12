@@ -43,15 +43,18 @@ sub split {
   
   my $fullPath = path($self->_localFilesDir)->child($filePath)->stringify;
 
-  my $outExt = $self->compress ? '.gz' : substr($filePath, rindex($filePath, '.') );
+  my $outExt;
 
   if($self->to_bed) {
     $outExt .= ".bed";
   }
 
+  $outExt .= $outExt . $self->compress ? '.gz' : substr($filePath, rindex($filePath, '.') );
+
   # Store output handles by chromosome, so we can write even if input file
   # out of order
   my %outFhs;
+  my %skippedBecauseExists;
 
   # We'll update this list of files in the config file
   $self->_wantedTrack->{local_files} = [];
@@ -92,12 +95,22 @@ sub split {
       next;
     }
 
+    if(exists $skippedBecauseExists{$chr}) {
+      next;
+    }
+
     my $fh = $outFhs{$chr};
 
     if(!$fh) {
       my $outPathChrBase = "$outPathBase.$chr$outExt";
 
       my $outPath = path($self->_localFilesDir)->child($outPathChrBase)->stringify;
+
+      if(-e $outPath && !$self->overwrite) {
+        $self->log('warn', "File $outPath exists, and overwrite is not set");
+        $skippedBecauseExists{$chr} = 1;
+        next;
+      }
 
       $outFhs{$chr} = $self->get_write_fh($outPath);
 
