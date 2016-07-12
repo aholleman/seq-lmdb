@@ -16,6 +16,7 @@ use Path::Tiny qw/path/;
 use Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
+use File::Glob ':bsd_glob';
 
 use Seq::DBManager;
 use Seq::Tracks::Build::CompletionMeta;
@@ -131,8 +132,13 @@ sub BUILDARGS {
   }
 
   for my $localFile (@{$href->{local_files} } ) {
-    push @localFiles, path($fileDir)->child($href->{name})
-      ->child($localFile)->absolute->stringify;
+    if(path($localFile)->is_absolute) {
+      push @localFiles, bsd_glob( $localFile );
+      next;
+    }
+
+    push @localFiles, bsd_glob( path($fileDir)->child($href->{name})
+      ->child($localFile)->absolute->stringify );
   }
 
   $data{local_files} = \@localFiles;
