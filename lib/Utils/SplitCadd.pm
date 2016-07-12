@@ -55,6 +55,7 @@ sub split {
   # out of order
   my %outFhs;
   my %skippedBecauseExists;
+  my @outPaths;
 
   # We'll update this list of files in the config file
   $self->_wantedTrack->{local_files} = [];
@@ -114,6 +115,8 @@ sub split {
 
       $outFhs{$chr} = $self->get_write_fh($outPath);
 
+      push @outPaths, $outPathChrBase;
+
       $fh = $outFhs{$chr};
 
       say $fh $versionLine;
@@ -134,6 +137,8 @@ sub split {
     }
   }
 
+  $self->_wantedTrack->{local_files} = \@outPaths;
+  
   $self->_backupAndWriteConfig();
 }
 

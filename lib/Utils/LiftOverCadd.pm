@@ -88,6 +88,8 @@ sub liftOver {
       if($exitStatus != 0) {
         $self->log('fatal', "liftOver command for $filePath failed with $exitStatus");
       }
+
+      push @{$self->_wantedTrack->{local_files}}, $liftedPath;
     $pm->finish(0);
   }
 
@@ -99,6 +101,8 @@ sub liftOver {
   });
 
   $pm->wait_all_children;
+
+  $self->_backupAndWriteConfig();
 }
 
 __PACKAGE__->meta->make_immutable;
