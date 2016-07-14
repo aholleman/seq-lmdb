@@ -82,7 +82,6 @@ sub int {
 #like wig or multi-fasta (or fasta)
 # enum BedFieldType => ['chrom', 'chromStart', 'chromEnd'];
 
-no Mouse::Role;
 no Mouse::Util::TypeConstraints;
 __PACKAGE__->meta->make_immutable;
 

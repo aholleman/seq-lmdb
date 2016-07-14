@@ -77,7 +77,6 @@ my $builder_options_href = {
   build_region_track_only => $regionTrackOnly || 0,
   skip_completion_check => $skipCompletionCheck || 0,
 };
-  
 
 # my $log_file = path(".")->child($log_name)->absolute->stringify;
 # Log::Any::Adapter->set( 'File', $log_file );

@@ -227,37 +227,34 @@ sub dbPatchBulkArray {
       if(defined $aref->[$trackIndex] ) {
         # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
         if($self->delete) {
-          $aref->[$trackIndex] = undef;
+          splice(@$aref, $trackIndex, 1);
 
           # If trackIndex is the last index in the array, safe to try to compact the array
           # However, need to stop at the first defined value from array end
           # To preserve the order/meaning of the indices
-          if($trackIndex == $#$aref) {
-            my $lastUndefinedIndex;
+          if($trackIndex == @$aref) {
+            # Avoid side-effects (compact array only if trackIndex is last)
             SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
               if(!defined $aref->[$i]) {
-                $lastUndefinedIndex = $i;
+                splice(@$aref, $i, 1);
                 next SHORTEN_LOOP;
               }
+              say "first defined index is $i";
               # Found a defined value, can shorten no more
               last SHORTEN_LOOP;
             }
-
-            # Will always shorten to at least @aref - 1
-            splice(@$aref, $lastUndefinedIndex);
           }
-          # If the array is now 0 in size, we can store as an empty array, size is 1 byte
+          
+          # If the array is now 0 in size, store as an empty array, size is 1 byte
           # Update the record that will be inserted to reflect the deletion
           $out{$pos} = $aref;
+          say "after compaction last index is $#$aref";
           next;
         }
 
         if(defined $mergeFunc) {
-          # Old , New
           $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
 
-          say "after merge func, we have";
-          p $aref->[$trackIndex];
           $out{$pos} = $aref;
           next;
         }
@@ -321,7 +318,7 @@ sub dbPut {
   $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
 
   if($LMDB_File::last_err) {
-    $self->log('warn', 'dbPut error: ' . $LMDB_File::last_err);
+    $self->log('fatal', 'dbPut error: ' . $LMDB_File::last_err);
   }
 
   $txn->commit();
@@ -344,7 +341,7 @@ sub dbPutBulk {
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
     if($LMDB_File::last_err) {
-      $self->log('warn', 'dbPutBulk error: ' . $LMDB_File::last_err);
+      $self->log('fatal', 'dbPutBulk error: ' . $LMDB_File::last_err);
     }
   }
 

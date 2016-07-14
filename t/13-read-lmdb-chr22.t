@@ -32,6 +32,7 @@ use DDP;
 
 use Test::More;
 use List::Util qw/reduce/;
+use List::MoreUtils qw/first_index/;
 
 use Seq::Tracks::Score::Build::Round;
 
@@ -40,7 +41,7 @@ my $rounder = Seq::Tracks::Score::Build::Round->new();
 plan tests => 27;
 
 my $tracks = MockAnnotationClass->new_with_config(
-  { config =>'./config/hg19.lmdb_test.yml'}
+  { config =>'./config/hg19.lmdb.yml'}
 );
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
@@ -319,20 +320,25 @@ p $dataAref;
 ok(!defined $snpValHref->{name}, "snp142 sparse track doesn't exist past at chr22:51244514");
 
 #insertion in snp142 file, chromStart == chromEnd
-$dataAref = $tracks->db->dbRead('chr22', 22452926 );
+$dataAref = $tracks->db->dbRead('chr22', 51194992 - 1 );
 $snpValHref = $snpTrack->get($dataAref);
-$rsNumber = $snpValHref->{name};
+say "data at 51194992";
 p $dataAref;
-ok($rsNumber eq 'rs148698006', "snp142 sparse track ok at chr22:22452926");
+
+$rsNumber = $snpValHref->{name};
+
+foreach (@$rsNumber) {
+  ok($_ eq 'rs751040459' || $_ eq 'rs536522481', "indel snp142 sparse track ok at chr22:51194992 (overlaps another snp)");
+}
 
 my $dataHref = $tracks->db->dbRead('chr22', 29445184 - 1 );
 
-say "dataHref is";
+say "data at 29445184 is";
 p $dataHref;
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
 my $geneTrackData = $geneTrack->get($dataHref, 'chr22');
-say "geneTrack data is";
+say "geneTrack data at 29445184 is";
 p $geneTrackData;
 
 my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
@@ -341,8 +347,10 @@ ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct (ZNRF3)');
 say "Checking -1";
 my $dataHref = $tracks->db->dbRead('chr3', -1 );
 
-say "dataHref is";
+say "dataHref for -1 is";
 p $dataHref;
+
+
 
 # $dataAref = $tracks->db->dbRead('chr1', 60523-1 );
 # $refBase = $refTrack->get($dataAref);

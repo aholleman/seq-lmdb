@@ -12,23 +12,23 @@ our $VERSION = '0.001';
 use Mouse 2;
 use MouseX::NativeTraits;
 use namespace::autoclean;
-use Path::Tiny qw/path/;
-use Types::Path::Tiny qw/AbsDir/;
 use Scalar::Util qw/looks_like_number/;
 use DDP;
-use File::Glob ':bsd_glob';
 
 use Seq::DBManager;
 use Seq::Tracks::Build::CompletionMeta;
+use Seq::Tracks::Base::Types;
+use Seq::Tracks::Build::LocalFilesPaths;
 
 extends 'Seq::Tracks::Base';
 # All builders need get_read_fh
 with 'Seq::Role::IO';
-
-############### Public Exports ###################
-
-# Anything that could be used in a thread/process isn't lazy, prevent accessor
-# from being re-generated?
+#################### Instance Variables #######################################
+############################# Public Exports ##################################
+# DB vars; we allow these to be set, don't specify much about them because
+# This package shouldn't be concerned with Seq::DBManager implementation details
+has overwrite => (is => 'ro', lazy => 1, default => 0);
+has delete => (is => 'ro', lazy => 1, default => 0);
 
 # Every builder needs access to the database
 # Don't specify types because we do not allow consumers to set this attribute
@@ -36,23 +36,22 @@ has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
   return Seq::DBManager->new({ overwrite => $self->overwrite, delete => $self->delete})
 });
 
-# Allows consumers to record track completion
-has completionMeta => (
-  is => 'ro',
-  init_arg => undef,
-  default => sub { my $self = shift; return Seq::Tracks::Build::CompletionMeta->new( {
-    name => $self->name, skip_completion_check => $self->skip_completion_check || $self->overwrite} );
-  },
-);
+# Allows consumers to record track completion, skipping chromosomes that have 
+# already been built
+has completionMeta => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
+  return Seq::Tracks::Build::CompletionMeta->new({name => $self->name, db => $self->db});
+});
 
-# Transaction size. If too large (some millions, used to be 1M, DBManager may fail to execute
-# If large, re-use of pages may be inefficient
+# Transaction size. If large, re-use of pages may be inefficient
 # https://github.com/LMDB/lmdb/blob/mdb.master/libraries/liblmdb/lmdb.h
 has commitEvery => (is => 'rw', isa => 'Int', init_arg => undef, lazy => 1, default => 1e4);
 
+# All tracks want to know whether we have 1 chromosome per file or not
+has chrPerFile => (is => 'ro', init_arg => undef, writer => '_setChrPerFile');
+
 ########## Arguments taken from YAML config file or passed some other way ##############
 
-############# Required ##############
+#################################### Required ###################################
 has local_files => (
   is      => 'ro',
   isa     => 'ArrayRef',
@@ -64,14 +63,10 @@ has local_files => (
   required => 1,
 );
 
+########################### Optional arguments ################################
 #called based because that's what UCSC calls it
 #most things are 0 based, including anything in bed format from UCSC, fasta files
-has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1, );
-
-# DB vars; we allow these to be set, don't specify much about them because
-# This package shouldn't be concerned with Seq::DBManager implementation details
-has overwrite => (is => 'ro');
-has delete => (is => 'ro');
+has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
 
 # The delimiter used in coercion commands
 has multi_delim => ( is => 'ro', lazy => 1, default => sub{qr/[,;]/});
@@ -102,6 +97,24 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
+################################ Constructor ################################
+sub BUILD {
+  my $self = shift;
+
+  my @allLocalFiles = $self->allLocalFiles;
+
+  #exported by Seq::Tracks::Base
+  my @allWantedChrs = $self->allWantedChrs;
+
+  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
+    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for "
+      . $self->name . ", but " . scalar @allWantedChrs . " chromosomes. We will "
+      . "assume there is only one chromosome per file, and that 1 chromosome isn't accounted for.");
+  }
+
+  $self->_setChrPerFile(@allLocalFiles > 1 ? 1 : 0);
+}
+
 # Configure local_files as abs path, and configure required field (*_field_name)
 # *_field_name is a computed attribute that the consumer may choose to implement
 # Example. In config: 
@@ -109,6 +122,7 @@ has build_field_transformations => (
 ##   chrom : Chromosome
 # We pass on to classes that extend this: 
 #   chrom_field_name with value "Chromosome"
+my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 sub BUILDARGS {
   my ($class, $href) = @_;
 
@@ -124,42 +138,15 @@ sub BUILDARGS {
     }
   }
 
-  my @localFiles;
-  my $fileDir = $href->{files_dir};
-
-  if(!$fileDir) {
+  if(!$href->{files_dir}) {
     $class->log('fatal', "files_dir required for track builders");
   }
 
-  for my $localFile (@{$href->{local_files} } ) {
-    if(path($localFile)->is_absolute) {
-      push @localFiles, bsd_glob( $localFile );
-      next;
-    }
-
-    push @localFiles, bsd_glob( path($fileDir)->child($href->{name})
-      ->child($localFile)->absolute->stringify );
-  }
-
-  $data{local_files} = \@localFiles;
+  $data{local_files} = $localFilesHandler->makeAbsolutePaths($href->{files_dir},
+    $href->{name}, $href->{local_files});
 
   return \%data;
 };
-
-sub BUILD {
-  my $self = shift;
-
-  my @allLocalFiles = $self->allLocalFiles;
-
-  #exported by Seq::Tracks::Base
-  my @allWantedChrs = $self->allWantedChrs;
-
-  if(@allWantedChrs > @allLocalFiles && @allLocalFiles > 1) {
-    $self->log("warn", "You're specified " . scalar @allLocalFiles . " file for "
-      . $self->name . ", but " . scalar @allWantedChrs . " chromosomes. We will "
-      . "assume there is only one chromosome per file, and that 1 chromosome isn't accounted for.");
-  }
-}
 
 ###################Prepare Data For Database Insertion ##########################
 # prepareData should be used by any track that is inseting data into the main database
@@ -184,6 +171,7 @@ sub prepareData {
 #@returns {String} : coerced type
 
 # This is stored in Build.pm because this only needs to happen during insertion into db
+state $converter = Seq::Tracks::Base::Types->new();
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
   my ($self, $feature, $dataStr) = @_;
@@ -194,26 +182,25 @@ sub coerceFeatureType {
     return undef;
   }
 
+  # Don't mutate the input if no type is stated for the feature
   if($self->noFeatureTypes) {
     return $dataStr;
   }
 
   my $type = $self->getFeatureType( $feature );
 
-  #even if we don't have a type, let's coerce anything that is split by a 
-  #delimiter into an array; it's more efficient to store, and array is implied by the delim
+  # If the type is part of a list, we need to grab individual values
   my @vals = split( $self->multi_delim, $dataStr );
 
-  # Function convert is exported by Seq::Tracks::Base
-  # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
   # modifying the value here actually modifies the value in the array
+  # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
   for my $val (@vals) {
     if($val =~/^\s*$/) {
       $val = undef;
     }
 
     if(defined $type) {
-      $val = $self->convert($val, $type);
+      $val = $converter->convert($val, $type);
     }
   }
 
@@ -223,12 +210,14 @@ sub coerceFeatureType {
   return @vals == 1 ? $vals[0] : \@vals;
 }
 
-state $cachedFilters;
 sub passesFilter {
+  state $cachedFilters;
+
   if( $cachedFilters->{$_[1]} ) {
     return &{ $cachedFilters->{$_[1]} }($_[2]);
   }
 
+  #   $_[0],      $_[1],    $_[2]
   my ($self, $featureName, $featureValue) = @_;
 
   my $command = $self->build_row_filters->{$featureName};
@@ -282,13 +271,15 @@ sub passesFilter {
 }
 
 ######################### Field Transformations ###########################
-state $cachedTransform;
 #for now I only need string concatenation
 state $transformOperators = ['.', 'split'];
 sub transformField {
+  state $cachedTransform;
+  
   if( defined $cachedTransform->{$_[1]} ) {
     return &{ $cachedTransform->{$_[1]} }($_[2]);
   }
+
   #   $_[0],      $_[1],    $_[2]
   my ($self, $featureName, $featureValue) = @_;
 

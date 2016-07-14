@@ -9,30 +9,12 @@ package Seq::Tracks::Cadd;
 #Called cadd because at the time of writing it's the 
 use Mouse 2;
 use namespace::autoclean;
+use Seq::Tracks::Cadd::Order;
 extends 'Seq::Tracks::Get';
 
-state $order = {
-  A => {
-    C => 0,
-    G => 1,
-    T => 2,
-  },
-  C => {
-    A => 0,
-    G => 1,
-    T => 2,
-  },
-  G => {
-    A => 0,
-    C => 1,
-    T => 2,
-  },
-  T => {
-    A => 0,
-    C => 1,
-    G => 2,
-  }
-};
+
+state $order = Seq::Tracks::Cadd::Order->new();
+$order = $order->order;
 
 #accepts $self, $dataHref, $chr (not used), $altAlleles
 #@param <String|ArrayRef> $altAlleles : the alleles, like A,C,T,G or ['A','C','T','G'] 

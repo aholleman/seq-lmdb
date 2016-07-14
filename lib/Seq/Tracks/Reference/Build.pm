@@ -18,8 +18,6 @@ use Seq::Tracks::Reference::MapBases;
 use Parallel::ForkManager;
 use DDP;
 
-my $pm = Parallel::ForkManager->new(26);
-
 my $baseMapper = Seq::Tracks::Reference::MapBases->new();
 
 sub buildTrack {
@@ -28,15 +26,11 @@ sub buildTrack {
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
-  my $chrPerFile = scalar $self->allLocalFiles > 1 ? 1 : 0;
-
+  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
   for my $file ( $self->allLocalFiles ) {
     # Expects 1 chr per file for n+1 files, or all chr in 1 file
     # Single writer to reduce copy-on-write db inflation
-    $pm->start($file) and next; 
-      if ( ! -f $file ) {
-        $self->log('fatal', "ERROR: cannot find $file");
-      }
+    $pm->start($file) and next;
       my $fh = $self->get_read_fh($file);
 
       my %data;
@@ -45,16 +39,16 @@ sub buildTrack {
       my $wantedChr;
 
       my $chrPosition = $self->based;
-      
+
       # Record which chromosomes we've worked on
       my %visitedChrs;
-      FH_LOOP: while ( <$fh> ) {
+      FH_LOOP: while ( my $line = $fh->getline() ) {
         #super chomp; also helps us avoid weird characters in the fasta data string
-        $_ =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
-
+        $line =~ s/^\s+|\s+$//g; #trim both ends, but not what's in between
+        
         #could do check here for cadd default format
         #for now, let's assume that we put the CADD file into a wigfix format
-        if ( $_ =~ m/$headerRegex/ ) { #we found a wig header
+        if ( $line =~ m/$headerRegex/ ) { #we found a wig header
           my $chr = $1;
 
           if(!$chr) { $self->log('fatal', 'Require chr in fasta file headers'); }
@@ -65,7 +59,7 @@ sub buildTrack {
               # If user had previously found a wanted chr, but then switched
               # Means it's a multi-fasta file; if !$chrPerFile a regular file was expected
               # Means positions could be off, if chrs shared between files
-              if($wantedChr && !$chrPerFile) {
+              if($wantedChr && !$self->chrPerFile) {
                 $self->log('warn', " Expected fasta, found multi-fasta");
               }
 
@@ -86,7 +80,7 @@ sub buildTrack {
 
           # We expect either one chr per file, or a multi-fasta file
           if(!$wantedChr) {
-            if($chrPerFile) {
+            if($self->chrPerFile) {
               last FH_LOOP;
             }
             next FH_LOOP;
@@ -107,7 +101,7 @@ sub buildTrack {
           next;
         }
 
-        if( $_ =~ $dataRegex ) {
+        if( $line =~ $dataRegex ) {
           # Store the uppercase bases; how UCSC does it, how people likely expect it
           for my $char ( split '', uc($1) ) {
             $data{$chrPosition} = $self->prepareData( $baseMapper->baseMap->{$char} );

@@ -14,6 +14,8 @@ use namespace::autoclean;
 use Types::Path::Tiny qw/AbsFile AbsDir/;
 use Path::Tiny qw/path/;
 
+use Seq::Tracks::Build::LocalFilesPaths;
+
 use DDP;
 use Parallel::ForkManager;
 
@@ -25,6 +27,7 @@ extends 'Utils::Base';
 has liftOver_path => (is => 'ro', isa => AbsFile, coerce => 1, required => 1);
 has liftOver_chain_path => (is => 'ro', isa => AbsFile, coerce => 1, required => 1);
 
+my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 sub liftOver {
   my $self = shift;
 
@@ -32,22 +35,20 @@ sub liftOver {
   my $chainPath = $self->liftOver_chain_path;
   my $gzip = $self->gzipPath;
 
-  my @allLocalFiles = @{ $self->_wantedTrack->{local_files} };
+  my $localFilesPathsAref = $localFilesHandler->makeAbsolutePaths($self->_decodedConfig->{files_dir},
+    $self->_wantedTrack->{name}, $self->_wantedTrack->{local_files});
 
   # We'll update this list of files in the config file
   $self->_wantedTrack->{local_files} = [];
 
-  my $pm = Parallel::ForkManager->new(scalar @allLocalFiles);
+  my $pm = Parallel::ForkManager->new(scalar @$localFilesPathsAref);
 
-  if(!@allLocalFiles) {
+  if(!@$localFilesPathsAref) {
     $self->log('fatal', "No local files found");
   }
 
-  my $baseDir = path($self->_localFilesDir);
-  for my $filePath (@allLocalFiles) {
-    $pm->start($filePath) and next;
-      my $inPath = $baseDir->child($filePath)->stringify;
-
+  for my $inPath (@$localFilesPathsAref) {
+    $pm->start($inPath) and next;
       my (undef, $isCompressed, $inFh) = $self->get_read_fh($inPath);
 
       my $inPathPart = $isCompressed ? substr( $inPath, 0, rindex($inPath, ".") )
@@ -55,6 +56,13 @@ sub liftOver {
     
       my $unmappedPath = $inPathPart . ".unmapped" . ($self->compress ? '.gz' : '');
       my $liftedPath = $inPathPart . ".mapped" . ($self->compress ? '.gz' : '');
+
+      if(-e $liftedPath && -e $unmappedPath && !$self->overwrite) {
+        $self->log('info', "$liftedPath and $unmappedPath exist, and overwrite not set, skipping");
+        push @{$self->_wantedTrack->{local_files}}, $liftedPath;
+        close $inFh;
+        return $pm->finish(0);
+      }
 
       ################## Write the headers to the output file (prepend) ########
       my $versionLine = <$inFh>;
@@ -86,7 +94,7 @@ sub liftOver {
       my $exitStatus = system(("bash", "-c", $command));
    
       if($exitStatus != 0) {
-        $self->log('fatal', "liftOver command for $filePath failed with $exitStatus");
+        $self->log('fatal', "liftOver command for $inPath failed with $exitStatus");
       }
 
       push @{$self->_wantedTrack->{local_files}}, $liftedPath;

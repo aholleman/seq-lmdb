@@ -15,6 +15,8 @@ use Path::Tiny qw/path/;
 
 use DDP;
 
+use Seq::Tracks::Build::LocalFilesPaths;
+
 # _localFilesDir, _decodedConfig, compress, _wantedTrack, _setConfig, and logPath, 
 extends 'Utils::Base';
 
@@ -24,8 +26,12 @@ has to_bed => (is => 'ro', isa => 'Bool', lazy => 1, default => 0);
 
 has delimiter => (is => 'ro', lazy => 1, default => "\t");
 
+my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 sub BUILD {
   my $self = shift;
+
+  $self->_wantedTrack->{local_files} = $localFilesHandler->makeAbsolutePaths($self->_decodedConfig->{files_dir},
+    $self->_wantedTrack->{name}, $self->_wantedTrack->{local_files});
 
   if (@{ $self->_wantedTrack->{local_files} } != 1) {
     $self->log('fatal', "Can only split files if track has 1 local_file");
@@ -35,13 +41,11 @@ sub BUILD {
 sub split {
   my $self = shift;
 
-  my %allChrs = map { $_ => 1 } @{ $self->_decodedConfig->{chromosomes} };
-
-  my $filePath = $self->_wantedTrack->{local_files}[0];
-
-  my $outPathBase = substr($filePath, 0, rindex($filePath, '.') );
+  my %wantedChrs = map { $_ => 1 } @{ $self->_decodedConfig->{chromosomes} };
   
-  my $fullPath = path($self->_localFilesDir)->child($filePath)->stringify;
+  my $inFilePath = $self->_wantedTrack->{local_files}[0];
+
+  my $outPathBase = substr($inFilePath, 0, rindex($inFilePath, '.') );
 
   my $outExt;
 
@@ -49,7 +53,8 @@ sub split {
     $outExt .= ".bed";
   }
 
-  $outExt .= $outExt . $self->compress ? '.gz' : substr($filePath, rindex($filePath, '.') );
+  $outExt .= $outExt . $self->compress ? '.gz' : substr($inFilePath,
+    rindex($inFilePath, '.') );
 
   # Store output handles by chromosome, so we can write even if input file
   # out of order
@@ -60,7 +65,7 @@ sub split {
   # We'll update this list of files in the config file
   $self->_wantedTrack->{local_files} = [];
 
-  my $fh = $self->get_read_fh($fullPath);
+  my $fh = $self->get_read_fh($inFilePath);
 
   my $versionLine = <$fh>;
   chomp $versionLine;
@@ -91,7 +96,7 @@ sub split {
 
     my $chr = "chr$chrIdPart";
 
-    if(!exists $allChrs{$chr}) {
+    if(!exists $wantedChrs{$chr}) {
       $self->log('warn', "Chromosome $chr not recognized (from $chrIdPart)");
       next;
     }
@@ -103,27 +108,29 @@ sub split {
     my $fh = $outFhs{$chr};
 
     if(!$fh) {
-      my $outPathChrBase = "$outPathBase.$chr$outExt";
-
-      my $outPath = path($self->_localFilesDir)->child($outPathChrBase)->stringify;
+      my $outPath = "$outPathBase.$chr$outExt";
 
       if(-e $outPath && !$self->overwrite) {
         $self->log('warn', "File $outPath exists, and overwrite is not set");
+        
         $skippedBecauseExists{$chr} = 1;
+
+        push @outPaths, $outPath;
+
         next;
       }
 
       $outFhs{$chr} = $self->get_write_fh($outPath);
 
-      push @outPaths, $outPathChrBase;
+      push @outPaths, $outPath;
 
       $fh = $outFhs{$chr};
 
       say $fh $versionLine;
-      say $fh join($self->delimiter, 'chrom', 'chromEnd', 'chromEnd', @headerFields[2 .. $#headerFields]);
+      say $fh join($self->delimiter, 'chrom', 'chromStart', 'chromEnd',
+        @headerFields[2 .. $#headerFields]);
     }
     
-
     if($self->to_bed) {
       my $start = $line[1] - $based;
       my $end = $start + 1;
@@ -131,10 +138,7 @@ sub split {
       next;
     }
     
-
-    if($allChrs{$chr}) {
-      say $fh $_;
-    }
+    say $fh $_;
   }
 
   $self->_wantedTrack->{local_files} = \@outPaths;

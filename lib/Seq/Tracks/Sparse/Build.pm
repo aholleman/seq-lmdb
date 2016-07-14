@@ -23,6 +23,10 @@ use DDP;
 
 extends 'Seq::Tracks::Build';
 
+# We assume sparse tracks have at least one feature; can remove this requirement
+# But will need to update makeMergeFunc to not assume an array of values (at least one key => value)
+has '+features' => (required => 1);
+
 #can be overwritten if needed by the usef
 has chrom_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chrom');
 has chromStart_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chromStart');
@@ -31,65 +35,67 @@ has chromEnd_field_name => (is => 'ro', isa => 'Str', lazy => 1, default => 'chr
 # We skip entries that span more than this number of bases
 has max_variant_size => (is => 'ro', isa => 'Int', lazy => 1, default => 32);
 
-my ($chrom, $cStart, $cEnd, @requiredFields, $based, $halfClosedOffset);
-my (@allChrs, $chrPerFile);
+################# Private ################
+# Only 0 based files should be half closed
+has _halfClosedOffset => (is => 'ro', init_arg => undef, writer => '_setHalfClosedOffset');
+
 sub BUILD {
   my $self = shift;
-  $chrom = $self->chrom_field_name;
-  $cStart = $self->chromStart_field_name;
-  $cEnd   = $self->chromEnd_field_name;
+  # Use small commit size for sparse tracks, because few values are typically being inserted
+  # and each value may be very large; make better use of free pages.
+  if($self->commitEvery > 700){ $self->commitEvery(700);}
 
-  @requiredFields = ($chrom, $cStart, $cEnd);
+  $self->_setHalfClosedOffset($self->based == 0 ? 1 : 0);
 
-  # The default BED format is 0-based: https://genome.ucsc.edu/FAQ/FAQformat.html#format1
-  # Users can override this by setting $self->based;
-  $based = $self->based;
-  # Only 0 based files should be half closed
-  $halfClosedOffset = $based == 0 ? 1 : 0;
-
-  @allChrs = $self->allLocalFiles;
-
-  $chrPerFile = @allChrs > 1 ? 1 : 0;
+  if($self->based != 1 && $self->based != 0) {
+    $self->log('fatal', "SparseTracks expect based to be 0 or 1"); 
+  }
 }
 
-my %hasMadeIntoArray;
-my $mergeFunc = sub {
-  my ($chr, $pos, $valIdx, $oldVal, $newVal);
-  my @updated;
-  if(!$hasMadeIntoArray{$chr}{$pos}{$valIdx}) {
-    @updated = ($oldVal);
-    $hasMadeIntoArray{$chr}{$pos}{$valIdx} = 1;
-  } else {
-    @updated = @$oldVal;
-  }
+# Merge sparse data. We intentionally push undefined (or nil if in Go)
+# values, because we want to keep order consistent, so that all records pertaining
+# to one position for this track are kept together
+# Merge functions are only called if there is an $oldTrackVal
+# WARNING: This will not work if you try to build twice, without first deleting
+# that track from the database. It will result in nested arrays.
+sub makeMergeFunc {
+  my $self = shift;
+  my $madeIntoArray = {};
 
-  for my $val (ref $newVal ? @$newVal : $newVal) {
-    # Don't check for defined, or exists; want to keep 1:1 correspondance
-    # With all other fields, to understand which record (row) this field belongs to
-    push @updated, $val;
+  return sub {
+    my ($chr, $pos, $trackIdx, $oldTrackVal, $newTrackVal) = @_;
+    my @updated = @$oldTrackVal;
+
+    # oldTrackVal and $newTrackVal should both be arrays, with at least one index
+    for (my $i = 0; $i < @$newTrackVal; $i++) {
+      if($i > $#$oldTrackVal) {
+        push @updated, $newTrackVal->[$i];
+        next;
+      }
+
+      if(!$madeIntoArray->{$chr}{$pos}{$trackIdx}{$i}) {
+        $updated[$i] = [$oldTrackVal->[$i]];
+        $madeIntoArray->{$chr}{$pos}{$trackIdx}{$i} = 1;
+      }
+
+      push @{$updated[$i]}, $newTrackVal->[$i];
+    }
+    
+    return \@updated;
   }
-  return @updated;
-};
+}
 
 sub buildTrack {
   my $self = shift;
 
-  #use small commit size; sparse tracks are small, but their individual values
-  #may be quite large, leading to overflow pages
-  if($self->commitEvery > 700){
-    $self->commitEvery(700);
-  }
+  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
 
-  my $pm = Parallel::ForkManager->new(scalar @allChrs);
-
-  for my $file (@allChrs) {
+  for my $file (@{$self->local_files}) {
     $pm->start($file) and next;
-
       my $fh = $self->get_read_fh($file);
 
       ############# Get Headers ##############
       my $firstLine = <$fh>;
-      
 
       my ($featureIdxHref, $reqIdxHref, $fieldsToTransformIdx, $fieldsToFilterOnIdx, $numColumns) = 
         $self->_getHeaderFields($file, $firstLine);
@@ -101,9 +107,15 @@ sub buildTrack {
 
       my $count;
 
+      # Get an instance of the merge function that closes over $self
+      # Note that tracking which positinos have been over-written will only work
+      # if there is one chromosome per file, or if all chromosomes are in one file
+      # At least until we share $madeIntoArray (in makeMergeFunc) between threads
+      # Won't be an issue in Go
+      my $mergeFunc = $self->makeMergeFunc();
       # Record which chromosomes were recorded for completionMeta
       my %visitedChrs;
-      FH_LOOP: while (my $line = $fh->getline() ) {
+      FH_LOOP: while ( my $line = $fh->getline() ) {
         chomp $line;
 
         my @fields = split("\t", $line);
@@ -118,7 +130,7 @@ sub buildTrack {
           next FH_LOOP;
         }
 
-        my $chr = $fields[ $reqIdxHref->{$chrom} ];
+        my $chr = $fields[ $reqIdxHref->{$self->chrom_field_name} ];
 
         #If the chromosome is new, write any data we have & see if we want new one
         if(!$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
@@ -139,14 +151,14 @@ sub buildTrack {
         }
         
         if(!$wantedChr) {
-          if($chrPerFile) { last FH_LOOP; }
+          if($self->chrPerFile) { last FH_LOOP; }
           next FH_LOOP;
         }
 
         my ($start, $end) = $self->_getPositions(\@fields, $reqIdxHref);
 
         if($end + 1 - $start > $self->max_variant_size) {
-          $self->log('info', "Line spans > " . $self->max_variant_size . " skipping: $_");
+          $self->log('info', "Line spans > " . $self->max_variant_size . " skipping: $line");
           next FH_LOOP;
         }
 
@@ -163,27 +175,29 @@ sub buildTrack {
           $sparseData[ $self->getFieldDbName($name) ] = $value;
         }
 
+        # For now, don't shrink the array; this will make merging less informative
+        # Because for those sites that overlap another site, we may lose an "NA"
         # The sparse data may be shorter than @allWantedFeatureIdx because
         # coerceFeatureType may return undefined values if it finds an NA
         # No point in storing those; but we dont' want to make the array not sparse
         # Since that will remove the relationship between index and dbName of the field
-        my $lastUndefinedIndex;
-        SHORTEN_LOOP: for (my $i = $#sparseData; $i >= 0; $i--) {
-          if(!defined $sparseData[$i]) {
-            $lastUndefinedIndex = $i;
-            next SHORTEN_LOOP;
-          }
-          last SHORTEN_LOOP;
-        }
+        # my $lastUndefinedIndex;
+        # SHORTEN_LOOP: for (my $i = $#sparseData; $i >= 0; $i--) {
+        #   if(!defined $sparseData[$i]) {
+        #     $lastUndefinedIndex = $i;
+        #     next SHORTEN_LOOP;
+        #   }
+        #   last SHORTEN_LOOP;
+        # }
 
-        if($lastUndefinedIndex) {
-          splice(@sparseData, $lastUndefinedIndex);
-        }
+        # if($lastUndefinedIndex) {
+        #   splice(@sparseData, $lastUndefinedIndex);
+        # }
 
-        #It's formally possible the array shrinks to 0: https://ideone.com/UTqMcF
-        if(!@sparseData) {
-          next FH_LOOP;
-        }
+        # #It's formally possible the array shrinks to 0: https://ideone.com/UTqMcF
+        # if(!@sparseData) {
+        #   next FH_LOOP;
+        # }
 
         #adds $self->dbName to record to locate dbData
         my $namedData = $self->prepareData(\@sparseData);
@@ -267,10 +281,10 @@ sub joinTrack {
         next FH_LOOP;
       }
 
-      my $chr = $fields[ $reqIdxHref->{$chrom} ];
+      my $chr = $fields[ $reqIdxHref->{$self->chrom_field_name} ];
 
       if($chr ne $wantedChr) {
-        if($chrPerFile) { last FH_LOOP; }
+        if($self->chrPerFile) { last FH_LOOP; }
         next FH_LOOP;
       }
 
@@ -301,6 +315,10 @@ sub joinTrack {
 
 sub _getHeaderFields {
   my ($self, $file, $firstLine) = @_;
+
+  my @requiredFields = ($self->chrom_field_name, $self->chromStart_field_name,
+    $self->chromEnd_field_name);
+
   chomp $firstLine;
 
   my @fields = split "\t", $firstLine;
@@ -366,8 +384,8 @@ sub _validLine {
   }
 
   # Some files are misformatted, ex: clinvar's tab delimited
-  if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$cStart} ] )
-  || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$cEnd} ] ) ) {
+  if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$self->chromStart_field_name} ] )
+  || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$self->chromEnd_field_name} ] ) ) {
     $self->log('warn', "Start or stop doesn't look like a number on line $lineNumber, skipping");
     return;
   }
@@ -401,13 +419,15 @@ sub _getPositions {
   my ($self, $fieldsAref, $reqIdxHref) = @_;
   my ($start, $end);
   # This is an insertion; the only case when start should == stop (for 0-based coordinates)
-  if($fieldsAref->[ $reqIdxHref->{$cStart} ] == $fieldsAref->[ $reqIdxHref->{$cEnd} ] ) {
-    $start = $end = $fieldsAref->[ $reqIdxHref->{$cStart} ] - $based;
+  if($fieldsAref->[ $reqIdxHref->{$self->chromStart_field_name} ] ==
+  $fieldsAref->[ $reqIdxHref->{$self->chromEnd_field_name} ] ) {
+    $start = $end = $fieldsAref->[ $reqIdxHref->{$self->chromStart_field_name} ] - $self->based;
   } else { 
     #it's a normal change, or a deletion
     #0-based files are expected to be half-closed format, so subtract 1 from end 
-    $start = $fieldsAref->[ $reqIdxHref->{$cStart} ] - $based;
-    $end = $fieldsAref->[ $reqIdxHref->{$cEnd} ] - $based - $halfClosedOffset;
+    $start = $fieldsAref->[ $reqIdxHref->{$self->chromStart_field_name} ] - $self->based;
+    $end = $fieldsAref->[ $reqIdxHref->{$self->chromEnd_field_name} ]
+      - $self->based - $self->_halfClosedOffset;
   }
 
   return ($start, $end);
