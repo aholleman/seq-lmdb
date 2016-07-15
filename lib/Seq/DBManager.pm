@@ -227,19 +227,18 @@ sub dbPatchBulkArray {
       if(defined $aref->[$trackIndex] ) {
         # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
         if($self->delete) {
-          splice(@$aref, $trackIndex, 1);
+          $aref->[$trackIndex] = undef;
 
           # If trackIndex is the last index in the array, safe to try to compact the array
           # However, need to stop at the first defined value from array end
           # To preserve the order/meaning of the indices
-          if($trackIndex == @$aref) {
+          if($trackIndex == $#$aref) {
             # Avoid side-effects (compact array only if trackIndex is last)
             SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
               if(!defined $aref->[$i]) {
                 splice(@$aref, $i, 1);
                 next SHORTEN_LOOP;
               }
-              say "first defined index is $i";
               # Found a defined value, can shorten no more
               last SHORTEN_LOOP;
             }
@@ -248,7 +247,6 @@ sub dbPatchBulkArray {
           # If the array is now 0 in size, store as an empty array, size is 1 byte
           # Update the record that will be inserted to reflect the deletion
           $out{$pos} = $aref;
-          say "after compaction last index is $#$aref";
           next;
         }
 
@@ -472,9 +470,9 @@ sub _getDbi {
 
   my $flags;
   if($dbReadOnly) {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC;
+    $flags = MDB_NOTLS | MDB_WRITEMAP;
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {

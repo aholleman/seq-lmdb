@@ -316,20 +316,26 @@ ok($rsNumber eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)")
 
 $dataAref = $tracks->db->dbRead('chr22', 51244515 );
 $snpValHref = $snpTrack->get($dataAref);
+
+say "showing data at 51244515";
 p $dataAref;
 ok(!defined $snpValHref->{name}, "snp142 sparse track doesn't exist past at chr22:51244514");
 
 #insertion in snp142 file, chromStart == chromEnd
 $dataAref = $tracks->db->dbRead('chr22', 51194992 - 1 );
-$snpValHref = $snpTrack->get($dataAref);
+
 say "data at 51194992";
 p $dataAref;
 
+$snpValHref = $snpTrack->get($dataAref);
 $rsNumber = $snpValHref->{name};
 
-foreach (@$rsNumber) {
-  ok($_ eq 'rs751040459' || $_ eq 'rs536522481', "indel snp142 sparse track ok at chr22:51194992 (overlaps another snp)");
+if($rsNumber) {
+  foreach (@$rsNumber) {
+    ok($_ eq 'rs751040459' || $_ eq 'rs536522481', "indel snp142 sparse track ok at chr22:51194992 (overlaps another snp)");
+  }
 }
+
 
 my $dataHref = $tracks->db->dbRead('chr22', 29445184 - 1 );
 

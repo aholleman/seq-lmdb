@@ -251,7 +251,7 @@ sub buildTrack {
   $pm->run_on_finish(sub {
     my ($pid, $exitCode, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
     
-    if($exitStatus != 0) {
+    if($exitCode != 0) {
       $self->log('fatal', "Failed to finish with $exitCode");
     }
 
