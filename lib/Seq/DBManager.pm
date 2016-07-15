@@ -76,8 +76,8 @@ sub dbRead {
   #will return a single value if we were passed one value
   if(!ref $_[2] ) {
     $txn->get($dbi, $_[2], $json);
-    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $_[0]->log('warn', "LMDB get error" . $LMDB_File::last_err);
+    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
+      $_[0]->log('fatal', "dbRead LMDB error $LMDB_File::last_err");
     }
     $txn->commit();
     $LMDB_File::last_err = 0;
@@ -89,7 +89,7 @@ sub dbRead {
     $txn->get($dbi, $pos, $json);
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-        $_[0]->log('warn', "LMDB get error" . $LMDB_File::last_err);
+        $_[0]->log('fatal', "dbRead LMDB error $LMDB_File::last_err");
       }
 
       #we return exactly the # of items, and order, given to us
@@ -140,7 +140,7 @@ sub dbPatchHash {
   $txn->commit();
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    $self->log('warn', "LMDB get error" . $LMDB_File::last_err);
+    $self->log('fatal', "dbPatchHash LMDB error $LMDB_File::last_err");
   }
 
   # If deleting, and there is no existing data, nothing to do
@@ -215,7 +215,7 @@ sub dbPatchBulkArray {
 
     #trigger this only if json isn't found, save on many if calls
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->log('warn', "dbPatchBulk error" . $LMDB_File::last_err);
+      $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
     my $aref = [];
@@ -317,8 +317,8 @@ sub dbPut {
 
   $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
 
-  if($LMDB_File::last_err) {
-    $self->log('fatal', 'dbPut error: ' . $LMDB_File::last_err);
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
+    $self->log('fatal', "dbPut LMDB error: $LMDB_File::last_err");
   }
 
   $txn->commit();
@@ -340,8 +340,8 @@ sub dbPutBulk {
   for my $pos (@$sortedPosAref) {
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
-    if($LMDB_File::last_err) {
-      $self->log('fatal', 'dbPutBulk error: ' . $LMDB_File::last_err);
+    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
+      $self->log('fatal', "dbPutBulk LMDB error: $LMDB_File::last_err");
     }
   }
 
@@ -393,9 +393,7 @@ sub dbReadAll {
     }
 
     if($LMDB_FILE::last_err) {
-      $_[0]->log('warn', 'found non MDB_FOUND LMDB_FILE error in dbReadAll: '.
-        $LMDB_FILE::last_err );
-      next;
+      return $_[0]->log('fatal', "dbReadAll LMDB error $LMDB_FILE::last_err");
     }
 
     $out{$key} = $mp->unpack($value);
@@ -476,7 +474,7 @@ sub _getDbi {
   if($dbReadOnly) {
     $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC;
   } else {
-    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC;
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
@@ -491,11 +489,8 @@ sub _getDbi {
     maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
-  #if we passed $dontCreate, we may not successfully make a new env
   if(!$envs->{$name} ) {
-    $self->log('warn', "Failed to open database because $LMDB_File::last_err");
-    $LMDB_File::last_err = 0;
-    return;
+    return $self->log('fatal', "Failed to open environment because $LMDB_File::last_err");
   }
 
   my $txn = $envs->{$name}->BeginTxn();
@@ -507,6 +502,10 @@ sub _getDbi {
 
   # Now db is open
   $txn->commit();
+
+  if($LMDB_File::last_err) {
+    return $self->log('fatal', "Failed to open database beacuse of $LMDB_File::last_err");
+  }
 
   $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
 
