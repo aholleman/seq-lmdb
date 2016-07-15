@@ -249,11 +249,13 @@ sub buildTrack {
 
   my %visitedChrs;
   $pm->run_on_finish(sub {
-    my ($pid, $exitStatus, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
+    my ($pid, $exitCode, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
     
     if($exitStatus != 0) {
-      $self->log('fatal', "Failed to finish with $exitStatus");
+      $self->log('fatal', "Failed to finish with $exitCode");
     }
+
+    $self->log('info', "Got exit code $exitCode for $fileName");
 
     foreach (keys %$visitedChrsHref) {
       $visitedChrs{$_} = 1;
