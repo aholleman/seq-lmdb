@@ -319,6 +319,14 @@ sub dbPatchBulkArray {
 sub dbPut {
   my ( $self, $chr, $pos, $data) = @_;
 
+  if(!defined $pos) {
+    return $self->log('warn', "dbPut requires position");
+  }
+
+  if(!defined $data) {
+    $self->log('warn', "dbPut: attepmting to insert undefined data @ $chr:$pos");
+  }
+
   my $db = $self->_getDbi($chr);
   my $txn = $db->{env}->BeginTxn();
 
@@ -345,6 +353,15 @@ sub dbPutBulk {
   my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
   
   for my $pos (@$sortedPosAref) {
+    if(!defined $pos) {
+      $self->log('warn', "dbPutBulk: cannot insert data into undefined position in $chr");
+      next;
+    }
+
+    if(!defined $posHref->{$pos}) {
+      $self->log('warn', "dbPutBulk: inserting undefined value into $chr:$pos");
+    }
+
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
