@@ -56,6 +56,10 @@ sub getFieldDbName {
     $_[0]->addMetaField( $_[1] );
   }
   
+  if(!defined $fieldNamesMap->{$_[0]->name}->{$_[1]} ) {
+    return $_[0]->log('fatal', "getFieldDbName failed to find or make a dbName for $_[1]");
+  }
+
   return $fieldNamesMap->{$_[0]->name}->{$_[1]};
 }
 
@@ -72,8 +76,8 @@ sub getFieldName {
     $_[0]->_fetchMetaFields();
   }
 
-  if(! exists $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] } ) {
-    return;
+  if(! defined $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] } ) {
+    return $_[0]->log('fatal', "getFieldName failed to find a name for $_[1]");
   }
 
   return $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] };

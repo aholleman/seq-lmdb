@@ -115,6 +115,8 @@ sub buildTrack {
       my $mergeFunc = $self->makeMergeFunc();
       # Record which chromosomes were recorded for completionMeta
       my %visitedChrs;
+
+      my %fieldDbNames;
       FH_LOOP: while ( my $line = $fh->getline() ) {
         chomp $line;
 
@@ -164,15 +166,19 @@ sub buildTrack {
 
         # Collect all of the feature data as an array
         # Coerce the field into the type specified for $name, if coercion exists
+        # Perl arrays auto-grow https://www.safaribooksonline.com/library/view/perl-cookbook/1565922433/ch04s04.html
         my @sparseData;
-        # Initialize to the size wanted, so we can place in the right index
-        $#sparseData = $#allWantedFeatureIdx;
-
+        
         # Get the field values after transforming them to desired types
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
           
-          $sparseData[ $self->getFieldDbName($name) ] = $value;
+          if(!exists $fieldDbNames{$name}) {
+            $fieldDbNames{$name} = $self->getFieldDbName($name);
+          }
+
+          # getFieldDbName will croak if it can't make or find a dbName
+          $sparseData[ $fieldDbNames{$name} ] = $value;
         }
 
         # For now, don't shrink the array; this will make merging less informative
@@ -206,7 +212,7 @@ sub buildTrack {
           $data{$pos} = $namedData;
           $count++;
         
-          if($count >= $self->commitEvery) {
+          if($count >= $self->commitEvery && %data) {
             $self->db->dbPatchBulkArray($wantedChr, \%data, undef, $mergeFunc);
 
             undef %data;

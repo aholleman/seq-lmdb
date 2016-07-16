@@ -21,6 +21,7 @@ use Sort::XS;
 use DDP;
 use Hash::Merge::Simple qw/ merge /;
 use Path::Tiny;
+use Scalar::Util qw/looks_like_number/;
 
 # Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
@@ -151,11 +152,19 @@ sub dbPatchHash {
     
     my ($trackKey, $trackValue) = %{$dataHref};
 
+    if(!defined $trackKey || ref $trackKey ) {
+      $self->log('fatal', "dbPatchHash requires scalar trackKey");
+    }
+
+    if(!defined $trackValue) {
+      $self->log('fatal', "dbPatchHash requires trackValue");
+    }
+
     if( defined $href->{$trackKey} ) {
       # Deletion and insertion are mutually exclusive
       if($self->delete) {
         delete $href->{$trackKey};
-      } elsif($mergeFunc) {
+      } elsif(defined $mergeFunc) {
         $href->{$trackKey} = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
       } else {
         # If not overwriting, nothing to do, return from function
@@ -210,6 +219,14 @@ sub dbPatchBulkArray {
 
     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
     
+    if(!defined $trackIndex || ! looks_like_number($trackIndex) ) {
+      $self->log('fatal', "dbPatchBulkAsArray requies numeric trackIndex");
+    }
+
+    if(!defined $trackValue) {
+      $self->log('fatal', "dbPatchBulkAsArray requires trackValue");
+    }
+
     my $json; #zero-copy
     $txn->get($dbi, $pos, $json);
 
@@ -234,9 +251,10 @@ sub dbPatchBulkArray {
           # To preserve the order/meaning of the indices
           if($trackIndex == $#$aref) {
             # Avoid side-effects (compact array only if trackIndex is last)
+            # https://www.safaribooksonline.com/library/view/perl-cookbook/1565922433/ch04s04.html
             SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
               if(!defined $aref->[$i]) {
-                splice(@$aref, $i, 1);
+                $#$aref--;
                 next SHORTEN_LOOP;
               }
               # Found a defined value, can shorten no more
@@ -251,7 +269,8 @@ sub dbPatchBulkArray {
         }
 
         if(defined $mergeFunc) {
-          $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
+          $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex,
+            $aref->[$trackIndex], $trackValue);
 
           $out{$pos} = $aref;
           next;
@@ -259,6 +278,7 @@ sub dbPatchBulkArray {
 
         if($self->overwrite) {
           $aref->[$trackIndex] = $trackValue;
+
           $out{$pos} = $aref;
           next
         }
@@ -276,20 +296,9 @@ sub dbPatchBulkArray {
     }
 
     # Either $json not defiend ($aref empty) or trackIndex not defined
-    # If array is large enough to accomodate $trackIndex, set trackValue
-    # Else, grow it to the correct size, and set trackValue as the last element
-    if($#$aref >= $trackIndex) {
-      $aref->[$trackIndex] = $trackValue;
-    } else {
-      # Array is shorter, down to 0 length #https://ideone.com/SdwXgu
-      for (my $i = @$aref; $i < $trackIndex; $i++) {
-        # Won't push anything if @$aref == $trackIndex + 1
-        push @$aref, undef;
-      }
-
-      # Make the trackValue the last entry, guaranteed to be @ $aref->[$trackIndex]
-      push @$aref, $trackValue;
-    }
+    # Assigning an element to the array auto grows it
+    #https://ideone.com/Wzjmrl
+    $aref->[$trackIndex] = $trackValue;
     
     $out{$pos} = $aref;
   }

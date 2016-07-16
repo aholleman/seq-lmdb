@@ -290,10 +290,14 @@ ok($rsNumber eq 'rs587697622', "snp142 sparse track ok at chr22:16050074");
 $dataAref = $tracks->db->dbRead('chr22', 16112390 );
 $snpValHref = $snpTrack->get($dataAref);
 p $dataAref;
+
 say "snpValHref is";
 p $snpValHref;
-$rsNumber = $snpValHref->{name};
-ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112390");
+
+if( $rsNumber = $snpValHref->{name} ) {
+  ok($rsNumber eq 'rs2844929', "snp142 sparse track ok at chr22:16112390");
+
+}
 
 #test an indel
 $dataAref = $tracks->db->dbRead('chr22', [16140742 .. 16140746 - 1] );
@@ -302,17 +306,21 @@ my $snpValAref;
 #4 long
 for my $data (@$dataAref) {
   $snpValHref = $snpTrack->get($data);
-  my $rsNumber = $snpValHref->{name};
-  ok($rsNumber eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
+  if( $rsNumber = $snpValHref->{name} ) {
+    ok($rsNumber eq 'rs577706315', "snp142 sparse track ok at the indel chr22:16140742 .. 16140746");
+  }
 }
 
 #end of chr22 snp142 file
 $dataAref = $tracks->db->dbRead('chr22', 51244514);
-$snpValHref = $snpTrack->get($dataAref);
-$rsNumber = $snpValHref->{name};
 say "showing data for chr22:51244514";
 p $dataAref;
-ok($rsNumber eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
+
+$snpValHref = $snpTrack->get($dataAref);
+
+if($rsNumber = $snpValHref->{name}) {
+  ok($rsNumber eq 'rs202006767', "snp142 sparse track ok at chr22:51244514 (end)");
+}
 
 $dataAref = $tracks->db->dbRead('chr22', 51244515 );
 $snpValHref = $snpTrack->get($dataAref);
@@ -328,9 +336,8 @@ say "data at 51194992";
 p $dataAref;
 
 $snpValHref = $snpTrack->get($dataAref);
-$rsNumber = $snpValHref->{name};
 
-if($rsNumber) {
+if($rsNumber = $snpValHref->{name}) {
   foreach (@$rsNumber) {
     ok($_ eq 'rs751040459' || $_ eq 'rs536522481', "indel snp142 sparse track ok at chr22:51194992 (overlaps another snp)");
   }
