@@ -15,27 +15,29 @@ with 'Seq::Role::Message';
 has name => ( is => 'ro', isa => 'Str', required => 1 );
 has db => (is => 'ro', isa => 'Seq::DBManager', required => 1);
 
+############################ Private attributes ########################
+# Instance variable holding completion status for this $self->name db
+has _completed => (is => 'ro', init_arg => undef, default => sub{ {} });
+
 state $metaKey = 'completed';
 
+###################### Public Methods ######################
 sub okToBuild {
   my ($self, $chr) = @_;
 
-  if($self->isCompleted($chr) ) {
+  if($self->_isCompleted($chr) ) {
     if(!$self->db->delete && !$self->db->overwrite) {
       return $self->log('debug', "$chr recorded completed for " . $self->name .
-        "overwrite NOR delete not set, not ok to build $chr " . $self->name . " db");
+        ". Since neither overwrite nor delete set, not ok to build $chr " . $self->name . " db");
     }
     # Else we're either erasing or re-creating the db; need to erase completion status
-    $self->eraseCompletionMeta($chr);
+    $self->_eraseCompletionMeta($chr);
   }
 
   $self->log('debug', "Ok to build $chr " . $self->name . " db");
 
   return 1;
 }
-
-#hash of completion status
-state $completed;
 
 sub recordCompletion {
   my ($self, $chr) = @_;
@@ -54,12 +56,13 @@ sub recordCompletion {
     return $self->log('fatal', $err);
   }
 
-  $completed->{$chr} = 1;
+  $self->_completed->{$chr} = 1;
 
   $self->log('debug', "Recorded completion of $chr (set to 1) for " . $self->name . " db");
 };
 
-sub eraseCompletionMeta {
+########################### Private Methods ############################
+sub _eraseCompletionMeta {
   my ($self, $chr) = @_;
   
   # Overwrite any existing entry for $chr
@@ -69,27 +72,27 @@ sub eraseCompletionMeta {
     return $self->log('fatal', $err);
   }
 
-  $completed->{$chr} = 0;
+  $self->_completed->{$chr} = 0;
 
   $self->log('debug', "Erased completion of $chr (set to 0) for " . $self->name . " db");
 };
 
-sub isCompleted {
+sub _isCompleted {
   my ($self, $chr) = @_;
 
-  if(defined $completed->{$chr} ) {
-    return $completed->{$chr};
+  if(defined $self->_completed->{$chr} ) {
+    return $self->_completed->{$chr};
   }
 
   my $allCompleted = $self->db->dbReadMeta($self->name, $metaKey);
   
   if($allCompleted && defined $allCompleted->{$chr} && $allCompleted->{$chr} == 1) {
-    $completed->{$chr} = 1;
+    $self->_completed->{$chr} = 1;
   } else {
-    $completed->{$chr} = 0;
+    $self->_completed->{$chr} = 0;
   }
   
-  return $completed->{$chr};
+  return $self->_completed->{$chr};
 };
 
 __PACKAGE__->meta->make_immutable;

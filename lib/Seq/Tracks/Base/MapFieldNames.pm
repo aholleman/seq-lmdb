@@ -21,7 +21,11 @@ with 'Seq::Role::Message';
 has name => (is => 'ro', isa => 'Str', required => 1);
 has debug => (is => 'ro', lazy => 1, default => 0);
 
-################ Priavte ##################
+################ Private ##################
+# Share state across all names because the order of one track must account
+# for that of all others
+# At the moment we chose to store the track dbName in the track's $self->name_meta
+# property, but we do not have to; implementation detail that is invisible to consumer
 #the hash of names => dbName map
 state $fieldNamesMap;
 #the hash of dbNames => names
