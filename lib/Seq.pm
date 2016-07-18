@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Annotate a snp file
 
 use Mouse 2;
-use Types::Path::Tiny qw/Path AbsPath/;
+use Types::Path::Tiny qw/AbsPath AbsFile/;
 use namespace::autoclean;
 
 use DDP;
@@ -84,7 +84,7 @@ sub BUILD {
 
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
-  $db->setDbReadOnly(1);
+  $db->setReadOnly(1);
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
@@ -122,11 +122,14 @@ sub annotate_snpfile {
 
   chomp $firstLine;
   
+  my @firstLine;
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
-    $inputFileProcessor->checkInputFileHeader([ split $delimiter, $1 ]);
+    @firstLine = split $delimiter, $1;
   } else {
     $self->log('fatal', "First line of input file has illegal characters");
   }
+
+  $inputFileProcessor->checkInputFileHeader(\@firstLine);
 
   ########## Gather the input fields we want to use ################
   $chrFieldIdx = $inputFileProcessor->chrFieldIdx;
@@ -155,7 +158,7 @@ sub annotate_snpfile {
   say $outFh $headers->getString();
 
   ############# Set the sample ids ###############
-  $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx( $firstLine ) };
+  $sampleIDsToIndexesMap = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
 
   $sampleIDaref =  [ sort keys %$sampleIDsToIndexesMap ];
 
@@ -188,7 +191,6 @@ sub annotate_snpfile {
         my @fields = split $delimiter, $line;
 
         if ( !$refTrackGetter->chrIsWanted($fields[0] ) ) {
-          $self->log('info', "Didn't recognize $fields[0], skipping");
           next;
         }
 
@@ -308,13 +310,7 @@ sub annotateLines {
         @positions = (); @output = (); @inputData = ();
       }
 
-      my $chr = $fieldsAref->[$chrFieldIdx];
-
-      $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
-    }
-
-    if(!$wantedChr) {
-      next;
+      $wantedChr = $fieldsAref->[$chrFieldIdx];
     }
 
     if( $fieldsAref->[$referenceFieldIdx] eq $fieldsAref->[$alleleFieldIdx] ) {
@@ -354,10 +350,10 @@ sub annotateLines {
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
-my %hets = {K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1};
-my %homs = {A => 1,C => 1,G => 1,T => 1,D => 1,I => 1};
-my %iupac = {A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
-  Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*'};
+my %hets = (K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1);
+my %homs = (A => 1,C => 1,G => 1,T => 1,D => 1,I => 1);
+my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
+  Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*');
 
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package

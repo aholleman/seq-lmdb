@@ -73,8 +73,13 @@ sub makeOutputString {
             next CHILD;
           }
 
-          if( @{ $href->{$feature} } == 1 ) {
-            push @singleLineOutput, $href->{$feature}[0];
+          if( ! @{ $href->{$parent}{$child} } ) {
+            push @singleLineOutput, 'NA';
+            next PARENT;
+          }
+
+          if( @{ $href->{$parent}{$child} } == 1 ) {
+            push @singleLineOutput, $href->{$parent}{$child}[0];
             next PARENT;
           }
 

@@ -7,7 +7,8 @@ use File::Basename;
 
 use Mouse;
 
-use Types::Path::Tiny qw/Path File AbsFile AbsPath/;
+use Path::Tiny;
+# use Types::Path::Tiny qw/Path File AbsFile AbsPath/;
 use Mouse::Util::TypeConstraints;
 
 use namespace::autoclean;
@@ -15,12 +16,17 @@ use namespace::autoclean;
 use DDP;
 
 use YAML::XS qw/LoadFile/;
-use Path::Tiny;
+
 
 use Getopt::Long::Descriptive;
 
 use Seq;
 with 'MouseX::Getopt', 'Seq::Role::Message';
+
+subtype AbsFile => as 'Path::Tiny';
+coerce AbsFile => from 'Str' => via { if(! -e $_) {die; }; path($_)->absolute; };
+  subtype AbsPath => as 'Path::Tiny';
+coerce AbsPath => from 'Str' => via { path($_)->absolute; };
 
 #without this, Getopt won't konw how to handle AbsFile, AbsPath, and you'll get
 #Invalid 'config_file' : File '/mnt/icebreaker/data/home/akotlar/my_projects/seq/1' does not exist
@@ -34,7 +40,7 @@ MouseX::Getopt::OptionTypeMap->add_option_type_to_map(
 ##########Parameters accepted from command line#################
 has snpfile => (
   is        => 'rw',
-  isa       => AbsFile,
+  isa       => 'AbsFile',
   coerce => 1,
   #handles => {openInputFile => 'open'},
   required      => 1,
@@ -49,7 +55,7 @@ has snpfile => (
 
 has out_file => (
   is          => 'ro',
-  isa         => AbsPath,
+  isa         => 'AbsPath',
   coerce      => 1,
   required    => 1,
   handles => {
@@ -62,7 +68,7 @@ has out_file => (
 
 has config => (
   is          => 'ro',
-  isa         => AbsFile,
+  isa         => 'AbsFile',
   coerce      => 1,
   required    => 1,
   handles     => {

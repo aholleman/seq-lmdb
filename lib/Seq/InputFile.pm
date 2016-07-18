@@ -97,7 +97,7 @@ sub getSampleNamesIdx {
   # for preceeding column's sample;
   # don't just check for ne '', to avoid simple header issues
   my %data;
-
+  
   for(my $i = $strt; $i <= $#$fAref; $i += 2) {
     $data{$fAref->[$i] } = $i;
   }
