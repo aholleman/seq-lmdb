@@ -73,15 +73,25 @@ sub makeOutputString {
             next CHILD;
           }
 
-          if( ! @{ $href->{$parent}{$child} } ) {
+          # if(ref $href->{$parent}{$child} eq 'HASH') {
+          #   push @singleLineOutput, $href->{$parent}{$child};
+          #   next CHILD;
+          # }
+
+          # Empty array
+          if( !@{ $href->{$parent}{$child} } ) {
             push @singleLineOutput, 'NA';
             next PARENT;
           }
 
-          if( @{ $href->{$parent}{$child} } == 1 ) {
-            push @singleLineOutput, $href->{$parent}{$child}[0];
-            next PARENT;
-          }
+          # if( @{ $href->{$parent}{$child} } == 1 && !ref $href->{$parent}{$child}[0] ) {
+          #   push @singleLineOutput, defined $href->{$parent}{$child}[0] ? $href->{$parent}{$child}[0] : 'NA';
+
+  
+
+          #   next PARENT;
+          # }
+
 
           my $accum = '';
           ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
@@ -91,8 +101,11 @@ sub makeOutputString {
             }
             # we could have an array of arrays, separate those by commas
             if(ref $_) {
-              $accum .= join(";", @$_) . ",";
-
+              for my $val (@{$_}) {
+                $accum .= defined $val ? "$val;" : 'NA;';
+              }
+              chop $accum;
+              $accum .= ',';
               next ACCUM;
             }
 
@@ -125,10 +138,10 @@ sub makeOutputString {
         next PARENT;
       }
 
-      if( @{ $href->{$feature} } == 1 ) {
-        push @singleLineOutput, $href->{$feature}[0];
-        next PARENT;
-      }
+      # if( @{ $href->{$feature} } == 1 && !ref $href->{$feature}[0] ) {
+      #   push @singleLineOutput, defined $href->{$feature}[0] ? $href->{$feature}[0] : 'NA';
+      #   next PARENT;
+      # }
 
       #TODO: could break this out into separate function;
       #need to evaluate performance implications
@@ -142,8 +155,11 @@ sub makeOutputString {
 
         # we could have an array of arrays, separate those by commas
         if(ref $_) {
-          $accum .= ',' . join(";", @$_) . ";";
-
+          for my $val (@{$_}) {
+            $accum .= defined $val ? "$val;" : 'NA;';
+          }
+          chop $accum;
+          $accum .= ",";
           next ACCUM;
         }
 

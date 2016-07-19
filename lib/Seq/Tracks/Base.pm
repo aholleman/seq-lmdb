@@ -30,7 +30,7 @@ has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
 
 # Some tracks may have a nearest property; these are stored as their own track, but
 # conceptually are a sub-track, 
-has nearestName => ( is => 'ro', isa => 'Str', init_arg => undef, default => 'nearest');
+has nearesTrackName => ( is => 'ro', isa => 'Str', init_arg => undef, default => 'nearest');
 
 has nearestDbName => ( is => 'ro', isa => 'Str', init_arg => undef, writer => '_setNearestDbName');
 
@@ -157,7 +157,7 @@ sub BUILD {
 
     $self->_setJoinTrackName($self->join->{track});
     $self->_setJoinTrackFeatures($self->join->{features});
-
+    
     #Each track gets its own private naming of join features
     #Since the track may choose to store these features as arrays
     #Again, needs to happen outside of thread, first time it's ever called

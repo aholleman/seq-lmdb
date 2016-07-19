@@ -1,7 +1,7 @@
 use 5.10.0;
 use strict;
 use warnings;
-
+# TODO: Think about allowing 3-deep hash
 package Seq::Tracks::Gene;
 
 our $VERSION = '0.001';
@@ -76,6 +76,7 @@ state $nearestSubTrackName;
 #### Add our other "features", everything we find for this site ####
 sub BUILD {
   my $self = shift;
+
   # Must instantiate in BUILD or after, to make sure it has been configured
   # with the database directory
   $db = $db || Seq::DBManager->new();
@@ -87,7 +88,7 @@ sub BUILD {
   $allCachedDbNames->{$self->name} = {};
 
   if($self->hasNearest) {
-    $nearestSubTrackName = $self->nearestName;
+    $nearestSubTrackName = $self->nearesTrackName;
 
     $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $self->nearestDbName;
   
@@ -99,8 +100,19 @@ sub BUILD {
     }
   }
 
-  for my $featureName ($self->allFeatureNames) {
-    $allCachedDbNames->{$self->name}{$featureName} = $self->getFieldDbName($featureName);
+  if($self->join) {
+    $self->addFeaturesToHeader( [ map { $self->joinTrackName . ".$_" }
+      @{$self->joinTrackFeatures} ], $self->name);
+
+    # TODO: ould theoretically be overwritten by line 114
+    #the features specified in the region database which we want for nearest gene records
+    for my $fName ( @{$self->joinTrackFeatures} ) {
+      $allCachedDbNames->{$self->name}{$fName} = $self->getFieldDbName($fName);
+    }
+  }
+
+  for my $fName ($self->allFeatureNames) {
+    $allCachedDbNames->{$self->name}{$fName} = $self->getFieldDbName($fName);
   }
 };
 
@@ -122,7 +134,7 @@ sub get {
   if(!defined $geneTrackRegionHref->{$self->name}{$chr} ) {
     $geneTrackRegionHref->{$self->name}{$chr} = $db->dbReadAll( $self->regionTrackPath($chr) );
   }
-
+  
   ####### Get all transcript numbers, and site data for this position #########
 
   #<ArrayRef> $unpackedSites ; <ArrayRef|Int> $txNumbers
@@ -135,7 +147,7 @@ sub get {
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
-  if(!$self->noNearestFeatures) {
+  if($self->hasNearest) {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
@@ -149,6 +161,16 @@ sub get {
           }
       }
     }# else { $self->log('warn', "no " . $self->name . " or " . $nearestSubTrackName . " found"); }
+  }
+
+  if($txNumbers && $self->join) {
+    for my $txNumber(ref $txNumbers ? @$txNumbers : $txNumbers) {
+      #the features specified in the region database which we want for nearest gene records
+      for my $fName ( @{$self->joinTrackFeatures} ) {
+        push @{$out{$self->joinTrackName. ".$fName"} },
+         $geneTrackRegionHref->{$self->name}{$chr}{$txNumber}{$cachedDbNames->{$fName} };
+      }
+    }
   }
 
   state $siteTypeKey = $siteUnpacker->siteTypeKey;
