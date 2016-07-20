@@ -307,6 +307,8 @@ sub annotateLines {
         # Accumulate the output
         $outputString .= $outputter->makeOutputString(\@output);
 
+        # $outputter->indexOutput(\@output);
+
         @positions = (); @output = (); @inputData = ();
       }
 
@@ -347,6 +349,8 @@ sub annotateLines {
   # write everything for this part
   # This should come last, makeOutputString may mutate @output
   MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
+  
+  # $outputter->indexOutput(\@output);
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###

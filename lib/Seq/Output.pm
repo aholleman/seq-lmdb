@@ -5,8 +5,12 @@ use warnings;
 
 use Mouse 2;
 use Search::Elasticsearch;
+# use Search::Elasticsearch::Async;
+use Scalar::Util qw/looks_like_number/;
 
-my $e = Search::Elasticsearch->new();
+my $e = Search::Elasticsearch->new({
+  nodes => 'genome.local:9200',
+});
 
 use DDP;
 
@@ -18,6 +22,7 @@ has outputDataFields => (
   writer => 'setOutputDataFieldsWanted',
 );
 
+has index_id => (is => 'ro', isa => 'Str', lazy => 1, predicate => 'hasIndexId', default => 'test_job2');
 
 # ABSTRACT: Knows how to make an output string
 # VERSION
@@ -36,15 +41,6 @@ sub makeOutputString {
   for my $href (@$outputDataAref) {
     
     my @singleLineOutput;
-
-    # $e->index(
-    #   index => 'seqant',
-    #   type  => 'annotation',
-    #   id    => $count,
-    #   body  => $href,
-    # );
-
-    # $count++;
     
     PARENT: for my $feature ( @{$self->outputDataFields} ) {
       if(ref $feature) {
@@ -176,5 +172,58 @@ sub makeOutputString {
   return $outStr;
 }
 
+# TODO: In Go, or other strongly typed languages, type should be controlled
+# by the tracks. In Perl it carriers no benefit, except here, so keeping here
+# Otherwise, the Perl Elasticsearch client seems to treat strings that look like a number
+# as a string
+# Oh, and the reason we don't store all numbers as numbers in the db is because
+# we save space, because Perl's msgpack library doesn't support single-precision
+# floats.
+sub indexOutput {
+  my ($self, $outputDataAref) = @_;
+
+  # my $bulk = $e->bulk_helper(
+  #   index   => 'test_job6', type => 'job',
+  # );
+
+  my @out;
+  my $count = 1;
+  for my $href (@$outputDataAref) {
+    my %doc;
+    PARENT: for my $feature ( @{$self->outputDataFields} ) {
+      if(ref $feature) {
+          #it's a trackName => {feature1 => value1, ...}
+          my ($parent) = %$feature;
+
+          CHILD: for my $child (@{ $feature->{$parent} } ) {
+            my $value;
+            if(defined $href->{$parent}{$child} && looks_like_number($href->{$parent}{$child} ) ) {
+              $value = 0 + $href->{$parent}{$child};
+            }
+
+            if(index($child, ".") > -1) {
+              my @parts = split(/\./, $child);
+              $doc{$parent}{$parts[0]}{$parts[1]} = $value;
+              next CHILD;
+            }
+
+            $doc{$parent}{$child} = $value;
+          }
+          next PARENT;
+      }
+      
+      if(defined $href->{$feature} && looks_like_number($href->{$feature} ) ) {
+        $doc{$feature} = 0 + $href->{$feature};
+        next PARENT;
+      }
+
+      $doc{$feature} = $href->{$feature};
+      push @out, \%doc;
+    }
+  }
+  # $bulk->index({
+  #     source => \@out,
+  #   });
+}
 __PACKAGE__->meta->make_immutable;
 1;
