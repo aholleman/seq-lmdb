@@ -68,9 +68,6 @@ has local_files => (
 #most things are 0 based, including anything in bed format from UCSC, fasta files
 has based => ( is => 'ro', isa => 'Int', default => 0, lazy => 1);
 
-# The delimiter used in coercion commands
-has multi_delim => ( is => 'ro', lazy => 1, default => sub{qr/[,;]/});
-
 # If a row has a field that doesn't pass this filter, skip it
 has build_row_filters => (
   is => 'ro',
@@ -165,6 +162,18 @@ sub prepareData {
 }
 
 #########################Type Conversion, Input Field Filtering #########################
+# Some things may use an "NA" to represent an undefined value;
+sub coerceUndefinedValues {
+  my ($self, $dataStr) = @_;
+  # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
+  # Output.pm chooses to represent missing data as.
+  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
+    return undef;
+  }
+
+  return $dataStr;
+}
+
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
@@ -174,34 +183,26 @@ sub prepareData {
 state $converter = Seq::Tracks::Base::Types->new();
 sub coerceFeatureType {
   # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
-  my ($self, $feature, $dataStr) = @_;
-
-  # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
-  # Output.pm chooses to represent missing data as.
-  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
-    return undef;
-  }
+  my ($self, $feature, $data) = @_;
 
   # Don't mutate the input if no type is stated for the feature
   if($self->noFeatureTypes) {
-    return $dataStr;
+    return $data;
   }
 
   my $type = $self->getFeatureType( $feature );
 
-  # If the type is part of a list, we need to grab individual values
-  my @vals = split( $self->multi_delim, $dataStr );
-
+  my @vals;
   # modifying the value here actually modifies the value in the array
   # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
-  for my $val (@vals) {
-    if($val =~/^\s*$/) {
-      $val = undef;
-    }
+  for my $val (ref $data ? @$data : $data) {
+    $val = _coerceUndefinedValues($val);
 
     if(defined $type) {
       $val = $converter->convert($val, $type);
     }
+
+    push @vals, $val;
   }
 
   # In order to allow fields to be well-indexed by ElasticSearch or other engines
@@ -276,8 +277,8 @@ state $transformOperators = ['.', 'split'];
 sub transformField {
   state $cachedTransform;
   
-  if( defined $cachedTransform->{$_[1]} ) {
-    return &{ $cachedTransform->{$_[1]} }($_[2]);
+  if( defined $cachedTransform->{$_[0]->name}{$_[1]} ) {
+    return &{ $cachedTransform->{$_[0]->name}{$_[1]} }($_[2]);
   }
 
   #   $_[0],      $_[1],    $_[2]
@@ -303,7 +304,16 @@ sub transformField {
       $codeRef = sub {
         # my $fieldValue = shift;
         # same as $_[0];
-        my @data = split(/$rightHand/, $_[0]);
+        my @data = split(/$rightHand/, $_[0] );
+
+        # Some fields may contain no data after the delimiter,
+        # which will lead to blank data, don't keep that
+        foreach(split(/$rightHand/, $_[0]) ) {
+          if($_ ne '') {
+            push @data, $_;
+          }
+        }
+
         return @data == 1 ? $data[0] : \@data;
       }
     }
@@ -322,9 +332,20 @@ sub transformField {
     return $featureValue;
   }
   
-  $cachedTransform->{$featureName} = $codeRef;
+  $cachedTransform->{$self->name}{$featureName} = $codeRef;
 
   return &{$codeRef}($featureValue);
+}
+
+sub _coerceUndefinedValues {
+  my $dataStr = shift;
+  # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
+  # Output.pm chooses to represent missing data as.
+  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
+    return undef;
+  }
+
+  return $dataStr;
 }
 
 sub _isTransformOperator {

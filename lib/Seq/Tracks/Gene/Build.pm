@@ -150,6 +150,10 @@ sub buildTrack {
 
         my $allDataHref;
         ACCUM_VALUES: for my $fieldName (keys %allIdx) {
+          if($self->hasTransform($fieldName) ) {
+            $fields[ $allIdx{$fieldName} ] = $self->transformField($fieldName, $fields[ $allIdx{$fieldName} ]);
+          }
+          
           my $data = $self->coerceFeatureType($fieldName, $fields[ $allIdx{$fieldName} ]);
           
           if(!defined $data) {

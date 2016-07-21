@@ -64,7 +64,7 @@ has fieldNames => (is => 'ro', init_arg => undef, default => sub {
 }, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
-has wantedChr => (is => 'ro', isa => 'Str');
+has wantedChr => (is => 'ro', isa => 'Maybe[Str]');
 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int

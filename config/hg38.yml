@@ -1,188 +1,178 @@
----
-genome_chrs:
-  - chr1
-  - chr2
-  - chr3
-  - chr4
-  - chr5
-  - chr6
-  - chr7
-  - chr8
-  - chr9
-  - chr10
-  - chr11
-  - chr12
-  - chr13
-  - chr14
-  - chr15
-  - chr16
-  - chr17
-  - chr18
-  - chr19
-  - chr20
-  - chr21
-  - chr22
-  - chrM
-  - chrX
-  - chrY
-genome_description: human
-genome_name: hg38 #not sure if necessary
-database_dir: /ssd/seqant_db_build/hg38_refGene_snp142/index
-files_dir: /ssd/seqant_db_build/hg38_refGene_snp142/raw
+assembly: hg38
+chromosomes:
+- chr1
+- chr2
+- chr3
+- chr4
+- chr5
+- chr6
+- chr7
+- chr8
+- chr9
+- chr10
+- chr11
+- chr12
+- chr13
+- chr14
+- chr15
+- chr16
+- chr17
+- chr18
+- chr19
+- chr20
+- chr21
+- chr22
+- chrM
+- chrX
+- chrY
+database_dir: /ssd/seqant_db_build/hg38_snp146/index_lmdb/
+files_dir: /ssd/seqant_db_build/hg38_snp146/raw/
+output:
+  order:
+  - hg38
+  - refSeq
+  - snp146
+  - clinvar
+  - cadd
+  - phastCons
+  - phyloP
+statistics:
+  gene_track: refSeq
+  snp_track: snp146
 tracks:
-- name: ref
+- local_files:
+  - chr*.fa.gz
+  name: hg38
+  remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg38/chromosomes/
+  remote_files:
+  - chr1.fa.gz
+  - chr2.fa.gz
+  - chr3.fa.gz
+  - chr4.fa.gz
+  - chr5.fa.gz
+  - chr6.fa.gz
+  - chr7.fa.gz
+  - chr8.fa.gz
+  - chr9.fa.gz
+  - chr10.fa.gz
+  - chr11.fa.gz
+  - chr12.fa.gz
+  - chr13.fa.gz
+  - chr14.fa.gz
+  - chr15.fa.gz
+  - chr16.fa.gz
+  - chr17.fa.gz
+  - chr18.fa.gz
+  - chr19.fa.gz
+  - chr20.fa.gz
+  - chr21.fa.gz
+  - chr22.fa.gz
+  - chrM.fa.gz
+  - chrX.fa.gz
+  - chrY.fa.gz
   type: reference
+- features:
+  - kgID
+  - mRNA
+  - spID
+  - spDisplayID
+  - geneSymbol
+  - refseq
+  - protAcc
+  - description
+  - rfamAcc
+  - name
   local_files:
-    - chr1.fa.gz
-    - chr2.fa.gz
-    - chr3.fa.gz
-    - chr4.fa.gz
-    - chr5.fa.gz
-    - chr6.fa.gz
-    - chr7.fa.gz
-    - chr8.fa.gz
-    - chr9.fa.gz
-    - chr10.fa.gz
-    - chr11.fa.gz
-    - chr12.fa.gz
-    - chr13.fa.gz
-    - chr14.fa.gz
-    - chr15.fa.gz
-    - chr16.fa.gz
-    - chr17.fa.gz
-    - chr18.fa.gz
-    - chr19.fa.gz
-    - chr20.fa.gz
-    - chr21.fa.gz
-    - chr22.fa.gz
-    - chrM.fa.gz
-    - chrX.fa.gz
-    - chrY.fa.gz
-  remote_dir: hgdownload.soe.ucsc.edu/goldenPath/hg38/chromosomes/
-  remote_files:
-    - chr1.fa.gz
-    - chr2.fa.gz
-    - chr3.fa.gz
-    - chr4.fa.gz
-    - chr5.fa.gz
-    - chr6.fa.gz
-    - chr7.fa.gz
-    - chr8.fa.gz
-    - chr9.fa.gz
-    - chr10.fa.gz
-    - chr11.fa.gz
-    - chr12.fa.gz
-    - chr13.fa.gz
-    - chr14.fa.gz
-    - chr15.fa.gz
-    - chr16.fa.gz
-    - chr17.fa.gz
-    - chr18.fa.gz
-    - chr19.fa.gz
-    - chr20.fa.gz
-    - chr21.fa.gz
-    - chr22.fa.gz
-    - chrM.fa.gz
-    - chrX.fa.gz
-    - chrY.fa.gz
-- name: phastCons
-  type: score
-  local_files:
-    - hg38.phastCons7way.wigFix.gz
-  remote_dir: hgdownload.soe.ucsc.edu/goldenPath/hg38/phastCons7way/
-  remote_files:
-    - hg38.phastCons7way.wigFix.gz
-- name: phyloP
-  type: score
-  local_files:
-    - hg38.phastCons7way.wigFix.gz
+  - hg38.refSeq.chr*.gz
+  name: refSeq
+  nearest:
+    - name
+    - geneSymbol
+  join:
+    features:
+      - PhenotypeIDs
+      - OtherIDs
+    track: clinvar
+  sql_statement: SELECT * FROM hg38.refGene LEFT JOIN hg38.kgXref ON hg38.kgXref.refseq
+    = hg38.refGene.name
+  type: gene
+- local_files:
+    - hg38.phyloP7way.wigFix.gz
+  name: phyloP
   remote_dir: hgdownload.soe.ucsc.edu/goldenPath/hg38/phyloP7way/
   remote_files:
     - hg38.phyloP7way.wigFix.gz
-- name: phyloP
   type: score
-  local_files:
-    - hg38.cadd.gz
-  remote_dir: NA
+- local_files:
+    - hg38.phastCons7way.wigFix.gz
+  name: phastCons
+  remote_dir: hgdownload.soe.ucsc.edu/goldenPath/hg38/phastCons7way/
   remote_files:
-    - NA
-- name: refGene
-  type: gene
-  features:
-    - kgID
-    - mRNA
-    - spID
-    - spDisplayID
-    - geneSymbol
-    - refseq
-    - protAcc
-    - description
-    - rfamAcc
-  # exclude:
-  #   - ngene
+    - hg38.phastCons7way.wigFix.gz
+  type: score
+- local_files:
+    -  whole_genome_SNVs.tsv.chr*.bed.mapped.gz
+  name: cadd
+  type: cadd
+- features:
+  - name
+  - strand
+  - observed
+  - class
+  - func
+  - alleles
+  - alleleNs: int
+  - alleleFreqs: float
   local_files:
-    - hg38.refGene.chr1.txt
-    - hg38.refGene.chr2.txt
-    - hg38.refGene.chr3.txt
-    - hg38.refGene.chr4.txt
-    - hg38.refGene.chr5.txt
-    - hg38.refGene.chr6.txt
-    - hg38.refGene.chr7.txt
-    - hg38.refGene.chr8.txt
-    - hg38.refGene.chr9.txt
-    - hg38.refGene.chr10.txt
-    - hg38.refGene.chr11.txt
-    - hg38.refGene.chr12.txt
-    - hg38.refGene.chr13.txt
-    - hg38.refGene.chr14.txt
-    - hg38.refGene.chr15.txt
-    - hg38.refGene.chr16.txt
-    - hg38.refGene.chr17.txt
-    - hg38.refGene.chr18.txt
-    - hg38.refGene.chr19.txt
-    - hg38.refGene.chr20.txt
-    - hg38.refGene.chr21.txt
-    - hg38.refGene.chr22.txt
-    - hg38.refGene.chrX.txt
-    - hg38.refGene.chrY.txt
-  sql_statement: SELECT _gene_fields FROM hg38.refGene LEFT JOIN hg38.kgXref ON hg38.kgXref.refseq
-    = hg38.refGene.name
-- name: snp142
-  type: snp
+  - hg38.snp146.chr1.gz
+  - hg38.snp146.chr2.gz
+  - hg38.snp146.chr3.gz
+  - hg38.snp146.chr4.gz
+  - hg38.snp146.chr5.gz
+  - hg38.snp146.chr6.gz
+  - hg38.snp146.chr7.gz
+  - hg38.snp146.chr8.gz
+  - hg38.snp146.chr9.gz
+  - hg38.snp146.chr10.gz
+  - hg38.snp146.chr11.gz
+  - hg38.snp146.chr12.gz
+  - hg38.snp146.chr13.gz
+  - hg38.snp146.chr14.gz
+  - hg38.snp146.chr15.gz
+  - hg38.snp146.chr16.gz
+  - hg38.snp146.chr17.gz
+  - hg38.snp146.chr18.gz
+  - hg38.snp146.chr19.gz
+  - hg38.snp146.chr20.gz
+  - hg38.snp146.chr21.gz
+  - hg38.snp146.chr22.gz
+  - hg38.snp146.chrM.gz
+  - hg38.snp146.chrX.gz
+  - hg38.snp146.chrY.gz
+  name: snp146
+  sql_statement: SELECT * FROM hg38.snp146
+  type: sparse
+- 
+  based: 1
+  build_field_transformations:
+    Chromosome: chr .
+  build_row_filters:
+    Assembly: == GRCh38
   features:
-    - name
-    - strand
-    - refUCSC
-    - observed
-    - func
-    - alleleFreqCount
-    - alleles
-    - alleleNs
-    - alleleFreqs
+    - ClinicalSignificance
+    - Type
+    - Origin
+    - ReviewStatus
+    - OtherIDs
+    - ReferenceAllele
+    - AlternateAllele
+    - PhenotypeIDs
   local_files:
-    - hg38.snp142.chr1.txt
-    - hg38.snp142.chr2.txt
-    - hg38.snp142.chr3.txt
-    - hg38.snp142.chr4.txt
-    - hg38.snp142.chr5.txt
-    - hg38.snp142.chr6.txt
-    - hg38.snp142.chr7.txt
-    - hg38.snp142.chr8.txt
-    - hg38.snp142.chr9.txt
-    - hg38.snp142.chr10.txt
-    - hg38.snp142.chr11.txt
-    - hg38.snp142.chr12.txt
-    - hg38.snp142.chr13.txt
-    - hg38.snp142.chr14.txt
-    - hg38.snp142.chr15.txt
-    - hg38.snp142.chr16.txt
-    - hg38.snp142.chr17.txt
-    - hg38.snp142.chr18.txt
-    - hg38.snp142.chr19.txt
-    - hg38.snp142.chr20.txt
-    - hg38.snp142.chr21.txt
-    - hg38.snp142.chr22.txt
-    - hg38.snp142.chrM.txt
-    - hg38.snp142.chrX.txt
-    - hg38.snp142.chrY.txt
-  sql_statement: SELECT _snp_fields FROM hg38.snp142
+    - clinvar_variant_summary.txt
+  name: clinvar
+  required_fields_map:
+    Chromosome: chrom
+    Start: chromStart
+    Stop: chromEnd
+  type: sparse
+

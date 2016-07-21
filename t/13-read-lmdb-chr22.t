@@ -358,13 +358,31 @@ my $geneSymbol = reduce { $a eq $b ? $a : $b } @{$geneTrackData->{geneSymbol} };
 ok($geneSymbol eq 'ZNRF3', 'geneSymbol correct (ZNRF3)');
 
 say "Checking -1";
-my $dataHref = $tracks->db->dbRead('chr3', -1 );
+my $dataHref = $tracks->db->dbRead('chr22', -1 );
 
 say "dataHref for -1 is";
 p $dataHref;
 
+say "checking 29130458";
+my $dataHref = $tracks->db->dbRead('chr22', 29130458 );
 
+say "dataHref for 29130458 is";
+p $dataHref;
 
+my $dataHref = $tracks->db->dbRead('chr22', 29130458 - 1 );
+
+say "dataHref for 29130458 - 1 is";
+p $dataHref;
+
+my $dataHref = $tracks->db->dbRead('chr22', 29130458 - 2 );
+
+say "dataHref for 29130458 - 2 is";
+p $dataHref;
+
+my $dataHref = $tracks->db->dbRead('chr22', 29130458 + 1 );
+
+say "dataHref for 29130458 + 1 is";
+p $dataHref;
 # $dataAref = $tracks->db->dbRead('chr1', 60523-1 );
 # $refBase = $refTrack->get($dataAref);
 # ok($refBase eq 'T', 'ref track ok @ chr1: 60523');

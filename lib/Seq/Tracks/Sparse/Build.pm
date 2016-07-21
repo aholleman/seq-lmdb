@@ -126,11 +126,11 @@ sub buildTrack {
           next FH_LOOP;
         }
 
-        $self->_transform($fieldsToTransformIdx, \@fields);
-
         if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
           next FH_LOOP;
         }
+        
+        $self->_transform($fieldsToTransformIdx, \@fields);
 
         my $chr = $fields[ $reqIdxHref->{$self->chrom_field_name} ];
 
@@ -280,12 +280,12 @@ sub joinTrack {
         next FH_LOOP;
       }
 
-      $self->_transform($fieldsToTransformIdx, \@fields);
-
       if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
         $self->log('info', "Line # $. didn't pass all filters: $line");
         next FH_LOOP;
       }
+
+      $self->_transform($fieldsToTransformIdx, \@fields);
 
       my $chr = $fields[ $reqIdxHref->{$self->chrom_field_name} ];
 
