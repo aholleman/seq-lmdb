@@ -245,25 +245,6 @@ sub dbPatchBulkArray {
         # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
         if($self->delete) {
           $aref->[$trackIndex] = undef;
-
-          # If trackIndex is the last index in the array, safe to try to compact the array
-          # However, need to stop at the first defined value from array end
-          # To preserve the order/meaning of the indices
-          if($trackIndex == $#$aref) {
-            # Avoid side-effects (compact array only if trackIndex is last)
-            # https://www.safaribooksonline.com/library/view/perl-cookbook/1565922433/ch04s04.html
-            SHORTEN_LOOP: for (my $i = $#$aref; $i >= 0; $i--) {
-              if(!defined $aref->[$i]) {
-                $#$aref--;
-                next SHORTEN_LOOP;
-              }
-              # Found a defined value, can shorten no more
-              last SHORTEN_LOOP;
-            }
-          }
-          
-          # If the array is now 0 in size, store as an empty array, size is 1 byte
-          # Update the record that will be inserted to reflect the deletion
           $out{$pos} = $aref;
           next;
         }

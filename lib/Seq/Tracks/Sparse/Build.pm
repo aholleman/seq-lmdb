@@ -80,7 +80,15 @@ sub makeMergeFunc {
 
       push @{$updated[$i]}, $newTrackVal->[$i];
     }
-    
+      
+    # if($self->name eq 'snp146') {
+    #   say "oldVal is";
+    #   p $oldTrackVal;
+    #   say "newTrackVal is";
+    #   p $newTrackVal;
+    #   say "updated is";
+    #   p @updated;
+    # }
     return \@updated;
   }
 }
@@ -172,7 +180,7 @@ sub buildTrack {
         # Get the field values after transforming them to desired types
         FNAMES_LOOP: for my $name (keys %$featureIdxHref) {
           my $value = $self->coerceFeatureType( $name, $fields[ $featureIdxHref->{$name} ] );
-          
+
           if(!exists $fieldDbNames{$name}) {
             $fieldDbNames{$name} = $self->getFieldDbName($name);
           }
@@ -207,7 +215,7 @@ sub buildTrack {
 
         #adds $self->dbName to record to locate dbData
         my $namedData = $self->prepareData(\@sparseData);
-       
+        
         for my $pos (($start .. $end)) {
           $data{$pos} = $namedData;
           $count++;

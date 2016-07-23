@@ -204,7 +204,7 @@ sub coerceFeatureType {
 
     push @vals, $val;
   }
-
+  
   # In order to allow fields to be well-indexed by ElasticSearch or other engines
   # and to normalize delimiters in the output, anything that has a comma
   # (or whatever multi_delim set to), return as an array reference
@@ -304,17 +304,16 @@ sub transformField {
       $codeRef = sub {
         # my $fieldValue = shift;
         # same as $_[0];
-        my @data = split(/$rightHand/, $_[0] );
-
+        my @out;
         # Some fields may contain no data after the delimiter,
         # which will lead to blank data, don't keep that
         foreach(split(/$rightHand/, $_[0]) ) {
           if($_ ne '') {
-            push @data, $_;
+            push @out, $_;
           }
         }
 
-        return @data == 1 ? $data[0] : \@data;
+        return @out == 1 ? $out[0] : \@out;
       }
     }
   } elsif($self->_isTransformOperator($rightHand) ) {
