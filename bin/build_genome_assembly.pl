@@ -19,7 +19,7 @@ use Seq::Build;
 
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose,
-  $help,        $wantedChr,        
+  $help,        $wantedChr,        $dryRunInsertions, 
   $debug,       $overwrite,  $delete, $regionTrackOnly, $skipCompletionCheck
 );
 
@@ -37,6 +37,7 @@ GetOptions(
   'dlt|delete' => \$delete,
   'build_region_track_only' => \$regionTrackOnly,
   'skip_completion_check' => \$skipCompletionCheck,
+  'dry_run_insertions|dry' => \$dryRunInsertions,
 );
 
 if ($help) {
@@ -71,11 +72,12 @@ my $builder_options_href = {
   wantedType   => $wantedType,
   wantedName   => $wantedName,
   overwrite    => $overwrite || 0,
-  debug        => $debug,
+  debug        => $debug || 0,
   logPath      => $logPath,
   delete       => $delete || 0,
   build_region_track_only => $regionTrackOnly || 0,
   skip_completion_check => $skipCompletionCheck || 0,
+  dry_run_insertions => $dryRunInsertions || 0,
 };
 
 # my $log_file = path(".")->child($log_name)->absolute->stringify;

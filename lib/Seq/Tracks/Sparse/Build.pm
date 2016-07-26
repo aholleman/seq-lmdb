@@ -125,12 +125,15 @@ sub buildTrack {
       my %visitedChrs;
 
       my %fieldDbNames;
+
+      my $invalid;
       FH_LOOP: while ( my $line = $fh->getline() ) {
         chomp $line;
 
         my @fields = split("\t", $line);
 
         if(! $self->_validLine(\@fields, $., $reqIdxHref, $numColumns) ) {
+          $invalid++;
           next FH_LOOP;
         }
 
@@ -245,6 +248,7 @@ sub buildTrack {
         $self->completionMeta->recordCompletion($_);
       }
 
+      $self->log('info', "invalid lines found in $file: $invalid");
     $pm->finish(0);
   }
 

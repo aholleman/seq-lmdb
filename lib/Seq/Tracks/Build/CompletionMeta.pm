@@ -20,7 +20,6 @@ has db => (is => 'ro', isa => 'Seq::DBManager', required => 1);
 has _completed => (is => 'ro', init_arg => undef, default => sub{ {} });
 
 state $metaKey = 'completed';
-
 ###################### Public Methods ######################
 sub okToBuild {
   my ($self, $chr) = @_;

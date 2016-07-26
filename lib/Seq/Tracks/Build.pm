@@ -28,12 +28,16 @@ with 'Seq::Role::IO';
 # DB vars; we allow these to be set, don't specify much about them because
 # This package shouldn't be concerned with Seq::DBManager implementation details
 has overwrite => (is => 'ro', lazy => 1, default => 0);
-has delete => (is => 'ro', lazy => 1, default => 0);
+
+# Not working yet
+# has delete => (is => 'ro', lazy => 1, default => 0);
+
+has dry_run_insertions => (is => 'ro', lazy => 1, default => 0);
 
 # Every builder needs access to the database
 # Don't specify types because we do not allow consumers to set this attribute
 has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
-  return Seq::DBManager->new({ overwrite => $self->overwrite, delete => $self->delete})
+  return Seq::DBManager->new({overwrite => $self->overwrite, dry_run_insertions => $self->dry_run_insertions});
 });
 
 # Allows consumers to record track completion, skipping chromosomes that have 

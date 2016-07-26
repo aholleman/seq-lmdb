@@ -33,6 +33,8 @@ has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 # Flag for deleting tracks instead of inserting during patch* methods
 has delete => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 
+has dry_run_insertions => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
+
 # We expect the class to be used with one database directory only.
 # It's formally possible to use others as well, so we allow consumer to decide
 # By providing a way to set a singleton default
@@ -300,6 +302,10 @@ sub dbPatchBulkArray {
 sub dbPut {
   my ( $self, $chr, $pos, $data) = @_;
 
+  if($self->dry_run_insertions) {
+    return $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+  }
+
   if(!defined $pos) {
     return $self->log('warn', "dbPut requires position");
   }
@@ -325,6 +331,10 @@ sub dbPut {
 
 sub dbPutBulk {
   my ( $self, $chr, $posHref, $passedSortedPosAref) = @_;
+
+  if($self->dry_run_insertions) {
+    return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+  }
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
