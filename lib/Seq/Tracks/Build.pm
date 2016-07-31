@@ -27,12 +27,15 @@ with 'Seq::Role::IO';
 ############################# Public Exports ##################################
 # DB vars; we allow these to be set, don't specify much about them because
 # This package shouldn't be concerned with Seq::DBManager implementation details
-has overwrite => (is => 'ro', lazy => 1, default => 0);
+has overwrite => (is => 'ro');
 
 # Not working yet
 # has delete => (is => 'ro', lazy => 1, default => 0);
 
-has dry_run_insertions => (is => 'ro', lazy => 1, default => 0);
+has dry_run_insertions => (is => 'ro');
+
+
+has skip_completion_check => (is => 'ro');
 
 # Every builder needs access to the database
 # Don't specify types because we do not allow consumers to set this attribute
@@ -43,7 +46,8 @@ has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
 # Allows consumers to record track completion, skipping chromosomes that have 
 # already been built
 has completionMeta => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
-  return Seq::Tracks::Build::CompletionMeta->new({name => $self->name, db => $self->db});
+  return Seq::Tracks::Build::CompletionMeta->new({name => $self->name,
+    db => $self->db, skip_completion_check => $self->skip_completion_check});
 });
 
 # Transaction size. If large, re-use of pages may be inefficient

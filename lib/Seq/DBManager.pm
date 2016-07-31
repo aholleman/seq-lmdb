@@ -489,7 +489,7 @@ sub _getDbi {
   if($dbReadOnly) {
     $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOTLS | MDB_WRITEMAP;
+    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {

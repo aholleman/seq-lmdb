@@ -88,7 +88,7 @@ sub buildTrack {
       my %scores;
 
       my %out;
-      my $count = 0;
+      my %count;
       my $wantedChr;
 
       # Track which fields we recorded, to record in $self->completionMeta
@@ -100,7 +100,8 @@ sub buildTrack {
         # To reduce lock contention (maybe?), reduce database inflation mostly
         $self->commitEvery(1000);
       }
-      
+        
+      my $lastPosition;
       # File does not need to be sorted by chromosome, but each position
       # must be in a block of 3 (one for each possible allele)
       FH_LOOP: while ( my $line = $fh->getline() ) {
@@ -111,15 +112,12 @@ sub buildTrack {
         my $chr = $isBed ? $fields[0] : "chr$fields[0]";
 
         if( !$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
-          if(%out) {
+          if(defined $wantedChr && defined $out{$wantedChr} ) {
             if(!$wantedChr) { $self->log('fatal', "Changed chr @ line $., but no wantedChr");}
             
-            $self->db->dbPatchBulkArray($wantedChr, \%out);
-            undef %out; $count = 0;
-          }
-
-          if( %scores ) {
-            return $self->log('fatal', "Changed chr @ line # $. with un-saved scores");
+            $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
+            
+            delete $out{$wantedChr}; $count{$wantedChr} = 0;
           }
 
           if($wantedChr && $self->chrPerFile) {
@@ -138,14 +136,53 @@ sub buildTrack {
         # We expect either one chr per file, or all in one file
         # However, chr-split CADD files may have multiple chromosomes after liftover
         if(!$wantedChr) {
-          # So we require override 
+          # So we require sorted_guranteed flag for "last" optimization
           if($self->chrPerFile && $self->sorted_guaranteed) {
             last FH_LOOP;
           }
           next FH_LOOP;
         }
 
+        # We log these because cadd has a number of "M" bases, at least on chr3 in 1.3
+        if(! $fields[$refBaseIdx] =~ /ACTGN/) {
+          $self->log('warn', "Found non-ACTG reference, skipping line # $. : $line");
+          next FH_LOOP;
+        }
+
         my $dbPosition = $fields[1] - $based;
+
+        if(defined $lastPosition && $lastPosition != $dbPosition) {
+          if( !defined $scores{$wantedChr}{$lastPosition} ) {
+            # Could occur if we skipped the lastPosition because refBase didn't match
+            # assemblyRefBase
+            $self->log('warn', "lastPosition $lastPosition not found");
+          } else {
+            my $success = $self->_accumulateScores( $scores{$wantedChr}{$lastPosition}, $out{$wantedChr} );
+
+            if($success) {
+              $count{$wantedChr}++; delete $scores{$wantedChr}{$lastPosition};
+            }
+          }
+        }
+
+        if($count{$wantedChr} >= $self->commitEvery) {
+          if( !defined $out{$wantedChr} || !%{ $out{$wantedChr} } ) {
+            $self->log('fatal', "out{$wantedChr} empty");
+          }
+
+          $self->db->dbPatchBulkArray($wantedChr, $out{$wantedChr} );
+
+          $count{$wantedChr} = 0; delete $out{$wantedChr};
+        }
+
+        ##### Build up the scores into 3-mer (or 4-mer if ambiguous base) #####
+
+        # This site will be next in 1 iteration
+        $lastPosition = $dbPosition;
+
+        if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; }
+
+        if(!defined $count{$wantedChr}) { $count{$wantedChr} = 0; }
 
         my $altAllele = $fields[$altAlleleIdx];
         my $refBase = $fields[$refBaseIdx];
@@ -155,98 +192,92 @@ sub buildTrack {
         #   $self->log('fatal', "Found unreasonable position ($dbPosition) on line \#$.:$line");
         # }
 
-        # Specify 2 significant figures by default
-        if(defined $scores{ref} ) {
-          if($scores{ref} ne $refBase) {
+        # Checks against CADD score corruption
+        if(defined $scores{$wantedChr}{$dbPosition}{ref} ) {
+          if($scores{$wantedChr}{$dbPosition}{ref} ne $refBase) {
             return $self->log('fatal', "Multiple reference bases in 3-mer @ line # $. : $line");
           }
         } else {
-          $scores{ref} = $refBase;
-        }
-
-        if(defined $scores{pos} ) {
-          if($scores{pos} != $dbPosition) {
-            return $self->log('fatal', "3mer out of order @ line # $. : $line");
-          }
-        } else {
-          $scores{pos} = $dbPosition;
+          $scores{$wantedChr}{$dbPosition}{ref} = $refBase;
         }
 
         if(!defined $fields[$phastIdx]) {
           return $self->log('fatal', "No phast score found on line \#$.:$line");
         }
 
-        push @{$scores{scores} }, [$altAllele, $rounder->round($fields[$phastIdx] ) ];
-
-        # We expect 1 position to have 3 adjacent scores
-        if(@{$scores{scores} } < 3) {
-          next;
+        # Store the position to allow us to get our databases reference sequence
+        # This is also used in _accumulateScores to set the $out position
+        if(!defined $scores{$wantedChr}{$dbPosition}{pos}) {
+          $scores{$wantedChr}{$dbPosition}{pos} = $dbPosition;
         }
+        
+        push @{$scores{$wantedChr}{$dbPosition}{scores} }, [ $altAllele, $rounder->round( $fields[$phastIdx] ) ];
 
-        my $dbData = $self->db->dbRead($wantedChr, $scores{pos} );
+        ### Record that we visited the chr, to enable recordCompletion later ###
+        if(!defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 };
+
+        ########### Check refBase against the assembly's reference #############
+        my $dbData = $self->db->dbRead($wantedChr, $scores{$wantedChr}{$dbPosition}{pos} );
         my $assemblyRefBase = $refTrack->get($dbData);
 
         # When lifted over, reference base is not lifted, can cause mismatch
         # In these cases it makes no sense to store this position's CADD data
-        if( $assemblyRefBase ne $scores{ref} ) {
-          $self->log('warn', "Line \#$. assembly ref == $scores{ref}, CADD == $assemblyRefBase. Skipping.");
+        if( $assemblyRefBase ne $scores{$wantedChr}{$dbPosition}{ref} ) {
+          $self->log('warn', "Line \#$. CADD ref == $scores{ref}, Assembly ref == $assemblyRefBase. Skipping: $line");
           
-          undef %scores;
+          delete $scores{$wantedChr}{$dbPosition};
 
-          next;
+          next FH_LOOP;
         }
-
-        my @phastScores;
-        $#phastScores = 2;
-
-        for my $aref (@{$scores{scores} } ) {
-          my $index = $order->{$scores{ref} }{$aref->[0] };
-
-          # checks whether ref and alt allele are ACTG
-          if(!defined $index) {
-            $self->log('fatal', "ref $aref->[0] or allele $aref->[1] not ACTG");
-          }
-
-          $phastScores[$index] = $aref->[1];
-        }
-
-        # Check if the cadd 3-mer had non-unique alleles, or ANYTHING else went wrong
-        foreach (@phastScores) {
-          if(!defined $_) {
-            $self->log('fatal', "Found less than 3 unique alleles in CADD 3-mer");
-          }
-        }
-
-        # If array copy needed: #https://ideone.com/m08q9V ; https://ideone.com/dZ6RGj
-        $out{$scores{pos} } = $self->prepareData( \@phastScores );
-          
-        undef %scores;
-
-        if($count >= $self->commitEvery) {
-          $self->db->dbPatchBulkArray($wantedChr, \%out);
-
-          undef %out;
-          $count = 0;
-        }
-
-        # Count 3-mer scores recorded for commitEvery, & chromosomes seen for completion recording
-        if(!defined $visitedChrs{$chr} ) { $visitedChrs{$chr} = 1 };
-        $count++;
       }
 
-      # leftovers
-      if(%out) {
-        if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
-        if( %scores ) { 
-          $self->log('warn', "At end of $file have uncommited scores for position $scores{pos}");
+      ######### Collect any scores that were accumulated out of order ##########
+      for my $chr (keys %scores) {
+        if( %{$scores{$chr} } ) {
+          $self->log('info', "After reading $file, have " . (scalar keys %{ $scores{$chr} } )
+            . " positions left to commit for $chr" );
+
+          for my $position (keys %{$scores{$chr} } ) {
+            if(!defined $out{$chr} ) { $out{$chr} = {}; }
+
+            my $success = $self->_accumulateScores($scores{$chr}{$position}, $out{$chr});
+              
+            # Can free up the memory now, won't use this $scores{$chr}{$pos} again
+            delete $scores{$chr}{$position};
+
+            if($success) {
+              $count{$chr}++;
+            }
+
+            if($count{$chr} >= $self->commitEvery) {
+              if(!defined $out{$wantedChr} || !%{ $out{$chr} } ) {
+                $self->log('fatal', "out{$chr} empty");
+              }
+
+              $self->db->dbPatchBulkArray($chr, $out{$chr} );
+              
+              $count{$chr} = 0; delete $out{$chr};
+            }
+          }
+        }
+      }
+
+      #leftovers
+      for my $chr (keys %out) {
+        say "would have inserted at end:";
+        p $out{$chr};
+
+        if(!defined $out{$chr} || !%{ $out{$chr} }) {
+          $self->log('fatal', "out{$chr} empty");
         }
 
-        $self->db->dbPatchBulkArray($wantedChr, \%out);
+        $self->db->dbPatchBulkArray($chr, $out{$chr} );
       }
 
     $pm->finish(0, \%visitedChrs);
   }
 
+  ######Record completion status only if the process completed unimpeded ########
   my %visitedChrs;
   $pm->run_on_finish(sub {
     my ($pid, $exitCode, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
@@ -282,5 +313,52 @@ sub buildTrackFromHeaderlessWigFix {
     , " and regular CADD field names after that.");
 }
 
+sub _accumulateScores {
+  my ($self, $dataHref, $outHref) = @_;
+
+  if(!defined $outHref || ref $outHref ne 'HASH') {
+    $self->log('fatal', "outHref not defined or not a hash reference");
+  }
+
+  my $scoresAref = $dataHref->{scores};
+          
+  if(@$scoresAref != 3 && @$scoresAref != 4) {
+    # We will try again at the end of the file
+    return $self->log('warn', "pos $dataHref->{pos} doesn't have 3 or 4 scores");
+  }
+
+  my @phredScores;
+
+  my $ref = $dataHref->{ref};
+
+  for my $aref (@$scoresAref) {
+    my $index = $order->{$ref}{$aref->[0] };
+
+    # checks whether ref and alt allele are ACTG
+    if(!defined $index) {
+      return $self->log('fatal', "ref $ref or allele $aref->[0] not ACTGN");
+    }
+
+    $phredScores[$index] = $aref->[1];
+  }
+
+  # Check if the cadd 3-mer had non-unique alleles, or ANYTHING else went wrong
+  foreach (@phredScores) {
+    if(!defined $_) {
+      return $self->log('fatal', "CADD 3 or 4-mer Phred score array was sparse");
+    }
+  }
+
+  # Only ambiguous bases can have 4 cadd scores
+  if($ref ne 'N' && @phredScores == 4) {
+    $self->log('fatal', "Found CADD 4-mer for non-N base");
+  }
+
+  # If array copy needed: #https://ideone.com/m08q9V ; https://ideone.com/dZ6RGj
+  $outHref->{ $dataHref->{pos} } = $self->prepareData( \@phredScores );
+
+  # Return 1 if successfully added to $out
+  return 1;
+}
 __PACKAGE__->meta->make_immutable;
 1;

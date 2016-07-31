@@ -14,6 +14,7 @@ with 'Seq::Role::Message';
 
 has name => ( is => 'ro', isa => 'Str', required => 1 );
 has db => (is => 'ro', isa => 'Seq::DBManager', required => 1);
+has skip_completion_check => (is => 'ro', isa => 'Bool');
 
 ############################ Private attributes ########################
 # Instance variable holding completion status for this $self->name db
@@ -25,12 +26,15 @@ sub okToBuild {
   my ($self, $chr) = @_;
 
   if($self->_isCompleted($chr) ) {
-    if(!$self->db->delete && !$self->db->overwrite) {
+    if(!$self->db->delete && !$self->db->overwrite && !$self->skip_completion_check) {
       return $self->log('debug', "$chr recorded completed for " . $self->name .
-        ". Since neither overwrite nor delete set, not ok to build $chr " . $self->name . " db");
+        ". Since neither overwrite nor delete nor skip_completion_check set, ".
+        " not ok to build $chr " . $self->name . " db");
     }
     # Else we're either erasing or re-creating the db; need to erase completion status
-    $self->_eraseCompletionMeta($chr);
+    if(!$self->db->dry_run_insertions) {
+      $self->_eraseCompletionMeta($chr);
+    }
   }
 
   $self->log('debug', "Ok to build $chr " . $self->name . " db");
@@ -46,6 +50,10 @@ sub recordCompletion {
   # Except this is more clear, and better log message.
   if($self->db->delete) {
     return $self->log('debug', "Delete set, not recording completion of $chr for ". $self->name);
+  }
+
+  if($self->db->dry_run_insertions) {
+    return $self->log('debug', "dry_run_insertions set, not recording completion of $chr for ". $self->name);
   }
 
   # overwrite any existing entry for $chr
