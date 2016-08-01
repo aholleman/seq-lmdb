@@ -112,12 +112,12 @@ sub buildTrack {
         my $chr = $isBed ? $fields[0] : "chr$fields[0]";
 
         if( !$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
-          if(defined $wantedChr && defined $out{$wantedChr} ) {
-            if(!$wantedChr) { $self->log('fatal', "Changed chr @ line $., but no wantedChr");}
-            
+          if( defined $wantedChr && defined $out{$wantedChr} && %{ $out{$wantedChr} } ) {
+            $self->log('info', "Changed from chr $wantedChr to $chr, writing $wantedChr data");
+
             $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
             
-            delete $out{$wantedChr}; $count{$wantedChr} = 0;
+            $count{$wantedChr} = 0; delete $out{$wantedChr};
           }
 
           if($wantedChr && $self->chrPerFile) {
@@ -144,21 +144,31 @@ sub buildTrack {
         }
 
         # We log these because cadd has a number of "M" bases, at least on chr3 in 1.3
-        if(! $fields[$refBaseIdx] =~ /ACTGN/) {
+        if( ! $fields[$refBaseIdx] =~ /ACTGN/ ) {
           $self->log('warn', "Found non-ACTG reference, skipping line # $. : $line");
           next FH_LOOP;
         }
 
         my $dbPosition = $fields[1] - $based;
 
+        if(!defined $count{$wantedChr}) { $count{$wantedChr} = 0; }
+
+        ######## If we've changed position, we should have a 3 or 4 mer ########
+        ####################### If so, write that ##############################
         if(defined $lastPosition && $lastPosition != $dbPosition) {
           if( !defined $scores{$wantedChr}{$lastPosition} ) {
             # Could occur if we skipped the lastPosition because refBase didn't match
             # assemblyRefBase
-            $self->log('warn', "lastPosition $lastPosition not found");
+            $self->log('warn', "lastPosition $lastPosition not found in scores hash");
           } else {
+            if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; $count{$wantedChr} = 0; }
+
             my $success = $self->_accumulateScores( $scores{$wantedChr}{$lastPosition}, $out{$wantedChr} );
 
+            # We accumulated a 3 or 4-mer
+            # Note that we assume that after we accumulate one 3-4 mer, there won't
+            # be an identical chr:position elsewhere in the file
+            # Could test, but that would be memory intensive
             if($success) {
               $count{$wantedChr}++; delete $scores{$wantedChr}{$lastPosition};
             }
@@ -166,11 +176,11 @@ sub buildTrack {
         }
 
         if($count{$wantedChr} >= $self->commitEvery) {
-          if( !defined $out{$wantedChr} || !%{ $out{$wantedChr} } ) {
-            $self->log('fatal', "out{$wantedChr} empty");
+          if( !%{ $out{$wantedChr} } ) {
+            $self->log('fatal', "out{$wantedChr} empty but count >= commitEvery");
           }
 
-          $self->db->dbPatchBulkArray($wantedChr, $out{$wantedChr} );
+          $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
 
           $count{$wantedChr} = 0; delete $out{$wantedChr};
         }
@@ -179,10 +189,6 @@ sub buildTrack {
 
         # This site will be next in 1 iteration
         $lastPosition = $dbPosition;
-
-        if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; }
-
-        if(!defined $count{$wantedChr}) { $count{$wantedChr} = 0; }
 
         my $altAllele = $fields[$altAlleleIdx];
         my $refBase = $fields[$refBaseIdx];
@@ -211,50 +217,51 @@ sub buildTrack {
           $scores{$wantedChr}{$dbPosition}{pos} = $dbPosition;
         }
         
-        push @{$scores{$wantedChr}{$dbPosition}{scores} }, [ $altAllele, $rounder->round( $fields[$phastIdx] ) ];
+        push @{ $scores{$wantedChr}{$dbPosition}{scores} }, [ $altAllele, $rounder->round( $fields[$phastIdx] ) ];
 
         ### Record that we visited the chr, to enable recordCompletion later ###
-        if(!defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 };
+        if( !defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 };
 
         ########### Check refBase against the assembly's reference #############
-        my $dbData = $self->db->dbRead($wantedChr, $scores{$wantedChr}{$dbPosition}{pos} );
+        my $dbData = $self->db->dbRead( $wantedChr, $scores{$wantedChr}{$dbPosition}{pos} );
         my $assemblyRefBase = $refTrack->get($dbData);
 
         # When lifted over, reference base is not lifted, can cause mismatch
         # In these cases it makes no sense to store this position's CADD data
         if( $assemblyRefBase ne $scores{$wantedChr}{$dbPosition}{ref} ) {
-          $self->log('warn', "Line \#$. CADD ref == $scores{ref}, Assembly ref == $assemblyRefBase. Skipping: $line");
+          $self->log('warn', "Line \#$. CADD ref == $scores{$wantedChr}{$dbPosition}{ref},"
+            . " while Assembly ref == $assemblyRefBase. Skipping: $line");
           
+          # so that this won't be be used in the lastPosition != dbPosition check
           delete $scores{$wantedChr}{$dbPosition};
 
           next FH_LOOP;
         }
       }
-
+      ######################### Finished reading file ##########################
       ######### Collect any scores that were accumulated out of order ##########
       for my $chr (keys %scores) {
         if( %{$scores{$chr} } ) {
           $self->log('info', "After reading $file, have " . (scalar keys %{ $scores{$chr} } )
             . " positions left to commit for $chr" );
 
-          for my $position (keys %{$scores{$chr} } ) {
-            if(!defined $out{$chr} ) { $out{$chr} = {}; }
+          for my $position ( keys %{ $scores{$chr} } ) {
+            # Using delete to force Perl to free memory
+            if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
 
-            my $success = $self->_accumulateScores($scores{$chr}{$position}, $out{$chr});
+            my $success = $self->_accumulateScores( $scores{$chr}{$position}, $out{$chr} );
               
             # Can free up the memory now, won't use this $scores{$chr}{$pos} again
             delete $scores{$chr}{$position};
 
-            if($success) {
-              $count{$chr}++;
-            }
+            if($success) { $count{$chr}++; }
 
-            if($count{$chr} >= $self->commitEvery) {
-              if(!defined $out{$wantedChr} || !%{ $out{$chr} } ) {
-                $self->log('fatal', "out{$chr} empty");
+            if( $count{$chr} >= $self->commitEvery ) {
+              if( ! %{ $out{$chr} } ) {
+                $self->log('fatal', "out{$chr} empty, but count >= commitEvery");
               }
 
-              $self->db->dbPatchBulkArray($chr, $out{$chr} );
+              $self->db->dbPatchBulkArray( $chr, $out{$chr} );
               
               $count{$chr} = 0; delete $out{$chr};
             }
@@ -263,16 +270,13 @@ sub buildTrack {
       }
 
       #leftovers
-      for my $chr (keys %out) {
-        say "would have inserted at end:";
-        p $out{$chr};
+      OUT_LOOP: for my $chr (keys %out) {
+        if( ! %{ $out{$chr} } ) { next OUT_LOOP; }
 
-        if(!defined $out{$chr} || !%{ $out{$chr} }) {
-          $self->log('fatal', "out{$chr} empty");
-        }
-
-        $self->db->dbPatchBulkArray($chr, $out{$chr} );
+        $self->db->dbPatchBulkArray( $chr, $out{$chr} );
       }
+
+      $self->log("info", "Finished building ". $self->name . " version: $versionLine using $file");
 
     $pm->finish(0, \%visitedChrs);
   }
