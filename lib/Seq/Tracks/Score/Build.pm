@@ -38,7 +38,8 @@ sub buildTrack{
   my @allChrs = $self->allLocalFiles;
   my $chrPerFile = @allChrs > 1 ? 1 : 0;
   
-  my $pm = Parallel::ForkManager->new(@allChrs == 1 ? 0 : scalar @allChrs);
+  #Can't just set to 0, because then the completion code in run_on_finish won't run
+  my $pm = Parallel::ForkManager->new(scalar @allChrs);
 
   for my $file ( $self->allLocalFiles ) {
     $pm->start($file) and next; 
@@ -116,6 +117,9 @@ sub buildTrack{
           # take the offset into account
           $chrPosition = $start - $based;
 
+          # Record what we've seen
+          $visitedChrs{$wantedChr} = 1;
+
           #don't store the header in the database
           next;
         }
@@ -160,18 +164,15 @@ sub buildTrack{
     $pm->finish(0);
   }
 
-  my @failed;
   $pm->run_on_finish(sub {
     my ($pid, $exitCode, $fileName) = @_;
 
-    $self->log('debug', "Got exitCode $exitCode for $fileName");
+    if($exitCode != 0) { $self->log('fatal', "Failed to complete ". $self->name ." due to: $exitCode in $fileName processing"); }
 
-    if($exitCode != 0) { push @failed, "Got exitCode $exitCode for $fileName"; }
+    $self->log('debug', "Got exitCode $exitCode for $fileName");
   });
   
   $pm->wait_all_children;
-
-  return @failed == 0 ? 0 : (\@failed, 255);
 };
 
 __PACKAGE__->meta->make_immutable;

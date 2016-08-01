@@ -49,13 +49,13 @@ my $snpTrack = $tracks->singletonTracks->getTrackGetterByName('snp146');
 my $phyloPTrack = $tracks->singletonTracks->getTrackGetterByName('phyloP');
 my $phastConsTrack = $tracks->singletonTracks->getTrackGetterByName('phastCons');
 my $geneTrack = $tracks->singletonTracks->getTrackGetterByName('refSeq');
+my $caddTrack = $tracks->singletonTracks->getTrackGetterByName('cadd');
+
 p $refTrack;
 p $snpTrack;
 p $phyloPTrack;
 p $phastConsTrack;
 p $geneTrack;
-
-my $dataAref = $tracks->db->dbRead('chr22', 20e6-1 );
 
 my $db1 = $tracks->db;
 my $db2 = $tracks->db;
@@ -64,10 +64,18 @@ say "is $db1 == $db2? " . ($db1 == $db2 ? "YES" : "NO");
 
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
+my $dataAref = $tracks->db->dbRead('chr22', 20e6-1 );
 
 my $refBase = $refTrack->get($dataAref);
 ok($refBase eq 'A', 'ref track ok in ~middle of chr22');
 p $dataAref;
+
+my $cadd = $caddTrack->get($dataAref, undef, undef, 'A', 'C');
+ok($cadd == $rounder->round(0.506), 'cadd for "C" allele ok (.506)  in ~middle of chr22');
+$cadd = $caddTrack->get($dataAref, undef, undef, 'A', 'G');
+ok($cadd == $rounder->round(1.299), 'cadd for "G" allele ok (1.299) in ~middle of chr22');
+$cadd = $caddTrack->get($dataAref, undef, undef, 'A', 'T');
+ok($cadd == $rounder->round(0.794), 'cadd for "T" allele ok (.794) in ~middle of chr22');
 
 #UCSC: chr22:19,999,999 == ‘A' on hg19
 #https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg19&lastVirtModeType=default&lastVirtModeExtraState=&virtModeType=default&virtMode=0&nonVirtPosition=&position=chr22%3A19999999%2D19999999&hgsid=481238143_ft2S6OLExhQ7NaXafgvW8CatDYhO
@@ -75,6 +83,13 @@ $dataAref = $tracks->db->dbRead('chr22', 21e6-1 );
 $refBase = $refTrack->get($dataAref);
 p $dataAref;
 ok($refBase eq 'T', 'ref track ok in intron of chr22');
+
+$cadd = $caddTrack->get($dataAref, undef, undef, 'T', 'A');
+ok($cadd == $rounder->round(6.843), 'cadd for "C" allele ok (6.843)  in ~middle of chr22');
+$cadd = $caddTrack->get($dataAref, undef, undef, 'T', 'C');
+ok($cadd == $rounder->round(3.858), 'cadd for "G" allele ok (3.858) in ~middle of chr22');
+$cadd = $caddTrack->get($dataAref, undef, undef, 'T', 'G');
+ok($cadd == $rounder->round(5.546), 'cadd for "T" allele ok (5.546) in ~middle of chr22');
 
 $dataAref = $tracks->db->dbRead('chr22', 0 );
 $refBase = $refTrack->get($dataAref);
