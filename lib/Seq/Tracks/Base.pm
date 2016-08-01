@@ -90,8 +90,7 @@ has featureDataTypes => (
   traits   => ['Hash'],
   default  => sub{{}},
   handles  => { 
-    getFeatureType => 'get', 
-    noFeatureTypes => 'is_empty',
+    getFeatureType => 'get',
   },
 );
 

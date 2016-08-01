@@ -126,7 +126,7 @@ sub buildTrack {
 
       my %fieldDbNames;
 
-      my $invalid;
+      my $invalid = 0;
       FH_LOOP: while ( my $line = $fh->getline() ) {
         chomp $line;
 
@@ -191,7 +191,7 @@ sub buildTrack {
           # getFieldDbName will croak if it can't make or find a dbName
           $sparseData[ $fieldDbNames{$name} ] = $value;
         }
-
+        
         # For now, don't shrink the array; this will make merging less informative
         # Because for those sites that overlap another site, we may lose an "NA"
         # The sparse data may be shorter than @allWantedFeatureIdx because

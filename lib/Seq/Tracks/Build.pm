@@ -170,18 +170,6 @@ sub prepareData {
 }
 
 #########################Type Conversion, Input Field Filtering #########################
-# Some things may use an "NA" to represent an undefined value;
-sub coerceUndefinedValues {
-  my ($self, $dataStr) = @_;
-  # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
-  # Output.pm chooses to represent missing data as.
-  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
-    return undef;
-  }
-
-  return $dataStr;
-}
-
 #type conversion; try to limit performance impact by avoiding unnec assignments
 #@params {String} $_[1] : feature the user wants to check
 #@params {String} $_[2] : data for that feature
@@ -190,25 +178,23 @@ sub coerceUndefinedValues {
 # This is stored in Build.pm because this only needs to happen during insertion into db
 state $converter = Seq::Tracks::Base::Types->new();
 sub coerceFeatureType {
-  # $self == $_[0] , $feature == $_[1], $dataStr == $_[2]
-  my ($self, $feature, $data) = @_;
+  #my ($self, $feature, $data) = @_;
+  # $self == $_[0] , $feature == $_[1], $data == $_[2]
+
+  my $type = $_[0]->getFeatureType( $_[1] );
 
   # Don't mutate the input if no type is stated for the feature
-  if($self->noFeatureTypes) {
-    return $data;
+  if( !defined $type ) {
+    return $_[2];
   }
-
-  my $type = $self->getFeatureType( $feature );
 
   my @vals;
   # modifying the value here actually modifies the value in the array
   # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
-  for my $val (ref $data ? @$data : $data) {
+  for my $val (ref $_[2] ? @{ $_[2] } : $_[2]) {
     $val = _coerceUndefinedValues($val);
 
-    if(defined $type) {
-      $val = $converter->convert($val, $type);
-    }
+    $val = $converter->convert($val, $type);
 
     push @vals, $val;
   }
@@ -345,14 +331,17 @@ sub transformField {
 }
 
 sub _coerceUndefinedValues {
-  my $dataStr = shift;
+  #my $dataStr = shift;
+  #    $_[0]   = shift;
+
   # Don't waste storage space on NA. In Seqant undef values equal NA (or whatever
   # Output.pm chooses to represent missing data as.
-  if($dataStr =~ /NA/i || $dataStr =~/^\s*$/) {
+  
+  if($_[0] =~ /^\s*NA\s*$/i || $_[0] =~/^\s*$/) {
     return undef;
   }
 
-  return $dataStr;
+  return $_[0];
 }
 
 sub _isTransformOperator {
