@@ -117,7 +117,7 @@ sub buildTrack {
 
             $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
             
-            $count{$wantedChr} = 0; delete $out{$wantedChr};
+            $count{$wantedChr} = 0; undef $out{$wantedChr}; delete $out{$wantedChr};
           }
 
           if($wantedChr && $self->chrPerFile) {
@@ -170,7 +170,7 @@ sub buildTrack {
             # be an identical chr:position elsewhere in the file
             # Could test, but that would be memory intensive
             if($success) {
-              $count{$wantedChr}++; delete $scores{$wantedChr}{$lastPosition};
+              $count{$wantedChr}++; undef $scores{$wantedChr}{$lastPosition}; delete $scores{$wantedChr}{$lastPosition};
             }
           }
         }
@@ -182,7 +182,7 @@ sub buildTrack {
 
           $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
 
-          $count{$wantedChr} = 0; delete $out{$wantedChr};
+          $count{$wantedChr} = 0; undef $out{$wantedChr}; delete $out{$wantedChr};
         }
 
         ##### Build up the scores into 3-mer (or 4-mer if ambiguous base) #####
@@ -233,7 +233,7 @@ sub buildTrack {
             . " while Assembly ref == $assemblyRefBase. Skipping: $line");
           
           # so that this won't be be used in the lastPosition != dbPosition check
-          delete $scores{$wantedChr}{$dbPosition};
+          undef $scores{$wantedChr}{$dbPosition}; delete $scores{$wantedChr}{$dbPosition};
 
           next FH_LOOP;
         }
@@ -252,7 +252,7 @@ sub buildTrack {
             my $success = $self->_accumulateScores( $scores{$chr}{$position}, $out{$chr} );
               
             # Can free up the memory now, won't use this $scores{$chr}{$pos} again
-            delete $scores{$chr}{$position};
+            undef $scores{$chr}{$position}; delete $scores{$chr}{$position};
 
             if($success) { $count{$chr}++; }
 
@@ -263,7 +263,7 @@ sub buildTrack {
 
               $self->db->dbPatchBulkArray( $chr, $out{$chr} );
               
-              $count{$chr} = 0; delete $out{$chr};
+              $count{$chr} = 0; undef $out{$chr}; delete $out{$chr};
             }
           }
         }
