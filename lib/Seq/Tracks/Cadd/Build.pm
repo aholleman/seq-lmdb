@@ -169,7 +169,7 @@ sub buildTrack {
             # When lifted over, reference base is not lifted, can cause mismatch
             # In these cases it makes no sense to store this position's CADD data
             if( $assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
-              $self->log('warn', "Line \#$. CADD ref == $scores{$wantedChr}{$lastPosition}{ref},"
+              $self->log('warn', "Line \#$. (and next two): CADD ref == $scores{$wantedChr}{$lastPosition}{ref},"
                 . " while Assembly ref == $assemblyRefBase. Skipping: $line");
               
               # so that this won't be be used again
@@ -247,8 +247,8 @@ sub buildTrack {
       ######### Collect any scores that were accumulated out of order ##########
       for my $chr (keys %scores) {
         if( %{$scores{$chr} } ) {
-          $self->log('info', "After reading $file, have " . (scalar keys %{ $scores{$chr} } )
-            . " positions left to commit for $chr" );
+          $self->log('debug', "After reading $file, have " . (scalar keys %{ $scores{$chr} } )
+            . " positions left to commit for $chr, at positions " . join(',', keys %{ $scores{$chr} } ) );
 
           for my $position ( keys %{ $scores{$chr} } ) {
             my $dbData = $self->db->dbRead( $chr, $position );
