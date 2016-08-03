@@ -90,6 +90,12 @@ $trackData = $tracks->db->dbRead('chr1', 249240604 );
 say "datahref at 249240604 is ";
 p $trackData;
 
+$snpValHref = $snpTrack->get($trackData);
+
+ok($snpValHref->{name} eq 'rs751090644',
+  "deletion snp142 sparse track rs# ok at chr1:249240604-249240605 (0 indexed should be 249240604)");
+
+
 $trackData = $tracks->db->dbRead('chr1', 249240606);
 # $snpValHref = $snpTrack->get($trackData);
 

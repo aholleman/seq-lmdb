@@ -126,7 +126,8 @@ sub buildTrack {
 
       my %fieldDbNames;
 
-      my $invalid = 0;
+      my ($invalid, $failedFilters, $tooLong) = (0, 0, 0);
+      
       FH_LOOP: while ( my $line = $fh->getline() ) {
         chomp $line;
 
@@ -137,7 +138,8 @@ sub buildTrack {
           next FH_LOOP;
         }
 
-        if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
+        if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields, $.)) {
+          $failedFilters++;
           next FH_LOOP;
         }
         
@@ -171,7 +173,8 @@ sub buildTrack {
         my ($start, $end) = $self->_getPositions(\@fields, $reqIdxHref);
 
         if($end + 1 - $start > $self->max_variant_size) {
-          $self->log('info', "Line spans > " . $self->max_variant_size . " skipping: $line");
+          $self->log('warn', "Line spans > " . $self->max_variant_size . " skipping: $line");
+          $tooLong++;
           next FH_LOOP;
         }
 
@@ -249,6 +252,8 @@ sub buildTrack {
       }
 
       $self->log('info', "invalid lines found in $file: $invalid");
+      $self->log('info', "lines that didn't pass filters in $file: $failedFilters");
+      $self->log('info', "lines that were longer than " . $self->max_variant_size . " found in $file: $tooLong");
     $pm->finish(0);
   }
 
@@ -283,17 +288,19 @@ sub joinTrack {
 
     my @allWantedFeatureIdx = keys %$featureIdxHref;
 
+    my ($invalid, $failedFilters) = (0, 0);
+
     FH_LOOP: while( my $line = $fh->getline() ) {
       chomp $line;
       my @fields = split("\t", $line);
 
       if(! $self->_validLine(\@fields, $., $reqIdxHref, $numColumns) ) {
-        $self->log('info', "Line # $. is invalid: $line");
+        $invalid++;
         next FH_LOOP;
       }
 
-      if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields)) {
-        $self->log('info', "Line # $. didn't pass all filters: $line");
+      if(! $self->_passesFilter($fieldsToFilterOnIdx, \@fields, $.)) {
+        $failedFilters++;
         next FH_LOOP;
       }
 
@@ -328,6 +335,9 @@ sub joinTrack {
         }
       }
     }
+
+    $self->log('info', "invalid lines found while joining on $file: $invalid");
+    $self->log('info', "lines that didn't pass filters while joining on $file: $failedFilters");
   }
 }
 
@@ -404,7 +414,7 @@ sub _validLine {
   # Some files are misformatted, ex: clinvar's tab delimited
   if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$self->chromStart_field_name} ] )
   || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$self->chromEnd_field_name} ] ) ) {
-    $self->log('warn', "Start or stop doesn't look like a number on line $lineNumber, skipping");
+    $self->log('warn', "Line $lineNumber Start or stop doesn't look like a number, skipping");
     return;
   }
 
@@ -421,12 +431,12 @@ sub _transform {
 }
 
 sub _passesFilter {
-  my ($self, $fieldsToFilterOnIdx, $fieldsAref) = @_;
+  my ($self, $fieldsToFilterOnIdx, $fieldsAref, $lineNumber) = @_;
   # Then, if the user wants to exclude rows that don't pass some criteria
   # that they defined in the YAML file, allow that.
   for my $fieldName ($self->allFieldsToFilterOn) {
     if(!$self->passesFilter($fieldName, $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
-      $self->log('info', "$fieldName doesn't pass filter: $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ]");
+      $self->log('warn', "Line $lineNumber $fieldName doesn't pass filter: $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ]");
       return;
     }
   }

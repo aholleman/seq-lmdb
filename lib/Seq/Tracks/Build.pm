@@ -184,25 +184,27 @@ sub coerceFeatureType {
   my $type = $_[0]->getFeatureType( $_[1] );
 
   # Don't mutate the input if no type is stated for the feature
-  if( !defined $type ) {
-    return $_[2];
-  }
+  # if( !defined $type ) {
+  #   return $_[2];
+  # }
 
-  my @vals;
+  #### All values sent to coerceFeatureType at least get an undefined check ####
+
   # modifying the value here actually modifies the value in the array
   # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
+  # https://ideone.com/gjWQeS
   for my $val (ref $_[2] ? @{ $_[2] } : $_[2]) {
     $val = _coerceUndefinedValues($val);
 
-    $val = $converter->convert($val, $type);
-
-    push @vals, $val;
+    if( defined $type && defined $val ) {
+      $val = $converter->convert($val, $type);
+    }
   }
   
   # In order to allow fields to be well-indexed by ElasticSearch or other engines
   # and to normalize delimiters in the output, anything that has a comma
   # (or whatever multi_delim set to), return as an array reference
-  return @vals == 1 ? $vals[0] : \@vals;
+  return $_[2];
 }
 
 sub passesFilter {
