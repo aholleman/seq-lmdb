@@ -104,9 +104,9 @@ sub _backupAndWriteConfig {
 
   say $fh Dump($self->_decodedConfig);
 
-  # -f forces symlink / overwrite
-  if( system ("ln -sf " . $self->_newConfigPath . " " . $self->configPath) != 0 ) {
-    $self->log('fatal', "Failed to symlink " . $self->configPath . " to " . $self->_newConfigPath);
+  # -f forces hard link / overwrite
+  if( system ("ln -f " . $self->_newConfigPath . " " . $self->configPath) != 0 ) {
+    $self->log('fatal', "Failed to hard link " . $self->configPath . " to " . $self->_newConfigPath);
   }
 }
 
