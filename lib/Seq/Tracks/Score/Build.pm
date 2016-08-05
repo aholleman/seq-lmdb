@@ -14,7 +14,6 @@ use Mouse 2;
 use namespace::autoclean;
 use Parallel::ForkManager;
 use DDP;
-use POSIX qw/abs/;
 
 extends 'Seq::Tracks::Build';
 
@@ -85,19 +84,16 @@ sub buildTrack{
           }
 
           if(!$wantedChr || ( $wantedChr && $wantedChr ne $chr) ) {
-            if($wantedChr){  $self->log('fatal', "Expected one chr per file, but found > 1 chr"); }
-
             # we found something new, so let's write if we have reason
             if(%data) {
+              if(!$wantedChr){ return $self->log('fatal', 'Have data, but no chr on line ' . $.)}
+
               $self->db->dbPatchBulkArray($wantedChr, \%data);
             }
              
             #since this is new, let's reset our data and count
             undef %data;
             $count = 0;
-
-            #and figure out if we want the current chromosome
-            $wantedChr = $self->chrIsWanted($chr) ? $chr : undef;
 
             if($self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr)) {
               $wantedChr = $chr;

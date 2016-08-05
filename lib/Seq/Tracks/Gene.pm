@@ -48,7 +48,7 @@ state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 state $refAminoAcidKey = 'referenceAminoAcid';
 state $newCodonKey = 'alleleCodon';
 state $newAminoAcidKey = 'alleleAminoAcid';
-state $txEffectsKey = 'proteinEffect';
+state $txEffectsKey = 'codonEffect';
 
 ### Positions that aren't covered by a refSeq record are intergenic ###
 state $intergenic = 'Intergenic';

@@ -24,6 +24,7 @@ has outputDataFields => (
 
 has index_id => (is => 'ro', isa => 'Str', lazy => 1, predicate => 'hasIndexId', default => 'test_job2');
 
+has secondaryDelimiter => (is => 'ro', default => '|');
 # ABSTRACT: Knows how to make an output string
 # VERSION
 
@@ -38,6 +39,9 @@ sub makeOutputString {
   # flatten entry hash references and print to file
   my $outStr = '';
   my $count = 1;
+
+  my $secondDelim = $self->secondaryDelimiter;
+
   for my $href (@$outputDataAref) {
     
     my @singleLineOutput;
@@ -101,7 +105,7 @@ sub makeOutputString {
                 $accum .= defined $val ? "$val;" : 'NA;';
               }
               chop $accum;
-              $accum .= ',';
+              $accum .= $secondDelim;
               next ACCUM;
             }
 
@@ -155,7 +159,7 @@ sub makeOutputString {
             $accum .= defined $val ? "$val;" : 'NA;';
           }
           chop $accum;
-          $accum .= ",";
+          $accum .= $secondDelim;
           next ACCUM;
         }
 

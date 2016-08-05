@@ -75,15 +75,17 @@ sub countTransitionsAndTransversions {
 
     # We don't include multi-allelic sites for now
     if(ref $minorAlleles || ! $minorAlleles =~ /ACTG/) {
-      say "not ACTG";
-      p $minorAlleles;
       next;
     }
 
     # The alleles field is always ACTG, and doesn't include the reference
     if( $transitionGenos{"$minorAlleles$reference"} ){
       $isTrans = 1;
+      $transitions{$totalKey}{total}++;
+    } else {
+      $transversions{$totalKey}{total}++;
     }
+
 
     my %notUniqueSiteType;
     my $allSites = $_->{$geneTrackName}{$siteTypeKey};
@@ -99,7 +101,9 @@ sub countTransitionsAndTransversions {
         $transversions{$totalKey}{$siteType} = 0;
       }
 
-      if($isTrans) { $transitions{$totalKey}{$siteType}++; }
+      if($isTrans) { 
+        $transitions{$totalKey}{$siteType}++; 
+      }
       else { $transversions{$totalKey}{$siteType}++; }
 
       #has RS

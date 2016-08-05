@@ -1,0 +1,53 @@
+---
+assembly: dm6
+chromosomes:
+- chr2L
+- chr2R
+- chr3L
+- chr3R
+- chr4
+- chrM
+- chrX
+- chrY
+database_dir: /ssd/seqant_db_build/dm6/index
+files_dir: /ssd/seqant_db_build/dm6/raw
+tracks:
+- local_files:
+  - dm6.fa.gz
+  name: dm6
+  remote_dir: hgdownload.cse.ucsc.edu/goldenPath/dm6/bigZips/
+  remote_files:
+  - dm6.fa.gz
+  type: reference
+- features:
+  - name
+  - name2
+  local_files:
+  - dm6.refGene.chr2L.gz
+  - dm6.refGene.chr2R.gz
+  - dm6.refGene.chr3L.gz
+  - dm6.refGene.chr3R.gz
+  - dm6.refGene.chr4.gz
+  - dm6.refGene.chrX.gz
+  - dm6.refGene.chrY.gz
+  name: refGene
+  nearest:
+  - name
+  - name2
+  sql_statement: SELECT * FROM dm6.refGene
+  type: gene
+- local_files:
+  - dm6.27way.phastCons.wigFix.gz
+  name: phastCons
+  remote_dir: hgdownload.cse.ucsc.edu/goldenPath/dm6/phastCons27way/
+  remote_files:
+  - dm6.27way.phastCons.wigFix.gz
+  type: score
+- local_files:
+  - dm6.phyloP27way.wigFix.gz
+  name: phyloP
+  remote_dir: hgdownload.cse.ucsc.edu/goldenPath/dm6/phyloP27way/
+  remote_files:
+  - dm6.phyloP27way.wigFix.gz
+  type: score
+
