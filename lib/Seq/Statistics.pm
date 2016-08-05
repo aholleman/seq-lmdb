@@ -33,7 +33,7 @@ my $totalKey = 'Total';
 my $dbSnpKey = '-DbSNP';
 
 # cache the names, avoid lookup time
-my ($refTrack, $geneTrackName, $snpTrackName, $hetKey, $homKey, $alleleKey);
+my ($refTrack, $geneTrack, $geneTrackName, $snpTrackName, $hetKey, $homKey, $alleleKey);
 sub BUILD{
   my ($self) = @_;
 
@@ -46,6 +46,9 @@ sub BUILD{
 
   $geneTrackName = $self->gene_track;
   $snpTrackName = $self->snp_track;
+
+  # we need this to get the txEffectsKey
+  $geneTrack = $tracks->getTrackGetterByName($geneTrackName);
 }
 
 # Take data for a single position and generate trTv statistics
@@ -54,7 +57,7 @@ sub countTransitionsAndTransversions {
 
   my (%transitions, %transversions);
 
-  foreach (@$outputLinesAref) {
+  OUTPUT_LOOP: foreach (@$outputLinesAref) {
     my $sampleIds;
     if( $_->{$hetKey} && $_->{$homKey}) {
       $sampleIds = [ref $_->{$hetKey} ? @{ $_->{$hetKey} } : $_->{$hetKey},
@@ -65,34 +68,49 @@ sub countTransitionsAndTransversions {
       $sampleIds = $_->{$homKey};
     } else {
       $self->log('warn', "No samples found in countTransitionsAndTransversions");
-      next;
+      next OUTPUT_LOOP;
     }
     
     my $isTrans = 0;
+    my $hasRs;
 
     my $reference = $_->{$refTrack->name};
     my $minorAlleles = $_->{$alleleKey};
 
     # We don't include multi-allelic sites for now
     if(ref $minorAlleles || ! $minorAlleles =~ /ACTG/) {
-      next;
+      next OUTPUT_LOOP;
+    }
+
+    if(!defined $transitions{$totalKey}{$totalKey}) {
+      $transitions{$totalKey}{$totalKey} = 0;
+    }
+
+    if(!defined $transversions{$totalKey}{$totalKey} ) {
+      $transversions{$totalKey}{$totalKey} = 0;
     }
 
     # The alleles field is always ACTG, and doesn't include the reference
     if( $transitionGenos{"$minorAlleles$reference"} ){
       $isTrans = 1;
-      $transitions{$totalKey}{total}++;
+
+      #Store the transitions and transversions totals once to avoid N-counting
+      $transitions{$totalKey}{$totalKey}++;
     } else {
-      $transversions{$totalKey}{total}++;
+      $transversions{$totalKey}{$totalKey}++;
     }
 
+    # The presence of a dbSNP name indicates a dbSNP record (aka hasRs)
+    if( $_->{$snpTrackName}{name} ) {
+      $hasRs = 1;
+    }
 
+    # For every unique site type, count whether this position is a transition or transversion
     my %notUniqueSiteType;
     my $allSites = $_->{$geneTrackName}{$siteTypeKey};
-    for my $siteType (ref $allSites ? @{$allSites} : $allSites) {
-      if(defined $notUniqueSiteType{$siteType} ) {
-        next;
-      }
+
+    SITE_TYPE_LOOP: for my $siteType (ref $allSites ? @{$allSites} : $allSites) {
+      if(defined $notUniqueSiteType{$siteType} ) { next SITE_TYPE_LOOP; }
 
       $notUniqueSiteType{$siteType} = 1;
 
@@ -101,16 +119,10 @@ sub countTransitionsAndTransversions {
         $transversions{$totalKey}{$siteType} = 0;
       }
 
-      if($isTrans) { 
-        $transitions{$totalKey}{$siteType}++; 
-      }
+      if($isTrans) { $transitions{$totalKey}{$siteType}++; }
       else { $transversions{$totalKey}{$siteType}++; }
 
-      #has RS
-      my $hasRs;
-      if( $_->{$snpTrackName}{name} ) {
-        $hasRs = 1;
-
+      if($hasRs) {
         if(!defined $transitions{$totalKey}{"$siteType$dbSnpKey"}) {
           $transitions{$totalKey}{"$siteType$dbSnpKey"} = 0;
           $transversions{$totalKey}{"$siteType$dbSnpKey"} = 0;
@@ -134,11 +146,62 @@ sub countTransitionsAndTransversions {
         if($isTrans) {
           $transitions{$sampleId}{$siteType}++;
           if($hasRs) { $transitions{$sampleId}{"$siteType$dbSnpKey"}++; }
-          next SAMPLE_LOOP;
+        } else {
+          $transversions{$sampleId}{$siteType}++;
+          if($hasRs) { $transversions{$sampleId}{"$siteType$dbSnpKey"}++; }
+        }
+      }
+    }
+
+    # Likewise, for every unique txEffect type, count whether this position is a transition or transversion
+    if(!defined $_->{$geneTrackName}{$geneTrack->txEffectsKey} ) {
+      next OUTPUT_LOOP;
+    }
+
+    my %notUniqueTxEffectType;
+    my $allTxEffects = $_->{$geneTrackName}{$geneTrack->txEffectsKey};
+
+    TX_EFFECT_LOOP: for my $txEffect (ref $allTxEffects ? @{$allTxEffects} : $allTxEffects) {
+      if(defined $notUniqueTxEffectType{$txEffect} ) { next TX_EFFECT_LOOP; }
+
+      $notUniqueTxEffectType{$txEffect} = 1;
+
+      if(!defined $transitions{$totalKey}{$txEffect}) {
+        $transitions{$totalKey}{$txEffect} = 0;
+        $transversions{$totalKey}{$txEffect} = 0;
+      }
+
+      if($isTrans) { $transitions{$totalKey}{$txEffect}++; }
+      else { $transversions{$totalKey}{$txEffect}++; }
+
+      if( $hasRs ) {
+        if(!defined $transitions{$totalKey}{"$txEffect$dbSnpKey"}) {
+          $transitions{$totalKey}{"$txEffect$dbSnpKey"} = 0;
+          $transversions{$totalKey}{"$txEffect$dbSnpKey"} = 0;
         }
 
-        $transversions{$sampleId}{$siteType}++;
-        if($hasRs) { $transversions{$sampleId}{"$siteType$dbSnpKey"}++; }
+        if($isTrans) { $transitions{$totalKey}{"$txEffect$dbSnpKey"}++; }
+        else { $transversions{$totalKey}{"$txEffect$dbSnpKey"}++; }
+      }
+
+      SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
+        if(!defined $transitions{$sampleId}{$txEffect}) {
+          $transitions{$sampleId}{$txEffect} = 0;
+          $transversions{$sampleId}{$txEffect} = 0;
+        }
+
+        if($hasRs && !defined $transitions{$sampleId}{"$txEffect$dbSnpKey"}) {
+          $transitions{$sampleId}{"$txEffect$dbSnpKey"} = 0;
+          $transversions{$sampleId}{"$txEffect$dbSnpKey"} = 0;
+        }
+
+        if($isTrans) {
+          $transitions{$sampleId}{$txEffect}++;
+          if($hasRs) { $transitions{$sampleId}{"$txEffect$dbSnpKey"}++; }
+        } else {
+          $transversions{$sampleId}{$txEffect}++;
+          if($hasRs) { $transversions{$sampleId}{"$txEffect$dbSnpKey"}++; }
+        }
       }
     }
   }
@@ -158,7 +221,7 @@ sub accumulateValues {
   for my $trOrTvKey (keys %$addHref) {
     # total or a sampleId
     for my $sampleId (keys %{ $addHref->{$trOrTvKey} } ) {
-      # site types
+      # total or site types or txEffect or intersectio of site/txEffect with dbSnpKey
       for my $siteType (keys %{ $addHref->{$trOrTvKey}{$sampleId} } ) {
         if( !defined $allHref->{$trOrTvKey}{$sampleId}{$siteType} ) {
           $allHref->{$trOrTvKey}{$sampleId}{$siteType} = $addHref->{$trOrTvKey}{$sampleId}{$siteType};

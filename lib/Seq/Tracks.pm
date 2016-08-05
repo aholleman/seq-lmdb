@@ -208,6 +208,7 @@ sub _buildTrackGetters {
 #different from Seq::Tracks in that we store class instances hashed on track type
 #this is to allow us to more easily build tracks of one type in a certain order
 sub _buildTrackBuilders {
+  say "building builders";
   if(%$trackBuilders) {
     return;
   }

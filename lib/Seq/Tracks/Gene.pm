@@ -51,18 +51,18 @@ state $newAminoAcidKey = 'alleleAminoAcid';
 state $txEffectsKey = 'codonEffect';
 
 ### Positions that aren't covered by a refSeq record are intergenic ###
-state $intergenic = 'Intergenic';
+state $intergenic = 'intergenic';
 
 ### txEffect possible values ###
-state $nonCoding = 'NonCoding';
-state $silent = 'Silent';
-state $replacement = 'Replacement';
-state $frameshift = 'Frameshift';
-state $inFrame = 'InFrame';
-state $startLoss = 'StartLoss';
-state $stopLoss = 'StopLoss';
-state $stopGain = 'StopGain';
-state $truncated = 'TruncatedCodon';
+state $nonCoding = 'nonCoding';
+state $silent = 'synonymous';
+state $replacement = 'nonSynonymous';
+state $frameshift = 'frameshift';
+state $inFrame = 'nonFrameshift';
+state $startLoss = 'startLoss';
+state $stopLoss = 'stopGain';
+state $stopGain = 'stopLoss';
+state $truncated = 'truncatedCodon';
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
@@ -72,6 +72,9 @@ has '+features' => (
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
 state $nearestSubTrackName;
+
+########################### Public attribute exports ###########################
+has txEffectsKey => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {$txEffectsKey} );
 
 #### Add our other "features", everything we find for this site ####
 sub BUILD {

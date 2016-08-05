@@ -9,19 +9,19 @@ use Mouse::Util::TypeConstraints;
 use DDP;
 # define allowable types
 # not at the moment exposing these publicly, no real need
-state $codingSite = 'Coding';
+state $codingSite = 'exonic';
 has codingSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$codingSite} );
-state $fivePrimeSite = '5UTR';
+state $fivePrimeSite = 'UTR5';
 has fivePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$fivePrimeSite} );
-state $threePrimeSite = '3UTR';
+state $threePrimeSite = 'UTR3';
 has threePrimeSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$threePrimeSite} );
-state $spliceAcSite = 'SpliceAcceptor';
+state $spliceAcSite = 'spliceAcceptor';
 has spliceAcSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceAcSite} );
-state $spliceDonSite = 'SpliceDonor';
+state $spliceDonSite = 'spliceDonor';
 has spliceDonSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$spliceDonSite} );
-state $ncRNAsite = 'NonCodingRNA';
+state $ncRNAsite = 'ncRNA';
 has ncRNAsiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$ncRNAsite} );
-state $intronicSite = 'Intronic';
+state $intronicSite = 'intronic';
 has intronicSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$intronicSite} );
 
 # #Coding type always first; order of interest
