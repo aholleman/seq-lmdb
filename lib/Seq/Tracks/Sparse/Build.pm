@@ -173,7 +173,8 @@ sub buildTrack {
         my ($start, $end) = $self->_getPositions(\@fields, $reqIdxHref);
 
         if($end + 1 - $start > $self->max_variant_size) {
-          $self->log('debug', "Line spans > " . $self->max_variant_size . " skipping: $line");
+          # TODO: think about adding this back in; results in far too many log messages
+          # $self->log('debug', "Line spans > " . $self->max_variant_size . " skipping: $line");
           $tooLong++;
           next FH_LOOP;
         }
@@ -271,6 +272,8 @@ sub buildTrack {
   return @failed == 0 ? 0 : (\@failed, 255);
 }
 
+# Unlike buildTrack, joinTrack does not use a length filter; huge CNVs will
+# be stored
 # @param <ArrayRef> $wantedPositionsAref : expects all wanted positions
 sub joinTrack {
   my ($self, $wantedChr, $wantedPositionsAref, $wantedFeaturesAref, $callback) = @_;
@@ -403,18 +406,19 @@ sub _getHeaderFields {
     \%fieldsToFilterOnIdx, $numColumns);
 }
 
+# TODO: think about adding back dubg logging for _validLine, _passesFilter
 sub _validLine {
   my ($self, $fieldAref, $lineNumber, $reqIdxHref, $numColumns) = @_;
 
   if(@$fieldAref != $numColumns) {
-    $self->log('debug', "Line $lineNumber has fewer columns than expected, skipping");
+    # $self->log('debug', "Line $lineNumber has fewer columns than expected, skipping");
     return;
   }
 
   # Some files are misformatted, ex: clinvar's tab delimited
   if( !looks_like_number( $fieldAref->[ $reqIdxHref->{$self->chromStart_field_name} ] )
   || !looks_like_number(  $fieldAref->[ $reqIdxHref->{$self->chromEnd_field_name} ] ) ) {
-    $self->log('debug', "Line $lineNumber Start or stop doesn't look like a number, skipping");
+    # $self->log('debug', "Line $lineNumber Start or stop doesn't look like a number, skipping");
     return;
   }
 
@@ -436,7 +440,7 @@ sub _passesFilter {
   # that they defined in the YAML file, allow that.
   for my $fieldName ($self->allFieldsToFilterOn) {
     if(!$self->passesFilter($fieldName, $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ] ) ) {
-      $self->log('debug', "Line $lineNumber $fieldName doesn't pass filter: $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ]");
+      # $self->log('debug', "Line $lineNumber $fieldName doesn't pass filter: $fieldsAref->[ $fieldsToFilterOnIdx->{$fieldName} ]");
       return;
     }
   }

@@ -26,11 +26,11 @@ has minorAllelesKey => (is => 'ro', isa => 'Str', required => 1);
 my %transitionGenos = (AG => 1, GA => 1, CT => 1, TC => 1);
 
 my $siteTypeKey = $siteHandler->siteTypeKey;
-my $transitionsKey = 'Transitions';
-my $transversionsKey = 'Transversions';
-my $trTvRatioKey = 'Transitions:Transversions Ratio';
-my $totalKey = 'Total';
-my $dbSnpKey = '-DbSNP';
+my $transitionsKey = 'transitions';
+my $transversionsKey = 'transversions';
+my $trTvRatioKey = 'transitions:transversions ratio';
+my $totalKey = 'total';
+my $dbSnpKey = 'dbSNP';
 
 # cache the names, avoid lookup time
 my ($refTrack, $geneTrack, $geneTrackName, $snpTrackName, $hetKey, $homKey, $alleleKey);
@@ -41,7 +41,7 @@ sub BUILD{
   $homKey = $self->homozygoteIdsKey;
   $alleleKey = $self->minorAllelesKey;
 
-  my $tracks = Seq::Tracks->new();
+  my $tracks = Seq::Tracks->new({gettersOnly => 1});
   $refTrack = $tracks->getRefTrackGetter;
 
   $geneTrackName = $self->gene_track;
@@ -84,9 +84,6 @@ sub countTransitionsAndTransversions {
 
     if(!defined $transitions{$totalKey}{$totalKey}) {
       $transitions{$totalKey}{$totalKey} = 0;
-    }
-
-    if(!defined $transversions{$totalKey}{$totalKey} ) {
       $transversions{$totalKey}{$totalKey} = 0;
     }
 
@@ -99,10 +96,40 @@ sub countTransitionsAndTransversions {
     } else {
       $transversions{$totalKey}{$totalKey}++;
     }
-
+    
     # The presence of a dbSNP name indicates a dbSNP record (aka hasRs)
-    if( $_->{$snpTrackName}{name} ) {
+    if( defined $_->{$snpTrackName}{name} ) {
       $hasRs = 1;
+    }
+
+    if($hasRs) {
+      if(!defined $transitions{$totalKey}{$dbSnpKey}) {
+        $transitions{$totalKey}{$dbSnpKey} = 0;
+        $transversions{$totalKey}{$dbSnpKey} = 0;
+      }
+
+      if($isTrans) { $transitions{$totalKey}{$dbSnpKey}++; } 
+      else { $transversions{$totalKey}{$dbSnpKey}++; }
+    }
+
+    OUTER_SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
+      if(!defined $transitions{$sampleId}{$totalKey}) {
+        $transitions{$sampleId}{$totalKey} = 0;
+        $transversions{$sampleId}{$totalKey} = 0;
+      }
+
+      if($isTrans) { $transitions{$sampleId}{$totalKey}++; }
+      else { $transversions{$sampleId}{$totalKey}++; }
+
+      if($hasRs) { 
+        if(!defined $transitions{$sampleId}{$dbSnpKey}) {
+          $transitions{$sampleId}{$dbSnpKey} = 0;
+          $transversions{$sampleId}{$dbSnpKey} = 0;
+        }
+
+        if($isTrans) { $transitions{$sampleId}{$dbSnpKey}++; } 
+        else { $transversions{$sampleId}{$dbSnpKey}++; }
+      }
     }
 
     # For every unique site type, count whether this position is a transition or transversion
@@ -110,6 +137,10 @@ sub countTransitionsAndTransversions {
     my $allSites = $_->{$geneTrackName}{$siteTypeKey};
 
     SITE_TYPE_LOOP: for my $siteType (ref $allSites ? @{$allSites} : $allSites) {
+      # siteTypes probably won't be undefined, but API could change
+      # undefined values would then be used to keep output order in flattened table format
+      if(!defined $siteType) { next SITE_TYPE_LOOP; }
+
       if(defined $notUniqueSiteType{$siteType} ) { next SITE_TYPE_LOOP; }
 
       $notUniqueSiteType{$siteType} = 1;
@@ -123,13 +154,13 @@ sub countTransitionsAndTransversions {
       else { $transversions{$totalKey}{$siteType}++; }
 
       if($hasRs) {
-        if(!defined $transitions{$totalKey}{"$siteType$dbSnpKey"}) {
-          $transitions{$totalKey}{"$siteType$dbSnpKey"} = 0;
-          $transversions{$totalKey}{"$siteType$dbSnpKey"} = 0;
+        if(!defined $transitions{$totalKey}{"$siteType\_$dbSnpKey"}) {
+          $transitions{$totalKey}{"$siteType\_$dbSnpKey"} = 0;
+          $transversions{$totalKey}{"$siteType\_$dbSnpKey"} = 0;
         }
 
-        if($isTrans) { $transitions{$totalKey}{"$siteType$dbSnpKey"}++; }
-        else { $transversions{$totalKey}{"$siteType$dbSnpKey"}++; }
+        if($isTrans) { $transitions{$totalKey}{"$siteType\_$dbSnpKey"}++; }
+        else { $transversions{$totalKey}{"$siteType\_$dbSnpKey"}++; }
       }
 
       SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
@@ -138,17 +169,17 @@ sub countTransitionsAndTransversions {
           $transversions{$sampleId}{$siteType} = 0;
         }
 
-        if($hasRs && !defined $transitions{$sampleId}{"$siteType$dbSnpKey"}) {
-          $transitions{$sampleId}{"$siteType$dbSnpKey"} = 0;
-          $transversions{$sampleId}{"$siteType$dbSnpKey"} = 0;
+        if($hasRs && !defined $transitions{$sampleId}{"$siteType\_$dbSnpKey"}) {
+          $transitions{$sampleId}{"$siteType\_$dbSnpKey"} = 0;
+          $transversions{$sampleId}{"$siteType\_$dbSnpKey"} = 0;
         }
 
         if($isTrans) {
           $transitions{$sampleId}{$siteType}++;
-          if($hasRs) { $transitions{$sampleId}{"$siteType$dbSnpKey"}++; }
+          if($hasRs) { $transitions{$sampleId}{"$siteType\_$dbSnpKey"}++; }
         } else {
           $transversions{$sampleId}{$siteType}++;
-          if($hasRs) { $transversions{$sampleId}{"$siteType$dbSnpKey"}++; }
+          if($hasRs) { $transversions{$sampleId}{"$siteType\_$dbSnpKey"}++; }
         }
       }
     }
@@ -161,46 +192,59 @@ sub countTransitionsAndTransversions {
     my %notUniqueTxEffectType;
     my $allTxEffects = $_->{$geneTrackName}{$geneTrack->txEffectsKey};
 
-    TX_EFFECT_LOOP: for my $txEffect (ref $allTxEffects ? @{$allTxEffects} : $allTxEffects) {
-      if(defined $notUniqueTxEffectType{$txEffect} ) { next TX_EFFECT_LOOP; }
+    #TODO: Figure out if it would be better for Seq::Tracks::Gene to output 
+    #single level array when there is only a single allele
+    #Currently Seq::Tracks::Gene outputs a 2 level array for 1 allele
+    ALL_TX_EFFECTS_LOOP: foreach (@$allTxEffects) {
+      # Non coding sites
+      if(!defined $_) { next; }
 
-      $notUniqueTxEffectType{$txEffect} = 1;
+      TX_EFFECT_LOOP: for my $txEffect (ref $_ ? @{$_} : $_) {
+        # We may set some txEffects as undef in the output to conserve space
+        # While retaining output (flattened in table) order
+        # Occurs in case of multiple transcripts
+        if(!defined $txEffect) { next TX_EFFECT_LOOP; }
 
-      if(!defined $transitions{$totalKey}{$txEffect}) {
-        $transitions{$totalKey}{$txEffect} = 0;
-        $transversions{$totalKey}{$txEffect} = 0;
-      }
+        if(defined $notUniqueTxEffectType{$txEffect} ) { next TX_EFFECT_LOOP; }
 
-      if($isTrans) { $transitions{$totalKey}{$txEffect}++; }
-      else { $transversions{$totalKey}{$txEffect}++; }
+        $notUniqueTxEffectType{$txEffect} = 1;
 
-      if( $hasRs ) {
-        if(!defined $transitions{$totalKey}{"$txEffect$dbSnpKey"}) {
-          $transitions{$totalKey}{"$txEffect$dbSnpKey"} = 0;
-          $transversions{$totalKey}{"$txEffect$dbSnpKey"} = 0;
+        if(!defined $transitions{$totalKey}{$txEffect}) {
+          $transitions{$totalKey}{$txEffect} = 0;
+          $transversions{$totalKey}{$txEffect} = 0;
         }
 
-        if($isTrans) { $transitions{$totalKey}{"$txEffect$dbSnpKey"}++; }
-        else { $transversions{$totalKey}{"$txEffect$dbSnpKey"}++; }
-      }
+        if($isTrans) { $transitions{$totalKey}{$txEffect}++; }
+        else { $transversions{$totalKey}{$txEffect}++; }
 
-      SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
-        if(!defined $transitions{$sampleId}{$txEffect}) {
-          $transitions{$sampleId}{$txEffect} = 0;
-          $transversions{$sampleId}{$txEffect} = 0;
+        if( $hasRs ) {
+          if(!defined $transitions{$totalKey}{"$txEffect\_$dbSnpKey"}) {
+            $transitions{$totalKey}{"$txEffect\_$dbSnpKey"} = 0;
+            $transversions{$totalKey}{"$txEffect\_$dbSnpKey"} = 0;
+          }
+
+          if($isTrans) { $transitions{$totalKey}{"$txEffect\_$dbSnpKey"}++; }
+          else { $transversions{$totalKey}{"$txEffect\_$dbSnpKey"}++; }
         }
 
-        if($hasRs && !defined $transitions{$sampleId}{"$txEffect$dbSnpKey"}) {
-          $transitions{$sampleId}{"$txEffect$dbSnpKey"} = 0;
-          $transversions{$sampleId}{"$txEffect$dbSnpKey"} = 0;
-        }
+        SAMPLE_LOOP: for my $sampleId (ref $sampleIds ? @$sampleIds : $sampleIds) {
+          if(!defined $transitions{$sampleId}{$txEffect}) {
+            $transitions{$sampleId}{$txEffect} = 0;
+            $transversions{$sampleId}{$txEffect} = 0;
+          }
 
-        if($isTrans) {
-          $transitions{$sampleId}{$txEffect}++;
-          if($hasRs) { $transitions{$sampleId}{"$txEffect$dbSnpKey"}++; }
-        } else {
-          $transversions{$sampleId}{$txEffect}++;
-          if($hasRs) { $transversions{$sampleId}{"$txEffect$dbSnpKey"}++; }
+          if($hasRs && !defined $transitions{$sampleId}{"$txEffect\_$dbSnpKey"}) {
+            $transitions{$sampleId}{"$txEffect\_$dbSnpKey"} = 0;
+            $transversions{$sampleId}{"$txEffect\_$dbSnpKey"} = 0;
+          }
+
+          if($isTrans) {
+            $transitions{$sampleId}{$txEffect}++;
+            if($hasRs) { $transitions{$sampleId}{"$txEffect\_$dbSnpKey"}++; }
+          } else {
+            $transversions{$sampleId}{$txEffect}++;
+            if($hasRs) { $transversions{$sampleId}{"$txEffect\_$dbSnpKey"}++; }
+          }
         }
       }
     }
@@ -216,16 +260,16 @@ sub countTransitionsAndTransversions {
 # Updates allHref in place
 sub accumulateValues {
   my ($self, $allHref, $addHref) = @_;
-  
+
   # transition, transversion
-  for my $trOrTvKey (keys %$addHref) {
+  for my $trOrTvKey ($transitionsKey, $transversionsKey) {
     # total or a sampleId
     for my $sampleId (keys %{ $addHref->{$trOrTvKey} } ) {
       # total or site types or txEffect or intersectio of site/txEffect with dbSnpKey
-      for my $siteType (keys %{ $addHref->{$trOrTvKey}{$sampleId} } ) {
+      INNER: for my $siteType (keys %{ $addHref->{$trOrTvKey}{$sampleId} } ) {
         if( !defined $allHref->{$trOrTvKey}{$sampleId}{$siteType} ) {
           $allHref->{$trOrTvKey}{$sampleId}{$siteType} = $addHref->{$trOrTvKey}{$sampleId}{$siteType};
-          next;
+          next INNER;
         }
 
         $allHref->{$trOrTvKey}{$sampleId}{$siteType} += $addHref->{$trOrTvKey}{$sampleId}{$siteType};
@@ -246,44 +290,77 @@ sub makeRatios {
   # These are the total Tr and Tv for each sample, used for qc measures
   my %sampleTotalTransitions;
   my %sampleTotalTransversions;
+
+  # Used for quality control calculations of overall tr:tv ratio being within 3SD
   my @allSampleRatios;
 
+  # This function suggests output order as well, since it owns the output fields
+  my @order;
+
+  # All "sampleId" (including total key) have the same siteTypes
+  # this is guaranteed in accumulateValues
+  my %siteTypesOrTxEffectsSeen;
+
+  # the transitions key and transversions key should posesses the same sample list
+  # we'll know if not in the output, and that would be a programming error
+  my @allSamples = keys %$transitions;
+
+  ####################### First accumulate all defined values ##################
   # total or sampleId
-  for my $sampleId (keys %$transitions) {
+  for my $sampleId (@allSamples) {
     # site type
-    for my $siteType (keys %{ $transitions->{$sampleId} } ) {
+    for my $siteType (keys %{$transitions->{$sampleId} } ) {
+      # We'll store the raw counts as well as ratios;
+      #this will include $totalKey $tansitionsKey and $totalKey $transversionsKey
+      $ratios{$sampleId}{"$siteType $transitionsKey"} = $transitions->{$sampleId}{$siteType};
+      $ratios{$sampleId}{"$siteType $transversionsKey"} = $transversions->{$sampleId}{$siteType};
+
       if($transversions->{$sampleId}{$siteType} > 0) {
         $ratios{$sampleId}{"$siteType $trTvRatioKey"} = sprintf "%0.2f",
           $transitions->{$sampleId}{$siteType} / $transversions->{$sampleId}{$siteType};
+      } else {
+        # TODO: use Seq::Output 's undefined value attribute
+        $ratios{$sampleId}{"$siteType $trTvRatioKey"} = "NA";
       }
 
-      if(!defined $sampleTotalTransitions{$sampleId}) {
-        $sampleTotalTransitions{$sampleId} = 0;
-        $sampleTotalTransversions{$sampleId} = 0;
+      if(!defined $siteTypesOrTxEffectsSeen{$siteType} ) {
+        $siteTypesOrTxEffectsSeen{$siteType} = 1;
       }
+    }
 
-      $sampleTotalTransitions{$sampleId} += $transitions->{$sampleId}{$siteType};
-      $sampleTotalTransversions{$sampleId} += $transversions->{$sampleId}{$siteType};
+    # @allSampleRatios is used to determine 3SD quality control range
+    push @allSampleRatios, $ratios{$sampleId}{"$totalKey $trTvRatioKey"};
+  }
+
+  ####################### Now accumulate all undefined values ##################
+
+  my @allSiteOrTxEffectTypesSeen = keys %siteTypesOrTxEffectsSeen;
+
+  #Guarantee that all samples have the same ratios and raw counts
+  for my $sampleId (@allSamples) {
+    # site type
+    for my $siteType (@allSiteOrTxEffectTypesSeen) {
+      if(!defined $transitions->{$sampleId}{$siteType} ) {
+        $ratios{$sampleId}{"$siteType $transitionsKey"} = 0;
+        $ratios{$sampleId}{"$siteType $transversionsKey"} = 0;
+        $ratios{$sampleId}{"$siteType $trTvRatioKey"} = "NA";
+      }
     }
   }
 
-  # Make the ratios for totalKey and all sampleIds, and record counts of tr & tv
-  for my $sampleId (keys %sampleTotalTransitions) {
-    if($sampleTotalTransversions{$sampleId} > 0) {
-      $ratios{$sampleId}{$trTvRatioKey} = sprintf "%0.2f",
-        $sampleTotalTransitions{$sampleId} / $sampleTotalTransversions{$sampleId};
+  ####################### Suggest output order to consumers ####################
 
-      $ratios{$sampleId}{$transitionsKey} = $sampleTotalTransitions{$sampleId};
-      $ratios{$sampleId}{$transversionsKey} = $sampleTotalTransversions{$sampleId};
-
-      if($sampleId eq $totalKey) { 
-        next;
-      }
-
-      # Store individual sample ratios for SD and Mean calculations
-      push @allSampleRatios, $ratios{$sampleId}{$trTvRatioKey};
+  foreach ( @{Sort::XS::quick_sort_str(\@allSiteOrTxEffectTypesSeen) } ) {
+    #total transtitions, total transversions, & total transitions:transversions goes last
+    if ($_ ne $totalKey) {
+      push @order, "$_ $transitionsKey", "$_ $transversionsKey", "$_ $trTvRatioKey";
     }
   }
+
+  # These items should be output last
+  push @order, "$totalKey $transitionsKey";
+  push @order, "$totalKey $transversionsKey";
+  push @order, "$totalKey $trTvRatioKey";
 
   my $mean = $self->_mean(\@allSampleRatios);
   my $standardDev = $self->_stDev(\@allSampleRatios, $mean);
@@ -299,45 +376,28 @@ sub makeRatios {
     }
   }
 
-  return {ratios => \%ratios, qc => \%qualityControl};
+  return {ratios => \%ratios, ratiosOutputOrder => \@order, qc => \%qualityControl};
 }
 
 sub printStatistics {
   my ($self, $statsHref, $outputFilePath) = @_;
 
   my $ratiosHref = $statsHref->{ratios};
+  my @outputOrder = @{ $statsHref->{ratiosOutputOrder} };
   my $qcHref = $statsHref->{qc};
 
-  my $ratiosExt = '.stats.ratios.csv';
-  my $qcExt = '.stats.qc.csv';
+  my $ratiosExt = '.stats.ratios.tab';
+  my $qcExt = '.stats.qc.tab';
 
-  ############## Print ratios, Total row being first below header ##############
-  my %headerRatios = ($transitionsKey => 1, $transversionsKey => 1, $trTvRatioKey => 1);
-  my @orderedHeaderRatios;
-
-  for my $ratioType ( @{ Sort::XS::quick_sort_str( [keys %{$ratiosHref->{$totalKey} }] ) } ) {
-    if(defined $headerRatios{$ratioType}) {
-      next;
-    }
-
-    push @orderedHeaderRatios, $ratioType;
-    $headerRatios{$ratioType} = 1;
-  }
-
-  @orderedHeaderRatios = (@orderedHeaderRatios, $transitionsKey, $transversionsKey, $trTvRatioKey);
+  ######################## Print ratios ############################
 
   my $fh = $self->get_write_fh($outputFilePath . $ratiosExt);
 
-  say $fh join("\t", @orderedHeaderRatios);
-
-  say $fh "$totalKey\t" . join("\t", map { $ratiosHref->{$totalKey}{$_} } @orderedHeaderRatios);
+  # The first cell is blank or call it Sample
+  say $fh join("\t", "Sample", @outputOrder);
 
   for my $sampleId ( @{  Sort::XS::quick_sort_str( [keys %$ratiosHref] ) } ) {
-    if($sampleId eq $totalKey) {
-      next;
-    }
-
-    say $fh "$sampleId\t" . join("\t", map { $ratiosHref->{$sampleId}{$_} } @orderedHeaderRatios);
+    say $fh "$sampleId\t" . join("\t", map { $ratiosHref->{$sampleId}{$_} } @outputOrder);
   }
 
   close $fh;

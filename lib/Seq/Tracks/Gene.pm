@@ -54,7 +54,6 @@ state $txEffectsKey = 'codonEffect';
 state $intergenic = 'intergenic';
 
 ### txEffect possible values ###
-state $nonCoding = 'nonCoding';
 state $silent = 'synonymous';
 state $replacement = 'nonSynonymous';
 state $frameshift = 'frameshift';
@@ -248,7 +247,7 @@ sub get {
     my $i = 0;
     SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
       if(!defined $site->[ $codonPositionIdx ]){
-        push @accum, $nonCoding;
+        push @accum, undef;
         push @{ $out{$newAminoAcidKey} }, undef;
 
         next SNP_LOOP;

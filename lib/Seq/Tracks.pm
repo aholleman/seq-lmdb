@@ -46,6 +46,8 @@ use Seq::Tracks::Cadd::Build;
 
 use Seq::Tracks::Base::Types;
 ########################### Configuration ##################################
+# This only matters the first time this class is called
+# All other calls will ignore this property
 has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
 
 # @param <ArrayRef> tracks: track configuration
@@ -140,12 +142,15 @@ sub getRefTrackBuilder {
 
 sub BUILD {
   my $self = shift;
+  # If $self->gettersOnly set the first time this track is called, all future
+  # invocations will only have getters
+  # This allows us to safely avoid locks, properly treating that as a singleton
 
-  if(%$trackGetters && $self->gettersOnly) {
-    return;
-  }
-
-  if(%$trackBuilders && %$trackGetters) {
+  # $trackGetters is always set upon the first invocation, so it is a reliable
+  # marker of previous initialization
+  # Note that if $self->gettersOnly set, all future invocations cannot get
+  # builders
+  if(%$trackGetters) { 
     return;
   }
 
@@ -208,7 +213,6 @@ sub _buildTrackGetters {
 #different from Seq::Tracks in that we store class instances hashed on track type
 #this is to allow us to more easily build tracks of one type in a certain order
 sub _buildTrackBuilders {
-  say "building builders";
   if(%$trackBuilders) {
     return;
   }
