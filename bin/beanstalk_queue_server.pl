@@ -18,16 +18,12 @@ use warnings;
 use Try::Tiny;
 
 use lib './lib';
-# use forks;
-# use forks::shared;
 
 use Log::Any::Adapter;
 use File::Basename;
 use DDP;
-# use Interface;
-
-# use Thread::Queue;
-# use IO::Socket;
+use Interface;
+use Seq::Role::Message;
 
 use Beanstalk::Client;
 use 5.10.0;
@@ -41,28 +37,24 @@ use YAML::XS qw/LoadFile/;
 #use Sys::Info::Constants qw( :device_cpu )
 #for choosing max connections based on available resources
 
-use Redis::hiredis;
+use Redis;
 
 my $DEBUG = 0;
-my $redisHost  = $ARGV[0] || 'genome.local';
-my $redisPort  = $ARGV[1] || '6379';
+my $conf = LoadFile('./config/queue.yaml');
+
+my $redisHost  = $conf->{redis_host};
+my $redisPort  = $conf->{redis_port};
+
+# Beanstalk servers will be sharded
+my $beanstalkHost  = $conf->{beanstalk_host_1};
+my $beanstalkPort  = $conf->{beanstalk_port_1};
 
 #my $socketIOPort  = $ARGV[1] || '9001';
 #these queues are only consumed by this service
-my $submittedJobsDocument  = 'submittedJob';
-my $jobQueueName           = 'submittedJobQueue';
-my $jobPreStartQueue       = 'submittedJobProcessingQueue';
-# these queues are consumed by the calling program
-# so items from these queues should not be removed by this program
-# should any job fail, it will be restarted by the caller
-# this queue is meant to simply to place the job in the appropriate queue
-# and take the action relevant to that queue (such as start a job, or complete it)
-my $jobStartedQueue   = 'startedJobQueue';
-my $jobFinishedQueue  = 'finishedJobQueue';
-my $jobFailedQueue    = 'failedJobQueue';
+my $submittedJobsDocument  = $conf->{redis}->{submittedJobs_document};
 
 # notify the client of progress
-my $annotationMessageChannel  = 'annotationProgress';
+my $annotationMessageChannel  = $conf->{redis}->{progress_channel};
 
 # for jobID specific pings
 # my $annotationStatusChannelBase  = 'annotationStatus:';
@@ -71,21 +63,21 @@ my $annotationMessageChannel  = 'annotationProgress';
 # mongoose schema; TODO: at startup request file from webserver with this config
 my $jobKeys = {};
 $jobKeys->{inputFilePath}    = 'inputFilePath',
-  $jobKeys->{attempts}       = 'attempts',
-  $jobKeys->{outputFilePath} = 'outputFilePath',
-  $jobKeys->{options}        = 'options',
-  $jobKeys->{started}        = 'started',
-  $jobKeys->{completed}      = 'completed',
-  $jobKeys->{failed}         = 'failed',
-  $jobKeys->{result}         = 'annotationSummary',
-  $jobKeys->{assembly}       = 'assembly',
-  $jobKeys->{comm}           = 'comm',
-  $jobKeys->{clientComm}     = 'client',
-  $jobKeys->{serverComm}     = 'server',
-  $jobKeys->{log} = 'log';
-  $jobKeys->{logException} = 'exceptions';
+$jobKeys->{attempts}       = 'attempts',
+$jobKeys->{outputFilePath} = 'outputFilePath',
+$jobKeys->{options}        = 'options',
+$jobKeys->{started}        = 'started',
+$jobKeys->{completed}      = 'completed',
+$jobKeys->{failed}         = 'failed',
+$jobKeys->{result}         = 'annotationSummary',
+$jobKeys->{assembly}       = 'assembly',
+$jobKeys->{comm}           = 'comm',
+$jobKeys->{clientComm}     = 'client',
+$jobKeys->{serverComm}     = 'server',
+$jobKeys->{log} = 'log';
+$jobKeys->{logException} = 'exceptions';
 
-my $configPathBaseDir = "config/web/";
+my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
 # my $semSTDOUT;
 
