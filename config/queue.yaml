@@ -1,0 +1,14 @@
+beanstalk_host_1: 172.31.56.119
+beanstalk_port_1: 11300
+
+beanstalk:
+  tubes:
+    annotation:
+      submission: annotation
+      events: annotation_events
+    index:
+      submission: elasticIndex_submitted
+      events: annotation_events
+    filters:
+      submission: filters
+      events: filters_events
