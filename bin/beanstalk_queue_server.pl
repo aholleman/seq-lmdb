@@ -75,26 +75,38 @@ my $configFilePathHref = {};
 my $verbose = 1;
 
 my $beanstalk = Beanstalk::Client->new({
-  server    => "$beanstalkHost",
-  default_tube => $conf->{beanstalk}{tubes}{annotation}{submission},
+  server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
+  default_tube => $conf->{beanstalkd}{tubes}{annotation}{submission},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
 });
 
 my $beanstalkEvents = Beanstalk::Client->new({
-  server    => "$beanstalkHost",
-  default_tube => $conf->{beanstalk}{tubes}{annotation}{events},
+  server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
+  default_tube => $conf->{beanstalkd}{tubes}{annotation}{events},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
 });
 
 $pm->run_on_finish( sub {
-  my ($pid, $exit_code, $job) = @_;
+  my ($pid, $exit_code, $job, $exit_signal, $core_dump, $data_structure_reference) = @_;
   
   if($exit_code != 0) {
-    say "job ". $job->id . " failed";
+    my $reason = defined $data_structure_reference && ref $data_structure_reference ?
+      $$data_structure_reference : defined $core_dump ? $core_dump : $exit_signal;
+
+    say "job ". $job->id . " failed due to " . $reason;
+    
+    # Signal before bury, because we always want to record that the job failed
+    # even if burying fails
+    $beanstalkEvents->put( {}, encode_json({
+      event => 'failed',
+      reason => $reason,
+      queueId => $job->id,
+    }) );
+
     $job->bury;
   }
 
@@ -103,19 +115,28 @@ $pm->run_on_finish( sub {
 
 while(my $job = $beanstalk->reserve) {
   $pm->start($job) and next;
-    $beanstalk->put({}, $job->data);
-    
     my $jobDataHref;
     
     try {
-      $jobDataHref = decode_json( $jobJSON );
+      $jobDataHref = decode_json( $job->data );
     } catch {
-      die $_;
+      $pm->finish(255, \$_);
     };
 
-    handleJob($job->data);
+    $beanstalkEvents->put({}, encode_json({
+      event => 'started',
+      queueId => $job->id,
+    }));
     
-    $beanstalkEvents->put({},$job->data);
+    my $statistics = handleJob($job->data);
+
+    # Signal completion before completion actually occurs via delete
+    # To be conservative; since after delete message is lost
+    $beanstalkEvents->put({}, encode_json({
+      event => 'completed',
+      queueId => $job->id,
+      result  => $statistics,
+    }));
     
     $beanstalk->delete($job->id);
   $pm->finish(0);
@@ -123,93 +144,10 @@ while(my $job = $beanstalk->reserve) {
 
 $pm->wait_all_children;
 
-#note that it is possible that we will have, in odd cases, a potential
-#multiple number of identical items in the start, fail, and completed queues
-#it is up to the job owner to figure out what to do with that
-#we don't want to set up a race condition here
-
-# TODO: we need to retry jobs that fail because of watch/race
-sub handleJobStart {
-  my ( $jobID, $documentKey, $submittedJob, $redis ) = @_;
-  say "Handle job start submittedJob:";
-
-  try {
-    $submittedJob->{ $jobKeys->{started} } = 1;
-    my $jobJSON = encode_json($submittedJob);
-    #  $redis->watch($documentKey);
-    $redis->multi;
-    $redis->set( $documentKey, $jobJSON );
-    my @replies = $redis->exec();
-  }
-  catch {
-    say "Error saving Redis record in handleJobStart: $_";
-    $submittedJob->{ $jobKeys->{started} } = 0;
-    handleJobFailure( $jobID, $documentKey,
-      'Error saving newly started job to Redis', $submittedJob, $redis );
-  }
-}
-
-#handle success and failure
-#expects $redis from local scope (not passed)
-#look into multi-exec consequences, performance, investigate storing in redis Sets instead of linked-lists
-sub handleJobSuccess {
-  my ( $jobID, $documentKey, $submittedJob, $redis ) = @_;
-
-  say "job succeeded $jobID";
-  
-  try {
-    $submittedJob->{ $jobKeys->{completed} } = 1;
-    my $jobJSON = encode_json($submittedJob);
-    # $redis->watch($documentKey);
-    $redis->multi;
-    $redis->set( $documentKey, $jobJSON );
-    my @replies = $redis->exec();
-    # $Qdone->enqueue($jobID);
-  }
-  catch {
-    say "Error in handleJobSuccess: $_";
-    $submittedJob->{ $jobKeys->{completed} } = 0;
-    handleJobFailure( $jobID, $documentKey,
-      'Error saving successful job to Redis', $submittedJob, $redis );
-  }
-}
-
-sub handleJobFailure {
-  my ( $jobID, $documentKey, $reason, $submittedJob, $redis ) = @_;
-  
-  try {
-    $submittedJob->{ $jobKeys->{failed} } = 1;
-    if(ref $submittedJob->{$jobKeys->{log} }{$jobKeys->{logException} } ne "ARRAY") {
-      $submittedJob->{$jobKeys->{log} }{$jobKeys->{logException} } = [$reason];
-    } else {
-      push(@{$submittedJob->{$jobKeys->{log} }{$jobKeys->{logException} } }, $reason);
-    }
-    
-    my $jobJSON = encode_json($submittedJob);
-    #$redis->watch($documentKey);
-    $redis->multi;
-    $redis->set( $documentKey, $jobJSON );
-    my @replies = $redis->exec();
-    # $redis->unwatch;
-  }
-  catch {
-    print $_;
-  }
-  # $Qdone->enqueue($jobID);
-  die "job failed $jobID because of $reason";
-}
-
 sub handleJob {
-  my $jobJSON = shift;
+  my $submittedJob = shift;
 
-  my ($failed, $submittedJob);
-
-  #this isn't ready yet.
-  # my $statusChannel = $annotationStatusChannelBase . $jobID;
-  # $redis->subscribe($statusChannel, my $statusCb = sub {
-  #   #my ($message, $topic, $subscribed_topic) = @_;
-  #   $redis->publish($statusChannel, 1);
-  # });
+  my $failed;
 
   say "in handle job, jobData is";
   p $submittedJob;
@@ -217,7 +155,6 @@ sub handleJob {
   my $jobID = $submittedJob->{id};
 
   say "jobID is $jobID";
-  my $documentKey = $submittedJobsDocument . ':' . $jobID;
 
   my $log_name = join '.', 'annotation', 'jobID', $jobID, 'log';
   my $log_file = File::Spec->rel2abs( ".", $log_name );
@@ -230,8 +167,6 @@ sub handleJob {
   try {
     $inputHref = coerceInputs($submittedJob);
 
-    handleJobStart( $jobID, $documentKey, $submittedJob, $redis );
-
     if ($verbose) {
       say "The user job data sent to annotator is: ";
       p $inputHref;
@@ -241,24 +176,17 @@ sub handleJob {
     my $annotate_instance = Interface->new($inputHref);
     my $result            = $annotate_instance->annotate;
 
-    die 'Error: Nothing returned from annotate_snpfile' unless defined $result;
+    if(!defined $result) {
+      $log->error('Nothing returned from annotator');
+      die 'Error: Nothing returned from annotator';
+    }
 
-    $submittedJob->{ $jobKeys->{result} } = $result;
+    return $result;
   } catch {
     $log->error($_);
-    #because here we don't have automatic logging guaranteed
 
-    ##we now record this to exceptions instead of messages
-    # if ( defined $inputHref
-    #   && exists $inputHref->{messanger}
-    #   && keys %{ $inputHref->{messanger} } )
-    # {
-    #   say "publishing message $_";
-    #   $inputHref->{messanger}{message}{data} = "$_";
-    #   $redis->publish( $inputHref->{messanger}{event},
-    #     encode_json( $inputHref->{messanger} ) );
-    # }
     my $indexOfConstructor = index($_, "Seq::");
+    
     if(~$indexOfConstructor) {
       $failed = substr($_, 0, $indexOfConstructor);
     } else {
@@ -271,15 +199,6 @@ sub handleJob {
 
     die $failed;
   };
-
-  if($failed) {
-    handleJobFailure( $jobID, $documentKey, $failed, $submittedJob, $redis );
-    #$redis->unsubscribe($statusChannel, $statusCb);
-  } else {
-    handleJobSuccess( $jobID, $documentKey, $submittedJob, $redis );
-  }
-  
-  # $redis->unsubscribe($statusChannel, $statusCb);
 }
 
 #Here we may wish to read a json or yaml file containing argument mappings
@@ -307,8 +226,8 @@ sub coerceInputs {
     out_file           => $outputFilePath,
     config             => $configFilePath,
     ignore_unknown_chr => 1,
-    publisherMessageBase          => $messangerHref,
-    publisherAddress   => [ $redisHost, $redisPort ],
+    publisherAddress   => [ $conf->{beanstalkd}{host}, $conf->{beanstalkd}{port} ],
+    publisherTube      => $conf->{beanstalkd}{tubes}{annotation}{events},
     compress => 1,
   };
 }
