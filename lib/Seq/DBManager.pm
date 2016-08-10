@@ -237,9 +237,10 @@ sub dbPatchBulkArray {
       $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
+    my $aref = [];
     if(defined $json) {
       #can't modify $json, read-only value, from memory map
-      my $aref = $mp->unpack($json);
+      $aref = $mp->unpack($json);
 
       # $trackIndex <= $#$aref
       # We have stored *something* for $trackIndex, even if it is an undef
@@ -282,13 +283,12 @@ sub dbPatchBulkArray {
       next;
     }
 
-    my @arr;
     # Either $json not defined ($aref empty) or trackIndex not defined
     # Assigning an element to the array auto grows it
     #https://ideone.com/Wzjmrl
-    $arr[$trackIndex] = $trackValue;
+    $aref->[$trackIndex] = $trackValue;
     
-    $out{$pos} = \@arr;
+    $out{$pos} = $aref;
   }
 
   $txn->commit();
@@ -495,7 +495,7 @@ sub _getDbi {
   if($dbReadOnly) {
     $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC;
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {

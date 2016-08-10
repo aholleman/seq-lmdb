@@ -134,7 +134,7 @@ sub buildTrack{
         $count++;
         if($count >= $self->commitEvery) {
           $self->db->dbPatchBulkArray($wantedChr, \%data );
-          %data = ();
+          undef %data;
           $count = 0;
 
           #don't reset chrPosition, or wantedChr, because chrPosition is

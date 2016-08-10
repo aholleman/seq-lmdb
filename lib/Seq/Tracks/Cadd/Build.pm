@@ -167,9 +167,18 @@ sub buildTrack {
             $self->log('info', "Changed position. Skipping $wantedChr:$lastPosition"
               . " because: " . $skipSites{"$wantedChr\_$lastPosition"} );
 
-            delete $scores{$wantedChr}{$lastPosition};
 
-            #Don't delete the skipped positions, to keep a record of bad places
+            # Skipped sites may write undef for the position, because if multiple
+            # 3-mers exist for this site (can occur during liftover), we want to avoid
+            # allowing a cryptic N-mer
+            # Writing an undef at the position will ensure that mergeFunc is called
+            # because it is called when the database contains any entry for the
+            # cadd track, undef included
+            $out{$wantedChr}{$lastPosition} = $self->prepareData( undef );
+            $count{$wantedChr}++;
+
+            delete $scores{$wantedChr}{$lastPosition};
+            delete $skipSites{"$wantedChr\_$lastPosition"};
           } elsif( !defined $scores{$wantedChr}{$lastPosition} ) {
             # Could occur if we skipped the lastPosition because refBase didn't match
             # assemblyRefBase
@@ -179,13 +188,20 @@ sub buildTrack {
             my $dbData = $self->db->dbRead( $wantedChr, $lastPosition );
             my $assemblyRefBase = $refTrack->get($dbData);
 
+            if(!defined $assemblyRefBase) {
+              $self->log('warn', "No assembly ref base found for $wantedChr:$lastPosition");
+            }
             # When lifted over, reference base is not lifted, can cause mismatch
             # In these cases it makes no sense to store this position's CADD data
             if( $assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
-              $self->log('warn', "Skipping $wantedChr:$lastPosition because CADD ref "
-                . " == $scores{$wantedChr}{$lastPosition}{ref}, assembly ref == $assemblyRefBase.");
+              $self->log('warn', "Inserting undef into $wantedChr:$lastPosition because CADD ref "
+                . " == $scores{$wantedChr}{$lastPosition}{ref}, assembly ref == $assemblyRefBase\.");
               
-              # so that this won't be be used again
+              # In case there are multiple 3-mers in the file with the same chr-pos
+              # store an undef at this $lastPosition, to allow triggering of mergeFunc
+              $out{$wantedChr}{$lastPosition} = $self->prepareData( undef );
+              $count{$wantedChr}++;
+
               delete $scores{$wantedChr}{$lastPosition};
             } else {
               my $phredScoresAref = $self->_accumulateScores( $wantedChr, $scores{$wantedChr}{$lastPosition} );
@@ -207,7 +223,8 @@ sub buildTrack {
               }
 
               # If we don't have enough scores yet, it's possible the pos is out 
-              # of order; If so, we will catch it
+              # of order; If so, we want to catch it on a later run, therefore
+              # don't delete $scores{$wantedChr}{$lastPosition}
               # multiple 3-mers per chr:pos will also be caught (by the merge func)
               # Non-3 multiples will currently pose an issue 
             }
@@ -251,16 +268,8 @@ sub buildTrack {
             $self->log('warn', "Multiple reference bases in 3-mer @ $wantedChr:$dbPosition,"
               . "  excluding this position. Line # $. : $line");
             
-            # Mark this position as skipped
-            # Skipped sites may write undef for the position, because if multiple
-            # 3-mers exist for this site (can occur during liftover)
-            # Writing an undef at the position will ensure that mergeFunc is called
-            # because it is called when the database contains any entry for the
-            # cadd track, undef included
-
+            # Mark for undef insertion
             $skipSites{"$wantedChr\_$dbPosition"} = "Multi-ref";
-            $out{$wantedChr}{$dbPosition} = $self->prepareData( undef );
-            $count{$wantedChr}++;
 
             next;
           }
@@ -274,14 +283,8 @@ sub buildTrack {
           $self->log('warn', "No phast score found for $wantedChr:$dbPosition,"
             ." excluding this position. Line \#$.:$line");
           
+          # Mark for undef insertion
           $skipSites{"$wantedChr\_$dbPosition"} = "Missing-score";
-
-          # Writing undef for similar reason as Multi-ref, except to also note
-          # that we could have a cryptic non-3-mer, where say the 2nd entry is 
-          # missing the $phastIdx, but a 3rd and 4th record for this wantedChr:dbPosition
-          # do. In this case we want mergeFunc to pick up on that
-          $out{$wantedChr}{$dbPosition} = $self->prepareData( undef );
-          $count{$wantedChr}++;
 
           next;
         }
@@ -303,7 +306,18 @@ sub buildTrack {
 
           for my $position ( keys %{ $scores{$chr} } ) {
             if ( defined $skipSites{"$chr\_$position"} ) {
-              $self->log('info', "At end, skipping or inserting undef at $chr:$position because: " . $skipSites{"$chr\_$position"} );
+              $self->log('info', "At end, inserting undef at $chr:$position because: " . $skipSites{"$chr\_$position"} );
+             
+              # Skipped sites may write undef for the position, because if multiple
+              # 3-mers exist for this site (can occur during liftover), we want to avoid
+              # allowing a cryptic N-mer
+              # Writing an undef at the position will ensure that mergeFunc is called
+              # because it is called when the database contains any entry for the
+              # cadd track, undef included
+              $out{$chr}{$position} = $self->prepareData( undef );
+              $count{$chr}++;
+
+              delete $skipSites{"$chr\_$position"};
             } else {
               my $dbData = $self->db->dbRead( $chr, $position );
               my $assemblyRefBase = $refTrack->get($dbData);
@@ -313,18 +327,21 @@ sub buildTrack {
                   . " CADD ref == $scores{$chr}{$position}{ref},"
                   . " while Assembly ref == $assemblyRefBase. Excluding this position.");
                 
+                # If don't have correct ref, still insert undef,
+                # to prevent allowance of odd cryptic N-mers (N > 3)
+                $out{$chr}{$position} = $self->prepareData( undef );
               } else {
                 # Using delete to encourage Perl to free memory
                 if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
 
                 my $phredScoresAref = $self->_accumulateScores( $chr, $scores{$chr}{$position} );
                 
-                if(defined $phredScoresAref) {
-                  $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
-                  
-                  $count{$chr}++;
-                }
+                # If don't have a phred score 3-mer, still insert undef,
+                # to prevent allowance of odd cryptic N-mers (N > 3)
+                $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
               }
+
+              $count{$chr}++;
             }
 
             if( $count{$chr} >= $self->commitEvery ) {
