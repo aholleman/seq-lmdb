@@ -5,11 +5,37 @@ sudo yum install cpan -y
 sudo yum install openssl -y
 sudo yum install openssl-devel -y
 sudo yum install git-all -y
+sudo yum install pigz -y
 
 git clone git://github.com/LMDB/lmdb.git && cd lmdb/libraries/liblmdb
 make
 sudo make install
 cd ~/
+
+wget https://storage.googleapis.com/golang/go1.6.3.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.6.3.linux-amd64.tar.gz
+(echo "" ; echo 'export PATH=$PATH:/usr/local/go/bin') >> ~/.bash_profile 
+# export GOROOT=/usr/local/go
+(echo ""; echo 'export GOPATH=$HOME/go') >> ~/.bash_profile
+echo 'export PATH=$PATH:$HOME/go/bin/' >> ~/.bash_profile && source ~/.bash_profile
+
+## make sure you have the right priveleges
+mkdir -p $GOPATH/src/github.com
+
+git clone https://akotlar@bitbucket.org/wingolab/linkage.git $GOPATH/src/bitbucket.org/wingolab/linkage
+go get install bitbucket.org/wingolab/linkage
+
+git clone git://github.com/urfave/cli.git $GOPATH/src/github.com/codegangsta/cli
+go install bitbucket.org/wingolab/linkage/cmd/linkage2Snp
+
+wget https://www.cog-genomics.org/static/bin/plink160804/plink_linux_x86_64.zip
+sudo unzip -j plink_linux_x86_64.zip plink -d /usr/local/bin/
+
+\wget -O - https://install.perlbrew.pl | bash
+(echo "" ; echo "source ~/perl5/perlbrew/etc/bashrc") >> ~/.bash_profile && source ~/.bash_profile
+perlbrew install perl-5.24.0 && perlbrew switch perl-5.24.0
+
+perl -MCPAN -e 'my $c = "CPAN::HandleConfig"; $c->load(doit => 1, autoconfig => 1); $c->edit(prerequisites_policy => "follow"); $c->edit(build_requires_install_policy => "yes"); $c->commit'
 
 cpan install Mouse
 cpan install Path::Tiny
@@ -26,7 +52,7 @@ cpan install Redis::hiredis
 cpan install Cpanel::JSON::XS
 cpan install Mouse::Meta::Attribute::Custom::Trait::Array
 cpan install Net::HTTP
-cpan install  Search::Elasticsearch
+cpan install Search::Elasticsearch
 cpan install Data::MessagePack
 cpan install LMDB_File
 cpan install Sort::XS
@@ -37,4 +63,3 @@ cpan install MouseX::SimpleConfig
 cpan install MouseX::ConfigFromFile
 cpan install MouseX::Getopt
 cpan install Archive::Extract
-

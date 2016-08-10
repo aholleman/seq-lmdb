@@ -1,0 +1,13 @@
+beanstalkd:
+  host: 172.31.56.119
+  port: 11300
+  tubes:
+    annotation:
+      submission: annotation
+      events: annotation_events
+    index:
+      submission: index
+      events: index_events
+    filters:
+      submission: filters
+      events: filters_events
