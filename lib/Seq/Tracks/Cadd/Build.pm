@@ -42,6 +42,8 @@ sub buildTrack {
   
   my $columnDelimiter = $self->delimiter;
 
+  my $mergeFunc = $self->_makeMergeFunc();
+
   for my $file ( @{$self->local_files} ) {
     $pm->start($file) and next;
 
@@ -89,6 +91,8 @@ sub buildTrack {
 
       my %out;
       my %count;
+      my %skipSites;
+
       my $wantedChr;
 
       # Track which fields we recorded, to record in $self->completionMeta
@@ -96,9 +100,10 @@ sub buildTrack {
 
       # Cadd scores can be out of order after liftOver, which means
       # that we may write to the same database from multiple processes
-      if(!$self->sorted_guaranteed) {
+      # This is done in a fork, so other instances of Seq::Tracks::*::BUILD not affected
+      if(!$self->sorted_guaranteed && $self->commitEvery > 5e3) {
         # To reduce lock contention (maybe?), reduce database inflation mostly
-        $self->commitEvery(1000);
+        $self->commitEvery(5e3);
       }
         
       my $lastPosition;
@@ -115,7 +120,7 @@ sub buildTrack {
           if( defined $wantedChr && defined $out{$wantedChr} && %{ $out{$wantedChr} } ) {
             $self->log('info', "Changed from chr $wantedChr to $chr, writing $wantedChr data");
 
-            $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
+            $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
             
             $count{$wantedChr} = 0; delete $out{$wantedChr};
           }
@@ -143,6 +148,9 @@ sub buildTrack {
           next FH_LOOP;
         }
 
+        ### Record that we visited the chr, to enable recordCompletion later ###
+        if( !defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 };
+
         # We log these because cadd has a number of "M" bases, at least on chr3 in 1.3
         if( ! $fields[$refBaseIdx] =~ /ACTG/ ) {
           $self->log('warn', "Found non-ACTG reference, skipping line # $. : $line");
@@ -151,13 +159,18 @@ sub buildTrack {
 
         my $dbPosition = $fields[1] - $based;
 
-        if(!defined $count{$wantedChr}) { $count{$wantedChr} = 0; }
-
         ######## If we've changed position, we should have a 3 mer ########
         ####################### If so, write that ##############################
         ####################### If not, wait until we do #######################
         if(defined $lastPosition && $lastPosition != $dbPosition) {
-          if( !defined $scores{$wantedChr}{$lastPosition} ) {
+          if( defined $skipSites{"$wantedChr\_$lastPosition"} ) {
+            $self->log('info', "Changed position. Skipping $wantedChr:$lastPosition"
+              . " because: " . $skipSites{"$wantedChr\_$lastPosition"} );
+
+            delete $scores{$wantedChr}{$lastPosition};
+
+            #Don't delete the skipped positions, to keep a record of bad places
+          } elsif( !defined $scores{$wantedChr}{$lastPosition} ) {
             # Could occur if we skipped the lastPosition because refBase didn't match
             # assemblyRefBase
             $self->log('warn', "lastPosition $chr\=\>$lastPosition not found in CADD scores hash");
@@ -169,21 +182,21 @@ sub buildTrack {
             # When lifted over, reference base is not lifted, can cause mismatch
             # In these cases it makes no sense to store this position's CADD data
             if( $assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
-              $self->log('warn', "Line \#$. (and next two): CADD ref == $scores{$wantedChr}{$lastPosition}{ref},"
-                . " while Assembly ref == $assemblyRefBase. Skipping: $line");
+              $self->log('warn', "Skipping $wantedChr:$lastPosition because CADD ref "
+                . " == $scores{$wantedChr}{$lastPosition}{ref}, assembly ref == $assemblyRefBase.");
               
               # so that this won't be be used again
               delete $scores{$wantedChr}{$lastPosition};
             } else {
-              if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; $count{$wantedChr} = 0; }
-
-              my $phredScoresAref = $self->_accumulateScores( $scores{$wantedChr}{$lastPosition} );
+              my $phredScoresAref = $self->_accumulateScores( $wantedChr, $scores{$wantedChr}{$lastPosition} );
 
                # We accumulated a 3-mer
                # Note that we assume that after we accumulate one 3 mer, there won't
                # be an identical chr:position elsewhere in the file
                # Could test, but that would be memory intensive
               if(defined $phredScoresAref) {
+                if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; $count{$wantedChr} = 0; }
+
                 $out{$wantedChr}{$lastPosition} = $self->prepareData( $phredScoresAref );
                 
                 $count{$wantedChr}++;
@@ -192,16 +205,23 @@ sub buildTrack {
                 #end of file
                 delete $scores{$wantedChr}{$lastPosition};
               }
+
+              # If we don't have enough scores yet, it's possible the pos is out 
+              # of order; If so, we will catch it
+              # multiple 3-mers per chr:pos will also be caught (by the merge func)
+              # Non-3 multiples will currently pose an issue 
             }
           }
         }
 
+        if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; $count{$wantedChr} = 0; }
+        
         if($count{$wantedChr} >= $self->commitEvery) {
           if( !%{ $out{$wantedChr} } ) {
             $self->log('fatal', "out{$wantedChr} empty but count >= commitEvery");
           }
 
-          $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr} );
+          $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
 
           $count{$wantedChr} = 0; delete $out{$wantedChr};
         }
@@ -210,6 +230,10 @@ sub buildTrack {
 
         # This site will be next in 1 iteration
         $lastPosition = $dbPosition;
+
+        if( defined $skipSites{"$wantedChr\_$dbPosition"} ) {
+          next;
+        }
 
         my $altAllele = $fields[$altAlleleIdx];
         my $refBase = $fields[$refBaseIdx];
@@ -221,15 +245,45 @@ sub buildTrack {
 
         # Checks against CADD score corruption
         if(defined $scores{$wantedChr}{$dbPosition}{ref} ) {
+          # If we find a position that has multiple bases, that is undefined behavior
+          # so we will store a nil (undef on perl side, nil in msgpack) for cadd at that position
           if($scores{$wantedChr}{$dbPosition}{ref} ne $refBase) {
-            return $self->log('fatal', "Multiple reference bases in 3-mer @ line # $. : $line");
+            $self->log('warn', "Multiple reference bases in 3-mer @ $wantedChr:$dbPosition,"
+              . "  excluding this position. Line # $. : $line");
+            
+            # Mark this position as skipped
+            # Skipped sites may write undef for the position, because if multiple
+            # 3-mers exist for this site (can occur during liftover)
+            # Writing an undef at the position will ensure that mergeFunc is called
+            # because it is called when the database contains any entry for the
+            # cadd track, undef included
+
+            $skipSites{"$wantedChr\_$dbPosition"} = "Multi-ref";
+            $out{$wantedChr}{$dbPosition} = $self->prepareData( undef );
+            $count{$wantedChr}++;
+
+            next;
           }
         } else {
           $scores{$wantedChr}{$dbPosition}{ref} = $refBase;
         }
 
+        # If no phastIdx found for this site, there cannot be 3 scores accumulated
+        # so write a nil
         if(!defined $fields[$phastIdx]) {
-          return $self->log('fatal', "No phast score found on line \#$.:$line");
+          $self->log('warn', "No phast score found for $wantedChr:$dbPosition,"
+            ." excluding this position. Line \#$.:$line");
+          
+          $skipSites{"$wantedChr\_$dbPosition"} = "Missing-score";
+
+          # Writing undef for similar reason as Multi-ref, except to also note
+          # that we could have a cryptic non-3-mer, where say the 2nd entry is 
+          # missing the $phastIdx, but a 3rd and 4th record for this wantedChr:dbPosition
+          # do. In this case we want mergeFunc to pick up on that
+          $out{$wantedChr}{$dbPosition} = $self->prepareData( undef );
+          $count{$wantedChr}++;
+
+          next;
         }
 
         # Store the position to allow us to get our databases reference sequence
@@ -239,9 +293,6 @@ sub buildTrack {
         }
         
         push @{ $scores{$wantedChr}{$dbPosition}{scores} }, [ $altAllele, $rounder->round( $fields[$phastIdx] ) ];
-
-        ### Record that we visited the chr, to enable recordCompletion later ###
-        if( !defined $visitedChrs{$wantedChr} ) { $visitedChrs{$wantedChr} = 1 };
       }
       ######################### Finished reading file ##########################
       ######### Collect any scores that were accumulated out of order ##########
@@ -251,35 +302,39 @@ sub buildTrack {
             . " positions left to commit for $chr, at positions " . join(',', keys %{ $scores{$chr} } ) );
 
           for my $position ( keys %{ $scores{$chr} } ) {
-            my $dbData = $self->db->dbRead( $chr, $position );
-            my $assemblyRefBase = $refTrack->get($dbData);
-
-            if( $assemblyRefBase ne $scores{$chr}{$position}{ref} ) {
-              $self->log('warn', "After reading $file, at $chr\:$position, "
-                . " CADD ref == $scores{$chr}{$position}{ref},"
-                . " while Assembly ref == $assemblyRefBase. Skipping.");
-              
+            if ( defined $skipSites{"$chr\_$position"} ) {
+              $self->log('info', "At end, skipping or inserting undef at $chr:$position because: " . $skipSites{"$chr\_$position"} );
             } else {
-              # Using delete to encourage Perl to free memory
-              if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
+              my $dbData = $self->db->dbRead( $chr, $position );
+              my $assemblyRefBase = $refTrack->get($dbData);
 
-              my $phredScoresAref = $self->_accumulateScores( $scores{$chr}{$position} );
-              
-              if(defined $phredScoresAref) {
-                $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
+              if( $assemblyRefBase ne $scores{$chr}{$position}{ref} ) {
+                $self->log('warn', "After reading $file, at $chr\:$position, "
+                  . " CADD ref == $scores{$chr}{$position}{ref},"
+                  . " while Assembly ref == $assemblyRefBase. Excluding this position.");
                 
-                $count{$chr}++;
-              }
+              } else {
+                # Using delete to encourage Perl to free memory
+                if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
 
-              if( $count{$chr} >= $self->commitEvery ) {
-                if( ! %{ $out{$chr} } ) {
-                  $self->log('fatal', "out{$chr} empty, but count >= commitEvery");
+                my $phredScoresAref = $self->_accumulateScores( $chr, $scores{$chr}{$position} );
+                
+                if(defined $phredScoresAref) {
+                  $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
+                  
+                  $count{$chr}++;
                 }
-
-                $self->db->dbPatchBulkArray( $chr, $out{$chr} );
-                
-                $count{$chr} = 0; delete $out{$chr};
               }
+            }
+
+            if( $count{$chr} >= $self->commitEvery ) {
+              if( ! %{ $out{$chr} } ) {
+                $self->log('fatal', "out{$chr} empty, but count >= commitEvery");
+              }
+
+              $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
+              
+              $count{$chr} = 0; delete $out{$chr};
             }
 
             # Can free up the memory now, won't use this $scores{$chr}{$pos} again
@@ -292,7 +347,7 @@ sub buildTrack {
       OUT_LOOP: for my $chr (keys %out) {
         if( ! %{ $out{$chr} } ) { next OUT_LOOP; }
 
-        $self->db->dbPatchBulkArray( $chr, $out{$chr} );
+        $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
       }
 
       $self->log("info", "Finished building ". $self->name . " version: $versionLine using $file");
@@ -326,37 +381,51 @@ sub buildTrack {
 }
 
 sub _accumulateScores {
-  #my ($self, $_[1]) = @_;
-  #    $_[0] , $_[1]
-  if(@{ $_[1]->{scores} } != 3) {
+  #my ($self, $chr, $data) = @_;
+  #    $_[0] , $_[1], $_[2]
+  if(@{ $_[2]->{scores} } != 3) {
     # We will try again at the end of the file
-    $_[0]->log('warn', "pos $_[1]->{pos} doesn't have 3 scores");
+    $_[0]->log('warn', "pos $_[2]->{pos} doesn't have 3 scores, skipping");
     return;
   }
 
   my @phredScores;
 
-  for my $aref ( @{ $_[1]->{scores} } ) {
-    my $index = $order->{ $_[1]->{ref} }{$aref->[0] };
+  for my $aref ( @{ $_[2]->{scores} } ) {
+    my $index = $order->{ $_[2]->{ref} }{$aref->[0] };
 
     # checks whether ref and alt allele are ACTG
     if(!defined $index) {
-      return $_[0]->log('fatal', "ref $_[1]->{ref} or allele $aref->[0] not ACTGN");
+      return $_[0]->log('warn', "ref $_[2]->{ref} or allele $aref->[0] not ACTGN, skipping");
     }
 
     $phredScores[$index] = $aref->[1];
   }
 
   if(@phredScores != 3) {
-    return $_[0]->log('fatal', "Found non-unique alt alleles for $_[1]->{pos}");
+    return $_[0]->log('warn', "Found non-unique alt alleles for $_[2]->{pos}, skipping");
   }
 
   return \@phredScores;
-  # # If array copy needed: #https://ideone.com/m08q9V ; https://ideone.com/dZ6RGj
-  # $_[2]->{ $_[1]->{pos} } = $_[0]->prepareData( \@phredScores );
+}
 
-  # # Return 1 if successfully added to $out
-  # return 1;
+# When CADD scores are put through liftover, may be out of order
+# This means that it is possible for two positions, from different chromosomes
+# to have been lifted over to the same chr:pos
+# In this case, the CADD data is indeterminate.
+sub _makeMergeFunc {
+  my $self = shift;
+
+  return sub {
+    # This function is called only for existing oldTrackVals
+    # And in any case that an existing value is found, the new value is nil
+    my ($chr, $pos, $trackIdx, $oldTrackVal, $newTrackVal) = @_;
+    
+    $self->log("in CADD merge function, found an existing value @ $chr:$pos ".
+               ". Setting $chr:$pos to undef/nil");
+
+    return undef;
+  }
 }
 
 ########## Working on version that assumes in-order, in case memory pressure above too much ####

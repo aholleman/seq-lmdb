@@ -124,7 +124,7 @@ sub dbRead {
 # $pos can be any string, identifies a key within the kv database
 # dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 sub dbPatchHash {
-  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc) = @_;
+  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   if(ref $dataHref ne 'HASH') {
     return $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
@@ -135,6 +135,7 @@ sub dbPatchHash {
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my $overwrite = $overrideOverwrite || $self->overwrite;
+  my $delete = $deleteOverride || $self->delete;
 
   # Get existing data
   my $json; 
@@ -147,7 +148,7 @@ sub dbPatchHash {
   }
 
   # If deleting, and there is no existing data, nothing to do
-  if(!$json && $self->delete) { return; }
+  if(!$json && $delete) { return; }
 
   if($json) {
     my $href = $mp->unpack($json);
@@ -164,7 +165,7 @@ sub dbPatchHash {
 
     if( defined $href->{$trackKey} ) {
       # Deletion and insertion are mutually exclusive
-      if($self->delete) {
+      if($delete) {
         delete $href->{$trackKey};
       } elsif(defined $mergeFunc) {
         $href->{$trackKey} = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
@@ -200,7 +201,7 @@ sub dbPatchHash {
 # are multiple entries for this key
 # To do that, we can convert the value into an array. If the value is already an
 sub dbPatchBulkArray {
-  my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc) = @_;
+  my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
@@ -209,6 +210,7 @@ sub dbPatchBulkArray {
 
   #https://ideone.com/Y0C4tX
   my $overwrite = $overrideOverwrite || $self->overwrite;
+  my $delete = $deleteOverride || $self->delete;
 
   # We'll use goto to get to dbPutBulk, so store this in stack
   my @allPositions = @{ xsort([keys %$posHref]) };
@@ -225,9 +227,7 @@ sub dbPatchBulkArray {
       $self->log('fatal', "dbPatchBulkAsArray requies numeric trackIndex");
     }
 
-    if(!defined $trackValue) {
-      $self->log('fatal', "dbPatchBulkAsArray requires trackValue");
-    }
+    # Undefined values allowed
 
     my $json; #zero-copy
     $txn->get($dbi, $pos, $json);
@@ -237,16 +237,19 @@ sub dbPatchBulkArray {
       $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
-    my $aref = [];
-
     if(defined $json) {
       #can't modify $json, read-only value, from memory map
-      $aref = $mp->unpack($json);
+      my $aref = $mp->unpack($json);
 
-      if(defined $aref->[$trackIndex] ) {
+      # $trackIndex <= $#$aref
+      # We have stored *something* for $trackIndex, even if it is an undef
+      # https://ideone.com/cOzzbF
+      if( $#$aref >= $trackIndex ) {
         # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
-        if($self->delete) {
+        if($delete) {
           $aref->[$trackIndex] = undef;
+
+          # Could shrink array here if $trackIndex == $#$aref
           $out{$pos} = $aref;
           next;
         }
@@ -263,27 +266,29 @@ sub dbPatchBulkArray {
           $aref->[$trackIndex] = $trackValue;
 
           $out{$pos} = $aref;
-          next
+          next;
         }
 
-        # Overwrite not set, we default to skipping this position
+        # Overwrite not set, we default to skipping this positionm by not putting
+        # its data into $out{$pos}
         next;
       }
     }
 
-    # If defined $json, but $trackIndex not found
+    # If defined $json, but $trackIndex >= $#$aref, or !defined $json
 
     # If the track data wasn't found in $json, don't accidentally insert it into the db
-    if( $self->delete ) {
+    if($delete) {
       next;
     }
 
-    # Either $json not defiend ($aref empty) or trackIndex not defined
+    my @arr;
+    # Either $json not defined ($aref empty) or trackIndex not defined
     # Assigning an element to the array auto grows it
     #https://ideone.com/Wzjmrl
-    $aref->[$trackIndex] = $trackValue;
+    $arr[$trackIndex] = $trackValue;
     
-    $out{$pos} = $aref;
+    $out{$pos} = \@arr;
   }
 
   $txn->commit();
@@ -303,7 +308,10 @@ sub dbPut {
   my ( $self, $chr, $pos, $data) = @_;
 
   if($self->dry_run_insertions) {
-    return $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+    # $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+    say "Received dry run request: chr:pos $chr:$pos";
+    p $data;
+    return;
   }
 
   if(!defined $pos) {
@@ -311,7 +319,7 @@ sub dbPut {
   }
 
   if(!defined $data) {
-    $self->log('warn', "dbPut: attepmting to insert undefined data @ $chr:$pos");
+    return $self->log('warn', "dbPut: attepmting to insert undefined data @ $chr:$pos, skipping");
   }
 
   my $db = $self->_getDbi($chr);
@@ -333,7 +341,10 @@ sub dbPutBulk {
   my ( $self, $chr, $posHref, $passedSortedPosAref) = @_;
 
   if($self->dry_run_insertions) {
-    return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+    #return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+    say "Received dry run request";
+    p $posHref;
+    return;
   }
 
   my $db = $self->_getDbi($chr);
@@ -344,14 +355,9 @@ sub dbPutBulk {
   my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
   
   for my $pos (@$sortedPosAref) {
-    if(!defined $pos) {
-      $self->log('warn', "dbPutBulk: cannot insert data into undefined position in $chr");
-      next;
-    }
-
-    if(!defined $posHref->{$pos}) {
-      $self->log('warn', "dbPutBulk: inserting undefined value into $chr:$pos");
-    }
+    # User may have passed a sortedPosAref that has more values than the 
+    # $posHref, to avoid a second (large) sort
+    if(!exists $posHref->{$pos}) { next; }
 
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
