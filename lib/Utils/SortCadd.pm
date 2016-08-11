@@ -43,7 +43,9 @@ sub sort {
   my @outPaths;
   my %outFhs;
 
-  my $outExt .= '.organized-by-chr' . ($self->compress ? '.gz' : '.bed');
+  my $outExtPart = $self->compress ? '.txt.gz' : '.txt';
+
+  my $outExt = '.organized-by-chr' . $outExtPart;
 
   for my $inFilePath ( @{$self->_wantedTrack->{local_files} } ) {
     my $chrIndex = index($inFilePath, '.chr');
@@ -82,9 +84,14 @@ sub sort {
 
         say "outPath is $outPath";
         
-        $outFhs{$chr} = $self->get_write_fh($outPath);
-
         push @outPaths, $outPath;
+
+        if(-e $outPath && !$self->overwrite) {
+          $self->log('warn', "outPath $outPath exists, skipping $inFilePath because overwrite not set";
+          last;
+        }
+
+        $outFhs{$chr} = $self->get_write_fh($outPath);
 
         $fh = $outFhs{$chr};
 
@@ -108,23 +115,34 @@ sub sort {
     $pm->start($outPath) and next;
       my ($fileSize, $compressed, $fh) = $self->get_read_fh($outPath);
 
-      my $outExt = '.sorted' . ($compressed ? '.gz' : '.bed');
+      my $outExt = '.sorted' . $outExtPart;
+
       my $finalOutPathBase = substr($outPath, 0, rindex($outPath, '.') );
 
       my $finalOutPath = $finalOutPathBase . $outExt;
 
-      my $status;
+      my $tempPath = path($finalOutPath)->parent()->stringify;
+
+      say "tempPath is";
+      p $tempPath;
+
+      my $command;
       if($compressed) {
-        $status = system("( head -n 2 <($gzipPath -d -c $outPath) && tail -n +3 <($gzipPath -d -c $outPath) | sort -k2,2 -n )"
-          . " | $gzipPath -c > $finalOutPath; rm $outPath");
+        $command = "( head -n 2 <($gzipPath -d -c $outPath) && tail -n +3 <($gzipPath -d -c $outPath) | sort -T $tempPath -k2,2 -n ) | $gzipPath -c > $finalOutPath";
       } else {
-        $status = system("( head -n 2 $outPath && tail -n +3 $outPath | sort -k2,2 -n ) > $finalOutPath; rm $outPath");
+        $command = "( head -n 2 $outPath && tail -n +3 $outPath | sort -T $tempPath -k2,2 -n ) > $finalOutPath";
+      }
+
+      my $exitStatus = system(("bash", "-c", $command));
+
+      if($exitStatus == 0) {
+        $exitStatus = system("rm $outPath");
       }
 
       #update @outPaths to hold the finalOutPath records
       $outPath = $finalOutPath;
 
-    $pm->finish($status);
+    $pm->finish($exitStatus);
   }
 
   $pm->run_on_finish(sub {
