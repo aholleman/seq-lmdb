@@ -239,19 +239,6 @@ sub dbPatchBulkArray {
 
     my $aref = defined $json ? $mp->unpack($json) : [];
 
-    # if($pos >= 42780002) {
-    #   say "pos is >= 42780002";
-    #   say "aref is";
-    #   p $aref;
-    #   say "trackIndex is";
-    #   p $trackIndex;
-    #   say "trackValue is";
-    #   p $trackValue;
-    # }
-    # $trackIndex <= $#$aref
-    # We have stored *something* for $trackIndex, even if it is an undef
-    # https://ideone.com/cOzzbF 
-    # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
     if(defined $aref->[$trackIndex]) {
       if($delete) {
         $aref->[$trackIndex] = undef;
