@@ -105,8 +105,12 @@ sub buildTrack {
           # Store the uppercase bases; how UCSC does it, how people likely expect it
           for my $char ( split '', uc($1) ) {
             $data{$chrPosition} = $self->prepareData( $baseMapper->baseMap->{$char} );
+	    
+	    #if($chrPosition >= 42780001) {
+	    #	say "$wantedChr:$chrPosition == $char";
+            #}
 
-            #must come after, to not be 1 off; assumes fasta file is sorted ascending contiguous 
+	    #must come after, to not be 1 off; assumes fasta file is sorted ascending contiguous 
             $chrPosition++; 
 
             #Count number of entries recorded; write to DB if it's over the limit

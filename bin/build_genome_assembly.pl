@@ -19,7 +19,7 @@ use Seq::Build;
 
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose,
-  $help,        $wantedChr,        $dryRunInsertions, 
+  $help,        $wantedChr,        $dryRunInsertions,   $logDir,
   $debug,       $overwrite,  $delete, $regionTrackOnly, $skipCompletionCheck
 );
 
@@ -38,6 +38,7 @@ GetOptions(
   'build_region_track_only' => \$regionTrackOnly,
   'skip_completion_check' => \$skipCompletionCheck,
   'dry_run_insertions|dry' => \$dryRunInsertions,
+  'log_dir=s' => \$logDir,
 );
 
 if ($help) {
@@ -64,7 +65,7 @@ my $log_name = join '.', 'build', $config_href->{assembly}, $wantedType ||
 $wantedName || 'allTracks', $wantedChr || 'allChr',
 "$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
 
-my $logPath = path("logs/")->child($log_name)->absolute->stringify;
+my $logPath = path($logDir || "/mnt/annotator_databases/logs/")->child($log_name)->absolute->stringify;
 
 my $builder_options_href = {
   config   => $yaml_config,

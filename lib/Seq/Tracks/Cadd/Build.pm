@@ -172,9 +172,9 @@ sub buildTrack {
             # 3-mers exist for this site (can occur during liftover), we want to avoid
             # allowing a cryptic N-mer
             # Writing an undef at the position will ensure that mergeFunc is called
-            # because it is called when the database contains any entry for the
-            # cadd track, undef included
-            $out{$wantedChr}{$lastPosition} = $self->prepareData( undef );
+            # because it is called when the database contains any defined entry for the
+            # cadd track
+            $out{$wantedChr}{$lastPosition} = $self->prepareData( [] );
             $count{$wantedChr}++;
 
             delete $scores{$wantedChr}{$lastPosition};
@@ -189,17 +189,19 @@ sub buildTrack {
             my $assemblyRefBase = $refTrack->get($dbData);
 
             if(!defined $assemblyRefBase) {
-              $self->log('warn', "No assembly ref base found for $wantedChr:$lastPosition");
+              say "for $wantedChr:$lastPosition couldn't find assembly ref base";
+
+              $self->log('fatal', "No assembly ref base found for $wantedChr:$lastPosition");
             }
             # When lifted over, reference base is not lifted, can cause mismatch
             # In these cases it makes no sense to store this position's CADD data
-            if( $assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
-              $self->log('warn', "Inserting undef into $wantedChr:$lastPosition because CADD ref "
-                . " == $scores{$wantedChr}{$lastPosition}{ref}, assembly ref == $assemblyRefBase\.");
+            if($assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
+              # $self->log('warn', "Inserting undef into $wantedChr:$lastPosition because CADD ref "
+              #   . " == $scores{$wantedChr}{$lastPosition}{ref}, assembly ref == $assemblyRefBase\.");
               
               # In case there are multiple 3-mers in the file with the same chr-pos
               # store an undef at this $lastPosition, to allow triggering of mergeFunc
-              $out{$wantedChr}{$lastPosition} = $self->prepareData( undef );
+              $out{$wantedChr}{$lastPosition} = $self->prepareData( [] );
               $count{$wantedChr}++;
 
               delete $scores{$wantedChr}{$lastPosition};
@@ -314,7 +316,7 @@ sub buildTrack {
               # Writing an undef at the position will ensure that mergeFunc is called
               # because it is called when the database contains any entry for the
               # cadd track, undef included
-              $out{$chr}{$position} = $self->prepareData( undef );
+              $out{$chr}{$position} = $self->prepareData( [] );
               $count{$chr}++;
 
               delete $skipSites{"$chr\_$position"};
@@ -329,15 +331,19 @@ sub buildTrack {
                 
                 # If don't have correct ref, still insert undef,
                 # to prevent allowance of odd cryptic N-mers (N > 3)
-                $out{$chr}{$position} = $self->prepareData( undef );
+                $out{$chr}{$position} = $self->prepareData( [] );
               } else {
                 # Using delete to encourage Perl to free memory
                 if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
 
                 my $phredScoresAref = $self->_accumulateScores( $chr, $scores{$chr}{$position} );
-                
-                # If don't have a phred score 3-mer, still insert undef,
+                  
+                # If don't have a phred score 3-mer, still insert empty array,
                 # to prevent allowance of odd cryptic N-mers (N > 3)
+                if(!defined $phredScoresAref) {
+                  $phredScoresAref = [];
+                }
+
                 $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
               }
 
@@ -430,6 +436,8 @@ sub _accumulateScores {
 # This means that it is possible for two positions, from different chromosomes
 # to have been lifted over to the same chr:pos
 # In this case, the CADD data is indeterminate.
+# However, it makes more sense I think to have mergeFunc run only on defined data
+# and "undefined" has two meanings: not there, and data that was purposely set to nil
 sub _makeMergeFunc {
   my $self = shift;
 
@@ -441,7 +449,7 @@ sub _makeMergeFunc {
     $self->log("in CADD merge function, found an existing value @ $chr:$pos ".
                ". Setting $chr:$pos to undef/nil");
 
-    return undef;
+    return [];
   }
 }
 

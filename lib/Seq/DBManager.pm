@@ -237,58 +237,39 @@ sub dbPatchBulkArray {
       $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
-    my $aref = [];
-    if(defined $json) {
-      #can't modify $json, read-only value, from memory map
-      $aref = $mp->unpack($json);
+    my $aref = defined $json ? $mp->unpack($json) : [];
 
-      # $trackIndex <= $#$aref
-      # We have stored *something* for $trackIndex, even if it is an undef
-      # https://ideone.com/cOzzbF
-      if( $#$aref >= $trackIndex ) {
-        # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
-        if($delete) {
-          $aref->[$trackIndex] = undef;
-
-          # Could shrink array here if $trackIndex == $#$aref
-          $out{$pos} = $aref;
-          next;
-        }
-
-        if(defined $mergeFunc) {
-          $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex,
-            $aref->[$trackIndex], $trackValue);
-
-          $out{$pos} = $aref;
-          next;
-        }
-
-        if($self->overwrite) {
-          $aref->[$trackIndex] = $trackValue;
-
-          $out{$pos} = $aref;
-          next;
-        }
-
-        # Overwrite not set, we default to skipping this positionm by not putting
-        # its data into $out{$pos}
-        next;
+    # if($pos >= 42780002) {
+    #   say "pos is >= 42780002";
+    #   say "aref is";
+    #   p $aref;
+    #   say "trackIndex is";
+    #   p $trackIndex;
+    #   say "trackValue is";
+    #   p $trackValue;
+    # }
+    # $trackIndex <= $#$aref
+    # We have stored *something* for $trackIndex, even if it is an undef
+    # https://ideone.com/cOzzbF 
+    # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
+    if(defined $aref->[$trackIndex]) {
+      if($delete) {
+        $aref->[$trackIndex] = undef;
+        $out{$pos} = $aref;
+      }elsif($mergeFunc) {
+        $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
+        $out{$pos} = $aref;
+      }elsif($overwrite) {
+        $aref->[$trackIndex] = $trackValue;
+        $out{$pos} = $aref;
       }
+    } elsif(!$delete) {
+      # Either $json not defined ($aref empty) or trackIndex not defined
+      # Assigning an element to the array auto grows it
+      #https://ideone.com/Wzjmrl
+      $aref->[$trackIndex] = $trackValue;
+      $out{$pos} = $aref;
     }
-
-    # If defined $json, but $trackIndex >= $#$aref, or !defined $json
-
-    # If the track data wasn't found in $json, don't accidentally insert it into the db
-    if($delete) {
-      next;
-    }
-
-    # Either $json not defined ($aref empty) or trackIndex not defined
-    # Assigning an element to the array auto grows it
-    #https://ideone.com/Wzjmrl
-    $aref->[$trackIndex] = $trackValue;
-    
-    $out{$pos} = $aref;
   }
 
   $txn->commit();
@@ -308,10 +289,10 @@ sub dbPut {
   my ( $self, $chr, $pos, $data) = @_;
 
   if($self->dry_run_insertions) {
-    # $self->log('info', "Received dry run request: chr:pos $chr:$pos");
-    say "Received dry run request: chr:pos $chr:$pos";
-    p $data;
-    return;
+    return $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+    #say "Received dry run request: chr:pos $chr:$pos";
+    #p $data;
+    #return;
   }
 
   if(!defined $pos) {
@@ -341,10 +322,10 @@ sub dbPutBulk {
   my ( $self, $chr, $posHref, $passedSortedPosAref) = @_;
 
   if($self->dry_run_insertions) {
-    #return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
-    say "Received dry run request";
-    p $posHref;
-    return;
+    return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+    #say "Received dry run request";
+    #p $posHref;
+    #return;
   }
 
   my $db = $self->_getDbi($chr);
