@@ -13,13 +13,14 @@ use Pod::Usage;
 use Utils::SplitCadd;
 use Utils::Fetch;
 use Utils::LiftOverCadd;
+use Utils::SortCadd;
 
 use DDP;
 
 use Seq::Build;
 
 my (
-  $yaml_config, $wantedName,
+  $yaml_config, $wantedName, $sort,
   $help,        $liftOver, $liftOver_path, $liftOver_chain_path, 
   $debug,       $overwrite, $fetch, $split, $compress, $toBed
 );
@@ -33,6 +34,7 @@ GetOptions(
   'o|overwrite'  => \$overwrite,
   'fetch' => \$fetch,
   'splitCadd' => \$split,
+  'sortCadd'  => \$sort,
   'liftOver_cadd' => \$liftOver,
   'compress' => \$compress,
   'to_bed'   => \$toBed,
@@ -40,7 +42,7 @@ GetOptions(
   'liftOver_chain_path=s' => \$liftOver_chain_path,
 );
 
-if ( (!$fetch && !$split && !$liftOver) || $help) {
+if ( (!$fetch && !$split && !$liftOver && !$sort) || $help) {
   Pod::Usage::pod2usage(1);
   exit;
 }
@@ -76,6 +78,11 @@ if($fetch) {
 if($liftOver) {
   my $liftOver = Utils::LiftOverCadd->new(\%options);
   $liftOver->liftOver();
+}
+
+if($sort) {
+  my $sorter = Utils::SortCadd->new(\%options);
+  $sorter->sort();
 }
 
 #say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
