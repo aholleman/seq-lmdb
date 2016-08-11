@@ -95,6 +95,10 @@ sub sort {
       print $fh $l;
     }
   }
+  
+  for my $outFh (values %outFhs) {
+    close $outFh;
+  }
 
   my $pm = Parallel::ForkManager->new(scalar @outPaths);
 
