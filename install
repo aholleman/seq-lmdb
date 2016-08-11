@@ -63,3 +63,5 @@ cpan install MouseX::SimpleConfig
 cpan install MouseX::ConfigFromFile
 cpan install MouseX::Getopt
 cpan install Archive::Extract
+
+mkdir logs
