@@ -26,7 +26,7 @@ sub buildTrack {
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
-  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
+  my $pm = Parallel::ForkManager->new($self->max_threads);
   for my $file ( $self->allLocalFiles ) {
     # Expects 1 chr per file for n+1 files, or all chr in 1 file
     # Single writer to reduce copy-on-write db inflation

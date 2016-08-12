@@ -69,7 +69,7 @@ sub buildTrack {
 
   my @allFiles = $self->allLocalFiles;
 
-  my $pm = Parallel::ForkManager->new(scalar @allFiles);
+  my $pm = Parallel::ForkManager->new($self->max_threads);
 
   if($self->join) {
     my $tracks = Seq::Tracks->new();

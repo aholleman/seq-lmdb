@@ -18,7 +18,7 @@ use DDP;
 use Seq::Build;
 
 my (
-  $yaml_config, $wantedType,        $wantedName,        $verbose,
+  $yaml_config, $wantedType,        $wantedName,        $verbose, $maxThreads,
   $help,        $wantedChr,        $dryRunInsertions,   $logDir,
   $debug,       $overwrite,  $delete, $regionTrackOnly, $skipCompletionCheck
 );
@@ -39,6 +39,7 @@ GetOptions(
   'skip_completion_check' => \$skipCompletionCheck,
   'dry_run_insertions|dry' => \$dryRunInsertions,
   'log_dir=s' => \$logDir,
+  'max_threads=i' => \$maxThreads,
 );
 
 if ($help) {
@@ -78,9 +79,12 @@ my $builder_options_href = {
   delete       => $delete || 0,
   build_region_track_only => $regionTrackOnly || 0,
   skip_completion_check => $skipCompletionCheck || 0,
-  dry_run_insertions => $dryRunInsertions || 0,
+  dry_run_insertions => $dryRunInsertions || 0
 };
 
+if(defined $maxThreads) {
+  $builder_options_href->{max_threads} = $maxThreads;
+}
 # my $log_file = path(".")->child($log_name)->absolute->stringify;
 # Log::Any::Adapter->set( 'File', $log_file );
 

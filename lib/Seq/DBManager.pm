@@ -71,7 +71,21 @@ sub dbRead {
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
   my $db = $_[0]->_getDbi($_[1]);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  my $txn;
+
+  # It seems to be necessary to have only one open tx on an environment
+  if($dbReadOnly) {
+    if(!defined $db->{rdOnlyTx} ) {
+      $db->{rdOnlyTx} = $db->{env}->BeginTxn(MDB_RDONLY);
+    }
+
+    $txn = $db->{rdOnlyTx};
+
+    $txn->renew();
+  } else {
+    $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  }
 
   my @out;
   my $json;
@@ -102,8 +116,13 @@ sub dbRead {
     }
     push @out, $mp->unpack($json);
   }
-  $txn->commit();
 
+  if($dbReadOnly) {
+    $txn->reset();
+  } else {
+    $txn->abort();
+  }
+  
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
@@ -189,7 +208,7 @@ sub dbPatchHash {
   #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
   
-  return &dbPut;
+  goto &dbPut;
 }
   
 # Method to write multiple positions in the database, as arrays
@@ -205,7 +224,6 @@ sub dbPatchBulkArray {
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   #https://ideone.com/Y0C4tX
@@ -215,7 +233,6 @@ sub dbPatchBulkArray {
   # We'll use goto to get to dbPutBulk, so store this in stack
   my @allPositions = @{ xsort([keys %$posHref]) };
 
-  my %out;
   for my $pos ( @allPositions ) {
     if(ref $posHref->{$pos} ne 'HASH') {
       return $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
@@ -228,9 +245,9 @@ sub dbPatchBulkArray {
     }
 
     # Undefined values allowed
-
-    my $json; #zero-copy
-    $txn->get($dbi, $pos, $json);
+    
+    #zero-copy
+    $txn->get($dbi, $pos, my $json);
 
     #trigger this only if json isn't found, save on many if calls
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
@@ -255,34 +272,38 @@ sub dbPatchBulkArray {
     if(defined $aref->[$trackIndex]) {
       if($delete) {
         $aref->[$trackIndex] = undef;
-        $out{$pos} = $aref;
+        $posHref->{$pos} = $aref;
       }elsif($mergeFunc) {
         $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
-        $out{$pos} = $aref;
+        $posHref->{$pos} = $aref;
       }elsif($overwrite) {
         $aref->[$trackIndex] = $trackValue;
-        $out{$pos} = $aref;
+        $posHref->{$pos} = $aref;
+      } else {
+        # if the position is defined, and we don't want to overwrite the data,
+        # remove this position
+        delete $posHref->{$pos};
       }
     } elsif(!$delete) {
       # Either $json not defined ($aref empty) or trackIndex not defined
       # Assigning an element to the array auto grows it
       #https://ideone.com/Wzjmrl
       $aref->[$trackIndex] = $trackValue;
-      $out{$pos} = $aref;
+      $posHref->{$pos} = $aref;
+    } else {
+      # We want to delete this position, which certainly means we're not inserting it
+      delete $posHref->{$pos};
     }
   }
 
-  $txn->commit();
+  $txn->abort();
 
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  if(!%out) {
-    return;
-  }
+  $_[3] = \@allPositions;
 
-  $self->dbPutBulk($chr, \%out, \@allPositions);
-  undef %out;
+  goto &dbPutBulk;
 }
 
 sub dbPut {
@@ -332,10 +353,7 @@ sub dbPutBulk {
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
-  #Enforce putting in ascending lexical or numerical order
-  my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
-  
-  for my $pos (@$sortedPosAref) {
+  for my $pos ( @{ $passedSortedPosAref || xsort( [keys %{$posHref}] ) } ) {
     # User may have passed a sortedPosAref that has more values than the 
     # $posHref, to avoid a second (large) sort
     if(!exists $posHref->{$pos}) { next; }
@@ -509,7 +527,7 @@ sub _getDbi {
     return $self->log('fatal', "Failed to open database beacuse of $LMDB_File::last_err");
   }
 
-  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
+  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath, rdOnlyTx => undef };
 
   return $dbis->{$name};
 }

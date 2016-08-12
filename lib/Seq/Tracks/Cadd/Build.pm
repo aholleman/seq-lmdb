@@ -38,7 +38,7 @@ sub BUILD {
 sub buildTrack {
   my $self = shift;
 
-  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
+  my $pm = Parallel::ForkManager->new($self->max_threads);
   
   my $columnDelimiter = $self->delimiter;
 
