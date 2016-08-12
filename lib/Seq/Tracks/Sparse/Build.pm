@@ -96,7 +96,7 @@ sub makeMergeFunc {
 sub buildTrack {
   my $self = shift;
 
-  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
+  my $pm = Parallel::ForkManager->new($self->max_threads);
 
   for my $file (@{$self->local_files}) {
     $pm->start($file) and next;

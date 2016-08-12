@@ -57,6 +57,9 @@ has commitEvery => (is => 'rw', isa => 'Int', init_arg => undef, lazy => 1, defa
 # All tracks want to know whether we have 1 chromosome per file or not
 has chrPerFile => (is => 'ro', init_arg => undef, writer => '_setChrPerFile');
 
+has max_threads => (is => 'ro', isa => 'Int', lazy => 1, default => sub { my $self = shift;
+  return scalar @{$self->local_files};
+});
 ########## Arguments taken from YAML config file or passed some other way ##############
 
 #################################### Required ###################################

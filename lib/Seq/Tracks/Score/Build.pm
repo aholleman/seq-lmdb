@@ -38,7 +38,7 @@ sub buildTrack{
   my $chrPerFile = @allChrs > 1 ? 1 : 0;
   
   #Can't just set to 0, because then the completion code in run_on_finish won't run
-  my $pm = Parallel::ForkManager->new(scalar @allChrs);
+  my $pm = Parallel::ForkManager->new($self->max_threads);
 
   for my $file ( $self->allLocalFiles ) {
     $pm->start($file) and next; 
