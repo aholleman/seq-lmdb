@@ -43,7 +43,9 @@ sub sort {
   my @outPaths;
   my %outFhs;
 
-  my $outExt .= '.organized-by-chr' . ($self->compress ? '.txt.gz' : '.txt');
+  my $outExtPart = $self->compress ? '.txt.gz' : '.txt';
+
+  my $outExt = '.organized-by-chr' . $outExtPart;
 
   for my $inFilePath ( @{$self->_wantedTrack->{local_files} } ) {
     my $chrIndex = index($inFilePath, '.chr');
@@ -82,9 +84,14 @@ sub sort {
 
         say "outPath is $outPath";
         
-        $outFhs{$chr} = $self->get_write_fh($outPath);
-
         push @outPaths, $outPath;
+
+        if(-e $outPath && !$self->overwrite) {
+          $self->log('warn', "outPath $outPath exists, skipping $inFilePath because overwrite not set");
+          last;
+        }
+
+        $outFhs{$chr} = $self->get_write_fh($outPath);
 
         $fh = $outFhs{$chr};
 
@@ -105,40 +112,50 @@ sub sort {
   for my $outPath (@outPaths) {
     my $gzipPath = $self->gzipPath;
 
-    $pm->start($outPath) and next;
-      my ($fileSize, $compressed, $fh) = $self->get_read_fh($outPath);
+    my ($fileSize, $compressed, $fh) = $self->get_read_fh($outPath);
 
-      my $outExt = '.sorted' . ($compressed ? '.txt.gz' : '.txt');
-      my $finalOutPathBase = substr($outPath, 0, rindex($outPath, '.') );
+    my $outExt = '.sorted' . $outExtPart;
 
-      my $finalOutPath = $finalOutPathBase . $outExt;
+    my $finalOutPathBase = substr($outPath, 0, rindex($outPath, '.') );
 
+    my $finalOutPath = $finalOutPathBase . $outExt;
+
+    my $tempPath = path($finalOutPath)->parent()->stringify;
+
+    say "tempPath is";
+    p $tempPath;
+
+    $pm->start($finalOutPath) and next;
       my $command;
+
       if($compressed) {
-        $command = "( head -n 2 <($gzipPath -d -c $outPath) && tail -n +3 <($gzipPath -d -c $outPath) | sort -k2,2 -n ) | $gzipPath -c > $finalOutPath; rm $outPath";
+        $command = "( head -n 2 <($gzipPath -d -c $outPath) && tail -n +3 <($gzipPath -d -c $outPath) | sort --compress-program $gzipPath -T $tempPath -k2,2 -n ) | $gzipPath -c > $finalOutPath";
       } else {
-        $command = "( head -n 2 $outPath && tail -n +3 $outPath | sort -k2,2 -n ) > $finalOutPath; rm $outPath";
+        $command = "( head -n 2 $outPath && tail -n +3 $outPath | sort --compress-program $gzipPath -T $tempPath -k2,2 -n ) > $finalOutPath";
       }
 
       my $exitStatus = system(("bash", "-c", $command));
 
-      #update @outPaths to hold the finalOutPath records
-      $outPath = $finalOutPath;
-
+      if($exitStatus == 0) {
+        $exitStatus = system("rm $outPath");
+      }
     $pm->finish($exitStatus);
   }
 
+  my @finalOutPaths;
+
   $pm->run_on_finish(sub {
-    my ($pid, $exitCode, $ident) = @_;
+    my ($pid, $exitCode, $finalOutPath) = @_;
 
     if($exitCode != 0) {
-      return $self->log('fatal', "$ident failed to sort, with exit code $exitCode");
+      return $self->log('fatal', "$finalOutPath failed to sort, with exit code $exitCode");
     }
+    push @finalOutPaths, $finalOutPath;
   });
 
   $pm->wait_all_children();
 
-  $self->_wantedTrack->{local_files} = \@outPaths;
+  $self->_wantedTrack->{local_files} = \@finalOutPaths;
   
   $self->_backupAndWriteConfig();
 }

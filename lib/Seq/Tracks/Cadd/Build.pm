@@ -120,7 +120,7 @@ sub buildTrack {
           if( defined $wantedChr && defined $out{$wantedChr} && %{ $out{$wantedChr} } ) {
             $self->log('info', "Changed from chr $wantedChr to $chr, writing $wantedChr data");
 
-            $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
+            #$self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
             
             $count{$wantedChr} = 0; delete $out{$wantedChr};
           }
@@ -190,7 +190,9 @@ sub buildTrack {
 
             if(!defined $assemblyRefBase) {
               say "for $wantedChr:$lastPosition couldn't find assembly ref base";
-
+              say "the data is";
+              p $dbData;
+              
               $self->log('fatal', "No assembly ref base found for $wantedChr:$lastPosition");
             }
             # When lifted over, reference base is not lifted, can cause mismatch
@@ -240,7 +242,7 @@ sub buildTrack {
             $self->log('fatal', "out{$wantedChr} empty but count >= commitEvery");
           }
 
-          $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
+          #$self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
 
           $count{$wantedChr} = 0; delete $out{$wantedChr};
         }
@@ -355,7 +357,7 @@ sub buildTrack {
                 $self->log('fatal', "out{$chr} empty, but count >= commitEvery");
               }
 
-              $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
+              #$self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
               
               $count{$chr} = 0; delete $out{$chr};
             }
@@ -370,7 +372,7 @@ sub buildTrack {
       OUT_LOOP: for my $chr (keys %out) {
         if( ! %{ $out{$chr} } ) { next OUT_LOOP; }
 
-        $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
+        #$self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
       }
 
       $self->log("info", "Finished building ". $self->name . " version: $versionLine using $file");
