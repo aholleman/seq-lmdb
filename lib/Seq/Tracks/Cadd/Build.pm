@@ -35,6 +35,7 @@ sub BUILD {
   $refTrack = $tracks->getRefTrackGetter();
 }
 ############## Version that does not assume positions in order ################
+############## Will optimize for cases when sorted_guranteed truthy ###########
 sub buildTrack {
   my $self = shift;
 
@@ -42,7 +43,26 @@ sub buildTrack {
   
   my $columnDelimiter = $self->delimiter;
 
-  my $mergeFunc = $self->_makeMergeFunc();
+  my $mergeFunc;
+  my $missingValue;
+
+  # save accessor time
+  my $sortedGuaranteed = $self->sorted_guaranteed;
+
+  # If we cannot rely on the cadd sorting order, we must use a defined
+  # value for those bases that we skip, because we'll ned mergeFunc
+  # to know when data was found for a position, and when it is truly missing
+  # Because when CADD scores are not sorted, each chromosome-containing file
+  # can potentially have any other chromosome's scores, meaning we may get 
+  # 6-mers or greater for a single position; when that happens the only
+  # sensible solution is to store a missing value; undef would be nice, 
+  # but that will never get triggered, unless our database is configured to store
+  # hashes instead of arrays; since a sparse array will contain undef/nil 
+  # for any track at that position that has not yet been inserted into the db
+  if(!$sortedGuaranteed) {
+    $missingValue = [];
+    $mergeFunc = $self->_makeMergeFunc($missingValue);
+  }
 
   for my $file ( @{$self->local_files} ) {
     $pm->start($file) and next;
@@ -120,7 +140,11 @@ sub buildTrack {
           if( defined $wantedChr && defined $out{$wantedChr} && %{ $out{$wantedChr} } ) {
             $self->log('info', "Changed from chr $wantedChr to $chr, writing $wantedChr data");
 
-            #$self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
+            if($self->sorted_guaranteed) {
+              return $self->log('fatal', "Changed chromosomes, but expected sorted by chr");
+            }
+
+            $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
             
             $count{$wantedChr} = 0; delete $out{$wantedChr};
           }
@@ -142,7 +166,7 @@ sub buildTrack {
         # However, chr-split CADD files may have multiple chromosomes after liftover
         if(!$wantedChr) {
           # So we require sorted_guranteed flag for "last" optimization
-          if($self->chrPerFile && $self->sorted_guaranteed) {
+          if($self->chrPerFile && $sortedGuaranteed) {
             last FH_LOOP;
           }
           next FH_LOOP;
@@ -174,15 +198,23 @@ sub buildTrack {
             # Writing an undef at the position will ensure that mergeFunc is called
             # because it is called when the database contains any defined entry for the
             # cadd track
-            $out{$wantedChr}{$lastPosition} = $self->prepareData( [] );
+            $out{$wantedChr}{$lastPosition} = $self->prepareData( $missingValue );
             $count{$wantedChr}++;
 
+            # it's safe to delete this, because 
             delete $scores{$wantedChr}{$lastPosition};
-            delete $skipSites{"$wantedChr\_$lastPosition"};
+
+            # if sorting is not guaranteed, its possible we'll see this combo again
+            # by storing this we'll reduce the number of times we need to rely
+            # on merging operations to handle bad sites
+            if($sortedGuaranteed) {
+              delete $skipSites{"$wantedChr\_$lastPosition"};
+            }
+            
           } elsif( !defined $scores{$wantedChr}{$lastPosition} ) {
             # Could occur if we skipped the lastPosition because refBase didn't match
             # assemblyRefBase
-            $self->log('warn', "lastPosition $chr\=\>$lastPosition not found in CADD scores hash");
+            $self->log('warn', "lastPosition $chr\:$lastPosition not found in CADD scores hash");
           } else {
             ########### Check refBase against the assembly's reference #############
             my $dbData = $self->db->dbRead( $wantedChr, $lastPosition );
@@ -195,6 +227,7 @@ sub buildTrack {
               
               $self->log('fatal', "No assembly ref base found for $wantedChr:$lastPosition");
             }
+
             # When lifted over, reference base is not lifted, can cause mismatch
             # In these cases it makes no sense to store this position's CADD data
             if($assemblyRefBase ne $scores{$wantedChr}{$lastPosition}{ref} ) {
@@ -203,21 +236,22 @@ sub buildTrack {
               
               # In case there are multiple 3-mers in the file with the same chr-pos
               # store an undef at this $lastPosition, to allow triggering of mergeFunc
-              $out{$wantedChr}{$lastPosition} = $self->prepareData( [] );
+              $out{$wantedChr}{$lastPosition} = $self->prepareData( $missingValue );
               $count{$wantedChr}++;
 
               delete $scores{$wantedChr}{$lastPosition};
             } else {
               my $phredScoresAref = $self->_accumulateScores( $wantedChr, $scores{$wantedChr}{$lastPosition} );
 
-               # We accumulated a 3-mer
-               # Note that we assume that after we accumulate one 3 mer, there won't
-               # be an identical chr:position elsewhere in the file
-               # Could test, but that would be memory intensive
-              if(defined $phredScoresAref) {
+               # We either accumulated a 3-mer, or something else
+               # If sorting is guaranteed, we know for a fact we will never come
+               # back to this position, so we can write the missingValue
+              if(defined $phredScoresAref || $sortedGuaranteed) {
                 if(!defined $out{$wantedChr} ) { $out{$wantedChr} = {}; $count{$wantedChr} = 0; }
 
-                $out{$wantedChr}{$lastPosition} = $self->prepareData( $phredScoresAref );
+                # $missingValue will only be inserted when !defined phredScoresAref
+                # && $sortedGuaranteed
+                $out{$wantedChr}{$lastPosition} = $self->prepareData( $phredScoresAref || $missingValue );
                 
                 $count{$wantedChr}++;
 
@@ -226,8 +260,9 @@ sub buildTrack {
                 delete $scores{$wantedChr}{$lastPosition};
               }
 
-              # If we don't have enough scores yet, it's possible the pos is out 
-              # of order; If so, we want to catch it on a later run, therefore
+              # If we don't have enough scores yet, and sorting not guaranteed
+              # it's possible the pos is out  of order; If so, we want to
+              # catch it on a later run, therefore
               # don't delete $scores{$wantedChr}{$lastPosition}
               # multiple 3-mers per chr:pos will also be caught (by the merge func)
               # Non-3 multiples will currently pose an issue 
@@ -242,7 +277,7 @@ sub buildTrack {
             $self->log('fatal', "out{$wantedChr} empty but count >= commitEvery");
           }
 
-          #$self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
+          $self->db->dbPatchBulkArray( $wantedChr, $out{$wantedChr}, undef, $mergeFunc);
 
           $count{$wantedChr} = 0; delete $out{$wantedChr};
         }
@@ -269,10 +304,7 @@ sub buildTrack {
           # If we find a position that has multiple bases, that is undefined behavior
           # so we will store a nil (undef on perl side, nil in msgpack) for cadd at that position
           if($scores{$wantedChr}{$dbPosition}{ref} ne $refBase) {
-            $self->log('warn', "Multiple reference bases in 3-mer @ $wantedChr:$dbPosition,"
-              . "  excluding this position. Line # $. : $line");
-            
-            # Mark for undef insertion
+            # Mark for $missingValue insertion
             $skipSites{"$wantedChr\_$dbPosition"} = "Multi-ref";
 
             next;
@@ -282,11 +314,9 @@ sub buildTrack {
         }
 
         # If no phastIdx found for this site, there cannot be 3 scores accumulated
-        # so write a nil
+        # so mark it as for skipping; important because when out of order
+        # we may have cryptic 3-mers, which we don't want to insert
         if(!defined $fields[$phastIdx]) {
-          $self->log('warn', "No phast score found for $wantedChr:$dbPosition,"
-            ." excluding this position. Line \#$.:$line");
-          
           # Mark for undef insertion
           $skipSites{"$wantedChr\_$dbPosition"} = "Missing-score";
 
@@ -318,9 +348,10 @@ sub buildTrack {
               # Writing an undef at the position will ensure that mergeFunc is called
               # because it is called when the database contains any entry for the
               # cadd track, undef included
-              $out{$chr}{$position} = $self->prepareData( [] );
+              $out{$chr}{$position} = $self->prepareData( $missingValue );
               $count{$chr}++;
 
+              # always safe to delete here; last time we'll check it
               delete $skipSites{"$chr\_$position"};
             } else {
               my $dbData = $self->db->dbRead( $chr, $position );
@@ -333,20 +364,17 @@ sub buildTrack {
                 
                 # If don't have correct ref, still insert undef,
                 # to prevent allowance of odd cryptic N-mers (N > 3)
-                $out{$chr}{$position} = $self->prepareData( [] );
+                $out{$chr}{$position} = $self->prepareData( $missingValue );
               } else {
                 # Using delete to encourage Perl to free memory
                 if(!defined $out{$chr} ) { $out{$chr} = {}; $count{$chr} = 0; }
 
                 my $phredScoresAref = $self->_accumulateScores( $chr, $scores{$chr}{$position} );
-                  
-                # If don't have a phred score 3-mer, still insert empty array,
-                # to prevent allowance of odd cryptic N-mers (N > 3)
-                if(!defined $phredScoresAref) {
-                  $phredScoresAref = [];
-                }
-
-                $out{$chr}{$position} = $self->prepareData( $phredScoresAref );
+                
+                # We want to keep missing values consistent
+                # Because when sorting not guaranteed, we may want non-nil/undef 
+                # values to prevent cryptic 3-mers
+                $out{$chr}{$position} = $self->prepareData( $phredScoresAref || $missingValue);
               }
 
               $count{$chr}++;
@@ -357,8 +385,9 @@ sub buildTrack {
                 $self->log('fatal', "out{$chr} empty, but count >= commitEvery");
               }
 
-              #$self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
+              $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
               
+              # be aggressive in freeing memory
               $count{$chr} = 0; delete $out{$chr};
             }
 
@@ -372,7 +401,7 @@ sub buildTrack {
       OUT_LOOP: for my $chr (keys %out) {
         if( ! %{ $out{$chr} } ) { next OUT_LOOP; }
 
-        #$self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
+        $self->db->dbPatchBulkArray( $chr, $out{$chr}, undef, $mergeFunc);
       }
 
       $self->log("info", "Finished building ". $self->name . " version: $versionLine using $file");
@@ -410,7 +439,7 @@ sub _accumulateScores {
   #    $_[0] , $_[1], $_[2]
   if(@{ $_[2]->{scores} } != 3) {
     # We will try again at the end of the file
-    $_[0]->log('warn', "pos $_[2]->{pos} doesn't have 3 scores, skipping");
+    # $_[0]->log('warn', "pos $_[2]->{pos} doesn't have 3 scores, skipping");
     return;
   }
 
@@ -442,266 +471,18 @@ sub _accumulateScores {
 # and "undefined" has two meanings: not there, and data that was purposely set to nil
 sub _makeMergeFunc {
   my $self = shift;
+  my $missingValue = shift;
 
   return sub {
     # This function is called only for existing oldTrackVals
     # And in any case that an existing value is found, the new value is nil
-    my ($chr, $pos, $trackIdx, $oldTrackVal, $newTrackVal) = @_;
-    
-    $self->log("in CADD merge function, found an existing value @ $chr:$pos ".
-               ". Setting $chr:$pos to undef/nil");
+    #my ($chr, $pos, $trackIdx, $oldTrackVal, $newTrackVal) = @_;
+    #   $_[0], $_[1]
+    $self->log("CADD merge function found existing value @ $_[0]:$_[1]. Setting to missingValue");
 
-    return [];
+    return $missingValue;
   }
 }
 
-########## Working on version that assumes in-order, in case memory pressure above too much ####
-# sub buildTrack {
-#   my $self = shift;
-
-#   my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
-  
-#   my $columnDelimiter = $self->delimiter;
-
-#   for my $file ( @{$self->local_files} ) {
-#     $pm->start($file) and next;
-
-#       my $fh = $self->get_read_fh($file);
-
-#       my $versionLine = <$fh>;
-#       chomp $versionLine;
-      
-#       if( index($versionLine, '## CADD') == - 1) {
-#         $self->log('fatal', "First line of CADD file is not CADD formatted: $_");
-#       }
-
-#       $self->log("info", "Building ". $self->name . " version: $versionLine using $file");
-
-#       # Cadd's columns descriptor is on the 2nd line
-#       my $headerLine = <$fh>;
-#       chomp $headerLine;
-
-#       # We may have converted the CADD file to a BED-like format, which has
-#       # chrom chromStart chromEnd instead of #Chrom Pos
-#       # and which is 0-based instead of 1 based
-#       # Moving $phastIdx to the last column
-#       my @headerFields = split $columnDelimiter, $headerLine;
-
-#       # Get the last index, that's where the phast column lives https://ideone.com/zgtKuf
-#       # Can be 5th or 6th column idx. 5th for CADD file, 6th for BED-like file
-#       my $phastIdx = $#headerFields;
-
-#       my $altAlleleIdx = $#headerFields - 2;
-#       my $refBaseIdx = $#headerFields - 3;
-
-#       my $based = $self->based;
-#       my $isBed;
-      
-#       if(@headerFields == 7) {
-#         # It's the bed-like format
-#         $based = 0;
-#         $isBed = 1;
-#       }
-
-#       # Accumulate 3 lines worth of PHRED scores
-#       # We cannot assume the CADD file will be properly sorted when liftOver used
-#       # So checks need to be made
-#       my %scores;
-
-#       my %out;
-#       my $count = 0;
-#       my $wantedChr;
-
-#       # Track which fields we recorded, to record in $self->completionMeta
-#       my %visitedChrs = ();
-
-#       # Cadd scores can be out of order after liftOver, which means
-#       # that we may write to the same database from multiple processes
-#       if(!$self->sorted_guaranteed) {
-#         # To reduce lock contention (maybe?), reduce database inflation mostly
-#         $self->commitEvery(1000);
-#       }
-      
-#       my $lastPos;
-
-#       # File does not need to be sorted by chromosome, but each position
-#       # must be in a block of 3 (one for each possible allele)
-#       FH_LOOP: while ( my $line = $fh->getline() ) {
-#         chomp $line;
-        
-#         my @fields = split $columnDelimiter, $line;
-
-#         my $chr = $isBed ? $fields[0] : "chr$fields[0]";
-
-#         if( !$wantedChr || ($wantedChr && $wantedChr ne $chr) ) {
-#           if(%out) {
-#             if(!$wantedChr) { $self->log('fatal', "Changed chr @ line $., but no wantedChr");}
-            
-#             $self->db->dbPatchBulkArray($wantedChr, \%out);
-#             undef %out; $count = 0;
-#           }
-
-#           if( %scores ) {
-#             return $self->log('fatal', "Changed chr @ line # $. with un-saved scores");
-#           }
-
-#           if($wantedChr && $self->chrPerFile) {
-#             $self->log('warn', "Expected 1 chr per file: had $wantedChr and also found $chr");
-#           }
-
-#           # Completion meta checks to see whether this track is already recorded
-#           # as complete for the chromosome, for this track
-#           if( $self->chrIsWanted($chr) && $self->completionMeta->okToBuild($chr) ) {
-#             $wantedChr = $chr;
-#           } else {
-#             $wantedChr = undef;
-#           }
-#         }
-
-#         # We expect either one chr per file, or all in one file
-#         # However, chr-split CADD files may have multiple chromosomes after liftover
-#         if(!$wantedChr) {
-#           # So we require override 
-#           if($self->chrPerFile && $self->sorted_guaranteed) {
-#             last FH_LOOP;
-#           }
-#           next FH_LOOP;
-#         }
-
-#         my $dbPosition = $fields[1] - $based;
-#         my $refBase = $fields[$refBaseIdx];
-
-#         # We've changed position
-#         if(defined $lastPos && $lastPos != $dbPosition) {
-#           my $dbData = $self->db->dbRead($wantedChr, $scores{pos} );
-#           my $assemblyRefBase = $refTrack->get($dbData);
-
-#           # When lifted over, reference base is not lifted, can cause mismatch
-#           # In these cases it makes no sense to store this position's CADD data
-#           if( $assemblyRefBase ne $scores{ref} ) {
-#             $self->log('warn', "Line \#$. assembly ref == $scores{ref}, CADD == $assemblyRefBase. Skipping.");
-            
-#             undef %scores;
-
-#             next;
-#           }
-
-#           my @phastScores;
-
-#           for my $aref (@{$scores{scores} } ) {
-#             my $index = $order->{$scores{ref} }{$aref->[0] };
-
-#             # checks whether ref and alt allele are ACTG
-#             if(!defined $index) {
-#               $self->log('fatal', "ref $aref->[0] or allele $aref->[1] not ACTGN");
-#             }
-
-#             $phastScores[$index] = $aref->[1];
-#           }
-
-#           # Check if the cadd 3-mer had non-unique alleles, or ANYTHING else went wrong
-#           foreach (@phastScores) {
-#             if(!defined $_) {
-#               $self->log('fatal', "Found less than 3 unique alleles in CADD 3-mer");
-#             }
-#           }
-
-#           if(@phastScores != 3 && @phastScores !=4) {
-#             $self->log('fatal', "Accumulated less than 3 or 4-mer CADD score array");
-#           }
-
-#           # If array copy needed: #https://ideone.com/m08q9V ; https://ideone.com/dZ6RGj
-#           $out{$scores{pos} } = $self->prepareData( \@phastScores );
-            
-#           undef %scores;
-
-#           if($count >= $self->commitEvery) {
-#             $self->db->dbPatchBulkArray($wantedChr, \%out);
-
-#             undef %out;
-#             $count = 0;
-#           }
-
-#           $count++;
-#         }
-
-#         if( ! $fields[$refBaseIdx] =~ /ACTGN/ ) {
-#           $self->log('warn', "Found non-ACTG reference, skipping line # $. : $line");
-#           next FH_LOOP;
-#         }
-
-#         my $altAllele = $fields[$altAlleleIdx];
-        
-
-#         # WHY DOESN"T THIS WORK
-#         # if(! $dbPosition >= 0) {
-#         #   $self->log('fatal', "Found unreasonable position ($dbPosition) on line \#$.:$line");
-#         # }
-
-#         $lastPos = $dbPosition;
-
-#         # Specify 2 significant figures by default
-#         if(defined $scores{ref} ) {
-#           if($scores{ref} ne $refBase) {
-#             return $self->log('fatal', "Multiple reference bases in 3-mer @ line # $. : $line");
-#           }
-#         } else {
-#           $scores{ref} = $refBase;
-#         }
-
-#         if(defined $scores{pos} ) {
-#           if($scores{pos} != $dbPosition) {
-#             return $self->log('fatal', "3mer out of order @ line # $. : $line");
-#           }
-#         } else {
-#           $scores{pos} = $dbPosition;
-#         }
-
-#         if(!defined $fields[$phastIdx]) {
-#           return $self->log('fatal', "No phast score found on line \#$.:$line");
-#         }
-
-#         push @{$scores{scores} }, [$altAllele, $rounder->round($fields[$phastIdx] ) ];
-
-#         # Count 3-mer scores recorded for commitEvery, & chromosomes seen for completion recording
-#         if(!defined $visitedChrs{$chr} ) { $visitedChrs{$chr} = 1 };
-#       }
-
-#       # leftovers
-#       if(%out) {
-#         if(!$wantedChr) { $self->log('fatal', "Have out but no wantedChr"); }
-#         if( %scores ) { 
-#           $self->log('warn', "At end of $file have uncommited scores for position $scores{pos}");
-#         }
-
-#         $self->db->dbPatchBulkArray($wantedChr, \%out);
-#       }
-
-#     $pm->finish(0, \%visitedChrs);
-#   }
-
-#   my %visitedChrs;
-#   $pm->run_on_finish(sub {
-#     my ($pid, $exitCode, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
-    
-#     if($exitCode != 0) {
-#       $self->log('fatal', "Failed to finish with $exitCode");
-#     }
-
-#     $self->log('info', "Got exit code $exitCode for $fileName");
-
-#     foreach (keys %$visitedChrsHref) {
-#       $visitedChrs{$_} = 1;
-#     }
-#   });
-
-#   $pm->wait_all_children;
-
-#   # Since any detected errors are fatal, we have confidence that anything visited
-#   # Is complete (we only have 1 file to read)
-#   foreach (keys %visitedChrs) {
-#     $self->completionMeta->recordCompletion($_);
-#   }
-# }
 __PACKAGE__->meta->make_immutable;
 1;

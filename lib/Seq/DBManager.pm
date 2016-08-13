@@ -288,9 +288,7 @@ sub dbPatchBulkArray {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  $_[3] = \@allPositions;
-
-  goto &dbPutBulk;
+  return $self->dbPutBulk($chr, $posHref, \@allPositions);
 }
 
 sub dbPut {
