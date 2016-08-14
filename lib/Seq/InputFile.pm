@@ -18,6 +18,7 @@ use File::Basename;
 use List::MoreUtils qw(firstidx);
 use namespace::autoclean;
 use DDP;
+use List::Util qw( max );
 
 with 'Seq::Role::Message';
 
@@ -25,73 +26,58 @@ with 'Seq::Role::Message';
 # we use singleton pattern because we expect to annotate only one file
 # per run
 # order matters, we expect the first N fields to be what is defined here
+
+# TODO : Simplify this; just look for any order of headers in the first 5-6 columns
+# state $requiredInputHeaderFields = {
+#   snp_1 => [qw/ Fragment Position Reference Minor_allele Type /],
+#   snp_2 => [qw/ Fragment Position Reference Alleles Allele_Counts Type/],
+#   snp_3 => [qw/ Fragment Position Reference Type Alleles Allele_Counts/]
+# };
+
 state $requiredInputHeaderFields = {
-  snp_1 => [qw/ Fragment Position Reference Minor_allele Type /],
-  snp_2 => [qw/ Fragment Position Reference Alleles Allele_Counts Type/]
+  chrField => qr/Fragment/i,
+  positionField => qr/Position/i,
+  referenceField => qr/Reference/i,
+  alleleField => qr/Alleles|Minor_allele/i,
+  typeField => qr/Type/i,
 };
 
-state $allowedFileTypes = [ keys %$requiredInputHeaderFields ];
-enum fileTypes => $allowedFileTypes;
+state $optionalInputHeaderFields = {
+  alleleCountField => qr/Allele_Counts/i,
+};
 
-state $snpFieldIndices = [];
-has snpFieldIndices => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  traits => ['Array'],
-  init_arg => undef,
-  lazy => 1,
-  default => sub{ $snpFieldIndices },
-  writer => '_setSnpFieldIndices',
-);
-
-#The file type that was found;
-#@private
-state $fileType = '';
+# The last field containing snp data; 5th or 6th
+# Set in checkInputFileHeader
+my $lastSnpFileFieldIdx;
 
 # @ public only the common fields exposed
-has chrFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
-  default => 'Fragment');
+has chrFieldName => ( is => 'ro', init_arg => undef);
 
-has positionFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
-  default => 'Position');
+has positionFieldName => ( is => 'ro', init_arg => undef);
 
-has referenceFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
-  default => 'Reference');
+has referenceFieldName => ( is => 'ro', init_arg => undef);
 
-has typeFieldName => ( is => 'ro', init_arg => undef, lazy => 1,
-  default => 'Type');
+has typeFieldName => ( is => 'ro', init_arg => undef);
 
-has alleleFieldName => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {
-  my $self = shift;
+has alleleFieldName => ( is => 'ro', init_arg => undef);
 
-  if($fileType eq 'snp_2') {
-    return 'Allele';
-  } elsif ($fileType eq 'snp_1') {
-    return 'Minor_allele';
-  }
+has alleleCountFieldName => ( is => 'ro', init_arg => undef);
 
-  $self->log('fatal', "Don't recognize file type: $fileType");
-});
+has chrFieldIdx => ( is => 'ro', init_arg => undef);
 
-has chrFieldIdx => ( is => 'ro', init_arg => undef, lazy => 1, default => 0);
+has positionFieldIdx => ( is => 'ro', init_arg => undef);
 
-has positionFieldIdx => ( is => 'ro', init_arg => undef, lazy => 1, default => 1);
+has referenceFieldIdx => ( is => 'ro', init_arg => undef);
 
-has referenceFieldIdx => ( is => 'ro', init_arg => undef, lazy => 1, default => 2);
+has alleleFieldIdx => ( is => 'ro', init_arg => undef);
 
-has alleleFieldIdx => ( is => 'ro', init_arg => undef, lazy => 1, default => 3);
+has typeFieldIdx => ( is => 'ro', init_arg => undef);
 
-has typeFieldIdx => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {
-  my $self = shift;
-  if($fileType eq 'snp_2') {
-    return 5
-  }
-  return 4;
-});
+has alleleCountFieldIdx => ( is => 'ro', init_arg => undef);
 
 sub getSampleNamesIdx {
   my ($self, $fAref) = @_;
-  my $strt = scalar @{ $requiredInputHeaderFields->{$fileType} };
+  my $strt = $lastSnpFileFieldIdx + 1;
 
   # every other field column name is blank, holds genotype probability 
   # for preceeding column's sample;
@@ -109,39 +95,49 @@ sub getSampleNamesIdx {
 sub checkInputFileHeader {
   my ( $self, $inputFieldsAref, $dontDieOnUnkown ) = @_;
 
-  if(@$snpFieldIndices && $fileType) {
-    $self->_setSnpFieldIndices($snpFieldIndices);
+  my @firstFields = @$inputFieldsAref[0 .. 5];
 
-    return 1;
-  }
+  my $notFound;
+  my @indicesFound;
+  REQ_LOOP: for my $fieldType (keys %$requiredInputHeaderFields) {
+    for (my $i = 0; $i < @firstFields; $i++) {
+      if($firstFields[$i] =~ $requiredInputHeaderFields->{$fieldType} ) {
+        $self->{$fieldType . "Name"} = $firstFields[$i];
+        $self->{$fieldType . "Idx"} = $i;
 
-  for my $type (@$allowedFileTypes) {
-    my $requiredFields = $requiredInputHeaderFields->{$type};
-
-    my $notFound;
-    my @fieldIndices = ( 0 .. $#$requiredFields );
-
-    INNER: for my $index (@fieldIndices) {
-      if($inputFieldsAref->[$index] ne $requiredFields->[$index]) {
-        $notFound = 1;
-        last INNER;
+        push @indicesFound, $i;
+        next REQ_LOOP;
       }
     }
 
-    if(!$notFound) {
-      $fileType = $type;
-      $snpFieldIndices = \@fieldIndices;
-      $self->_setSnpFieldIndices($snpFieldIndices);
-      
-      return 1;
+    $notFound = 1;
+    last;
+  }
+
+  OPTIONAL: for my $fieldType (keys %$optionalInputHeaderFields) {
+    for (my $i = 0; $i < @firstFields; $i++) {
+      if($firstFields[$i] =~ $optionalInputHeaderFields->{$fieldType} ) {
+        $self->{$fieldType . "Name"} = $firstFields[$i];
+        $self->{$fieldType . "Idx"} = $i;
+
+        push @indicesFound, $i;
+      }
     }
   }
 
-  if($dontDieOnUnkown) {
-    return;
+  $lastSnpFileFieldIdx = max(@indicesFound);
+
+  say "last index found is $lastSnpFileFieldIdx";
+
+  if($notFound) {
+    if($dontDieOnUnkown) {
+      return;
+    }
+
+    return $self->log( 'fatal', "Provided input file isn't of an allowed type");
   }
 
-  $self->log( 'fatal', "Provided input file isn't of an allowed type");
+  return 1;
 }
 
 __PACKAGE__->meta->make_immutable;

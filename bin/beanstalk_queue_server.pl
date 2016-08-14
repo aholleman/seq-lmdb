@@ -36,9 +36,7 @@ use YAML::XS qw/LoadFile/;
 #use Sys::Info::Constants qw( :device_cpu )
 #for choosing max connections based on available resources
 
-use Parallel::ForkManager;
-
-# max of 1 job at a time
+# max of 1 job at a time for now
 my $pm = Parallel::ForkManager->new(1);
 
 my $DEBUG = 0;
@@ -90,60 +88,58 @@ my $beanstalkEvents = Beanstalk::Client->new({
   decoder => sub { @{decode_json(shift)} },
 });
 
-$pm->run_on_finish( sub {
-  my ($pid, $exit_code, $job, $exit_signal, $core_dump, $data_structure_reference) = @_;
-  
-  if($exit_code != 0) {
-    my $reason = defined $data_structure_reference && ref $data_structure_reference ?
-      $$data_structure_reference : defined $core_dump ? $core_dump : $exit_signal;
-
-    say "job ". $job->id . " failed due to " . $reason;
+while(my $job = $beanstalk->reserve) {
+  # Parallel ForkManager used only to throttle number of jobs run in parallel
+  # cannot use run_on_finish with blocking reserves, use try catch instead
+  # Also using forks helps clean up leaked memory from LMDB_File
+  # Unfortunately, parallel fork manager doesn't play nicely with try tiny
+  # prevents anything within the try from executing
+  my $jobDataHref;
     
+  try {
+    say "in try";
+    $jobDataHref = decode_json( $job->data );
+  
+    $beanstalkEvents->put({ priority => 0, data => encode_json{
+      event => 'started',
+      # jobId   => $jobDataHref->{_id},
+      queueId => $job->id,
+    }  } );
+
+    my $statistics = handleJob($jobDataHref);
+    
+    say "statistics are";
+    p $statistics;
+    # Signal completion before completion actually occurs via delete
+    # To be conservative; since after delete message is lost
+    $beanstalkEvents->put({ priority => 0, data =>  encode_json({
+      event => 'completed',
+      queueId => $job->id,
+      # jobId   => $jobDataHref->{_id},
+      result  => $statistics,
+    }) } );
+    
+     say "completed job with queue id " . $job->id;
+
+    $beanstalk->delete($job->id);
+  } catch {
+    say "job ". $job->id . " failed due to $_";
+      
+    # Don't store the stack
+    my $reason = substr($_, 0, index($_, 'at'));
+
     # Signal before bury, because we always want to record that the job failed
     # even if burying fails
-    $beanstalkEvents->put( {}, encode_json({
+    $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => 'failed',
       reason => $reason,
       queueId => $job->id,
-    }) );
+    }) } );
 
     $job->bury;
-  }
-
-  ## For some odd reason, run_on_finish won't run if job succeeds??
-});
-
-while(my $job = $beanstalk->reserve) {
-  $pm->start($job) and next;
-    my $jobDataHref;
-    
-    try {
-      $jobDataHref = decode_json( $job->data );
-    } catch {
-      $pm->finish(255, \$_);
-    };
-
-    $beanstalkEvents->put({}, encode_json({
-      event => 'started',
-      queueId => $job->id,
-    }));
-    
-    my $statistics = handleJob($job->data);
-
-    # Signal completion before completion actually occurs via delete
-    # To be conservative; since after delete message is lost
-    $beanstalkEvents->put({}, encode_json({
-      event => 'completed',
-      queueId => $job->id,
-      result  => $statistics,
-    }));
-    
-    $beanstalk->delete($job->id);
-  $pm->finish(0);
+  } 
 }
-
-$pm->wait_all_children;
-
+ 
 sub handleJob {
   my $submittedJob = shift;
 

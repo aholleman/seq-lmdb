@@ -78,17 +78,12 @@ sub get_read_fh {
   
   #duck type compressed files
   my $compressed = 0;
-  try {
-    # to open with pipe needs something like IPC module to catch stderr
-    # open ($fh, '-|', "pigz -d -c $file") or die "not a gzip file";
-    open($fh, "<:gzip", $filePath) or die "Not a gzip file";
-    close($fh);
-
-    $compressed = 1;
+  if($filePath =~ /\.gz|\.zip$/) {
+     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
     open ($fh, '-|', "$gzip -d -c $file");
-  } catch {
+  } else {
     open($fh, '<:unix', "$filePath");
   };
 
@@ -106,7 +101,7 @@ sub get_write_fh {
   $self->log('fatal', "get_fh() expected a filename") unless $file;
 
   my $fh;
-  if ( $file =~ m/\.gz\Z/ ) {
+  if ( $file =~ m/\.gz|\.zip\Z/ ) {
     open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
   } else {
     open($fh, ">", $file) or die $self->log('fatal', "Couldn't open $file for writing");

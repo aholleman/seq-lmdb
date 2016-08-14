@@ -116,6 +116,7 @@ sub validateState {
 
 sub _validateInputFile {
   my $self = shift;
+
   my $fh = $self->get_read_fh($self->snpfile);
   my $firstLine = <$fh>;
 
