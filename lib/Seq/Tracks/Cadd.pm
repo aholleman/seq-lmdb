@@ -35,6 +35,12 @@ sub get {
     return undef;
   }
 
+  # We may have stored an empty array at this position, in case 
+  # the CADD scores read were not guaranteed to be sorted
+  # Alternatively the CADD data for this position may be missing (not defined)
+  if(!defined $_[1]->[$_[0]->dbName] || !@{ $_[1]->[$_[0]->dbName] } ) {
+    return undef;
+  }
   # Return undef for any allele that isn't defined for some reason
   # To preserve order with respect to alleles
   # if( !ref $altAlleles) { .. }

@@ -71,7 +71,21 @@ sub dbRead {
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
   my $db = $_[0]->_getDbi($_[1]);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  my $txn;
+
+  # It seems to be necessary to have only one open tx on an environment
+  if($dbReadOnly) {
+    if(!defined $db->{rdOnlyTx} ) {
+      $db->{rdOnlyTx} = $db->{env}->BeginTxn(MDB_RDONLY);
+    }
+
+    $txn = $db->{rdOnlyTx};
+
+    $txn->renew();
+  } else {
+    $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  }
 
   my @out;
   my $json;
@@ -102,8 +116,13 @@ sub dbRead {
     }
     push @out, $mp->unpack($json);
   }
-  $txn->commit();
 
+  if($dbReadOnly) {
+    $txn->reset();
+  } else {
+    $txn->abort();
+  }
+  
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
@@ -124,7 +143,7 @@ sub dbRead {
 # $pos can be any string, identifies a key within the kv database
 # dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 sub dbPatchHash {
-  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc) = @_;
+  my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   if(ref $dataHref ne 'HASH') {
     return $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
@@ -135,6 +154,7 @@ sub dbPatchHash {
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my $overwrite = $overrideOverwrite || $self->overwrite;
+  my $delete = $deleteOverride || $self->delete;
 
   # Get existing data
   my $json; 
@@ -147,7 +167,7 @@ sub dbPatchHash {
   }
 
   # If deleting, and there is no existing data, nothing to do
-  if(!$json && $self->delete) { return; }
+  if(!$json && $delete) { return; }
 
   if($json) {
     my $href = $mp->unpack($json);
@@ -164,7 +184,7 @@ sub dbPatchHash {
 
     if( defined $href->{$trackKey} ) {
       # Deletion and insertion are mutually exclusive
-      if($self->delete) {
+      if($delete) {
         delete $href->{$trackKey};
       } elsif(defined $mergeFunc) {
         $href->{$trackKey} = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
@@ -188,7 +208,7 @@ sub dbPatchHash {
   #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
   
-  return &dbPut;
+  goto &dbPut;
 }
   
 # Method to write multiple positions in the database, as arrays
@@ -200,20 +220,19 @@ sub dbPatchHash {
 # are multiple entries for this key
 # To do that, we can convert the value into an array. If the value is already an
 sub dbPatchBulkArray {
-  my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc) = @_;
+  my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   #https://ideone.com/Y0C4tX
   my $overwrite = $overrideOverwrite || $self->overwrite;
+  my $delete = $deleteOverride || $self->delete;
 
   # We'll use goto to get to dbPutBulk, so store this in stack
   my @allPositions = @{ xsort([keys %$posHref]) };
 
-  my %out;
   for my $pos ( @allPositions ) {
     if(ref $posHref->{$pos} ne 'HASH') {
       return $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
@@ -225,78 +244,51 @@ sub dbPatchBulkArray {
       $self->log('fatal', "dbPatchBulkAsArray requies numeric trackIndex");
     }
 
-    if(!defined $trackValue) {
-      $self->log('fatal', "dbPatchBulkAsArray requires trackValue");
-    }
-
-    my $json; #zero-copy
-    $txn->get($dbi, $pos, $json);
+    # Undefined values allowed
+    
+    #zero-copy
+    $txn->get($dbi, $pos, my $json);
 
     #trigger this only if json isn't found, save on many if calls
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
       $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
-    my $aref = [];
+    my $aref = defined $json ? $mp->unpack($json) : [];
 
-    if(defined $json) {
-      #can't modify $json, read-only value, from memory map
-      $aref = $mp->unpack($json);
-
-      if(defined $aref->[$trackIndex] ) {
-        # Delete by removing $trackIndex and any undefined adjacent undef values to avoid inflation
-        if($self->delete) {
-          $aref->[$trackIndex] = undef;
-          $out{$pos} = $aref;
-          next;
-        }
-
-        if(defined $mergeFunc) {
-          $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex,
-            $aref->[$trackIndex], $trackValue);
-
-          $out{$pos} = $aref;
-          next;
-        }
-
-        if($self->overwrite) {
-          $aref->[$trackIndex] = $trackValue;
-
-          $out{$pos} = $aref;
-          next
-        }
-
-        # Overwrite not set, we default to skipping this position
-        next;
+    if(defined $aref->[$trackIndex]) {
+      if($delete) {
+        $aref->[$trackIndex] = undef;
+        $posHref->{$pos} = $aref;
+      }elsif($mergeFunc) {
+        $aref->[$trackIndex] = &$mergeFunc($chr, $pos, $trackIndex, $aref->[$trackIndex], $trackValue);
+        $posHref->{$pos} = $aref;
+      }elsif($overwrite) {
+        $aref->[$trackIndex] = $trackValue;
+        $posHref->{$pos} = $aref;
+      } else {
+        # if the position is defined, and we don't want to overwrite the data,
+        # remove this position
+        delete $posHref->{$pos};
       }
+    } elsif(!$delete) {
+      # Either $json not defined ($aref empty) or trackIndex not defined
+      # Assigning an element to the array auto grows it
+      #https://ideone.com/Wzjmrl
+      $aref->[$trackIndex] = $trackValue;
+      $posHref->{$pos} = $aref;
+    } else {
+      # We want to delete this position, which certainly means we're not inserting it
+      delete $posHref->{$pos};
     }
-
-    # If defined $json, but $trackIndex not found
-
-    # If the track data wasn't found in $json, don't accidentally insert it into the db
-    if( $self->delete ) {
-      next;
-    }
-
-    # Either $json not defiend ($aref empty) or trackIndex not defined
-    # Assigning an element to the array auto grows it
-    #https://ideone.com/Wzjmrl
-    $aref->[$trackIndex] = $trackValue;
-    
-    $out{$pos} = $aref;
   }
 
-  $txn->commit();
+  $txn->abort();
 
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  if(!%out) {
-    return;
-  }
-
-  $self->dbPutBulk($chr, \%out, \@allPositions);
-  undef %out;
+  return $self->dbPutBulk($chr, $posHref, \@allPositions);
 }
 
 sub dbPut {
@@ -304,6 +296,9 @@ sub dbPut {
 
   if($self->dry_run_insertions) {
     return $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+    #say "Received dry run request: chr:pos $chr:$pos";
+    #p $data;
+    #return;
   }
 
   if(!defined $pos) {
@@ -311,7 +306,7 @@ sub dbPut {
   }
 
   if(!defined $data) {
-    $self->log('warn', "dbPut: attepmting to insert undefined data @ $chr:$pos");
+    return $self->log('warn', "dbPut: attepmting to insert undefined data @ $chr:$pos, skipping");
   }
 
   my $db = $self->_getDbi($chr);
@@ -334,24 +329,19 @@ sub dbPutBulk {
 
   if($self->dry_run_insertions) {
     return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+    #say "Received dry run request";
+    #p $posHref;
+    #return;
   }
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
-  #Enforce putting in ascending lexical or numerical order
-  my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
-  
-  for my $pos (@$sortedPosAref) {
-    if(!defined $pos) {
-      $self->log('warn', "dbPutBulk: cannot insert data into undefined position in $chr");
-      next;
-    }
-
-    if(!defined $posHref->{$pos}) {
-      $self->log('warn', "dbPutBulk: inserting undefined value into $chr:$pos");
-    }
+  for my $pos ( @{ $passedSortedPosAref || xsort( [keys %{$posHref}] ) } ) {
+    # User may have passed a sortedPosAref that has more values than the 
+    # $posHref, to avoid a second (large) sort
+    if(!exists $posHref->{$pos}) { next; }
 
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
@@ -489,7 +479,7 @@ sub _getDbi {
   if($dbReadOnly) {
     $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOTLS | MDB_WRITEMAP | MDB_NOMETASYNC;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC;
   }
 
   $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
@@ -522,7 +512,7 @@ sub _getDbi {
     return $self->log('fatal', "Failed to open database beacuse of $LMDB_File::last_err");
   }
 
-  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath};
+  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath, rdOnlyTx => undef };
 
   return $dbis->{$name};
 }

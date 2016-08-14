@@ -41,7 +41,7 @@ my $rounder = Seq::Tracks::Score::Build::Round->new();
 plan tests => 27;
 
 my $tracks = MockAnnotationClass->new_with_config(
-  { config =>'./config/hg19.lmdb.yml'}
+  { config =>'./config/hg19.yml'}
 );
 
 my $refTrack = $tracks->singletonTracks->getRefTrackGetter();
@@ -68,6 +68,12 @@ my $dataAref = $tracks->db->dbRead('chr22', 20e6-1 );
 
 my $refBase = $refTrack->get($dataAref);
 ok($refBase eq 'A', 'ref track ok in ~middle of chr22');
+p $dataAref;
+
+$dataAref = $tracks->db->dbRead('chr22', 31570001 );
+
+$refBase = $refTrack->get($dataAref);
+ok($refBase eq 'A', 'ref track ok at chr22:31570001, where CADD erased something');
 p $dataAref;
 
 my $cadd = $caddTrack->get($dataAref, undef, undef, 'A', 'C');

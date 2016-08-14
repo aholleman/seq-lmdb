@@ -26,7 +26,7 @@ sub buildTrack {
   my $headerRegex = qr/\A>([\w\d]+)/;
   my $dataRegex = qr/(\A[ATCGNatcgn]+)\z/xms;
 
-  my $pm = Parallel::ForkManager->new(scalar @{$self->local_files});
+  my $pm = Parallel::ForkManager->new($self->max_threads);
   for my $file ( $self->allLocalFiles ) {
     # Expects 1 chr per file for n+1 files, or all chr in 1 file
     # Single writer to reduce copy-on-write db inflation
@@ -105,8 +105,12 @@ sub buildTrack {
           # Store the uppercase bases; how UCSC does it, how people likely expect it
           for my $char ( split '', uc($1) ) {
             $data{$chrPosition} = $self->prepareData( $baseMapper->baseMap->{$char} );
+	    
+	    #if($chrPosition >= 42780001) {
+	    #	say "$wantedChr:$chrPosition == $char";
+            #}
 
-            #must come after, to not be 1 off; assumes fasta file is sorted ascending contiguous 
+	    #must come after, to not be 1 off; assumes fasta file is sorted ascending contiguous 
             $chrPosition++; 
 
             #Count number of entries recorded; write to DB if it's over the limit

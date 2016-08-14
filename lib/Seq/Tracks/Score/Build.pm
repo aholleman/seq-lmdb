@@ -38,7 +38,7 @@ sub buildTrack{
   my $chrPerFile = @allChrs > 1 ? 1 : 0;
   
   #Can't just set to 0, because then the completion code in run_on_finish won't run
-  my $pm = Parallel::ForkManager->new(scalar @allChrs);
+  my $pm = Parallel::ForkManager->new($self->max_threads);
 
   for my $file ( $self->allLocalFiles ) {
     $pm->start($file) and next; 
@@ -134,7 +134,7 @@ sub buildTrack{
         $count++;
         if($count >= $self->commitEvery) {
           $self->db->dbPatchBulkArray($wantedChr, \%data );
-          %data = ();
+          undef %data;
           $count = 0;
 
           #don't reset chrPosition, or wantedChr, because chrPosition is
