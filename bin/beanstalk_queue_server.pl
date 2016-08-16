@@ -106,10 +106,8 @@ while(my $job = $beanstalk->reserve) {
       queueId => $job->id,
     }  } );
 
-    my $statistics = handleJob($jobDataHref);
+    my $statistics = handleJob($jobDataHref, $job->id);
     
-    say "statistics are";
-    p $statistics;
     # Signal completion before completion actually occurs via delete
     # To be conservative; since after delete message is lost
     $beanstalkEvents->put({ priority => 0, data =>  encode_json({
@@ -142,6 +140,7 @@ while(my $job = $beanstalk->reserve) {
  
 sub handleJob {
   my $submittedJob = shift;
+  my $queueId = shift;
 
   my $failed;
 
@@ -161,7 +160,7 @@ sub handleJob {
   my $inputHref;
 
   try {
-    $inputHref = coerceInputs($submittedJob);
+    $inputHref = coerceInputs($submittedJob, $queueId);
 
     if ($verbose) {
       say "The user job data sent to annotator is: ";
@@ -200,6 +199,7 @@ sub handleJob {
 #Here we may wish to read a json or yaml file containing argument mappings
 sub coerceInputs {
   my $jobDetailsHref = shift;
+  my $queueId = shift;
 
   my $inputFilePath  = $jobDetailsHref->{ $jobKeys->{inputFilePath} };
   my $outputFilePath = $jobDetailsHref->{ $jobKeys->{outputFilePath} };
@@ -207,23 +207,20 @@ sub coerceInputs {
 
   my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
 
-  # expects
-  # @prop {String} channelKey
-  # @prop {String} channelID
-  # @prop {Object} message : with @prop data for the message
-  my $messangerHref =
-    $jobDetailsHref->{ $jobKeys->{comm} }->{ $jobKeys->{clientComm} };
-
-  say "messsangerHref is";
-  p $messangerHref;
-
   return {
     snpfile            => $inputFilePath,
     out_file           => $outputFilePath,
     config             => $configFilePath,
     ignore_unknown_chr => 1,
-    publisherAddress   => [ $conf->{beanstalkd}{host}, $conf->{beanstalkd}{port} ],
-    publisherTube      => $conf->{beanstalkd}{tubes}{annotation}{events},
+    publisher => {
+      server => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
+      queue  => $conf->{beanstalkd}{tubes}{annotation}{events},
+      messageBase => {
+        event => 'progress',
+        queueId => $queueId,
+        data => undef,
+      }
+    },
     compress => 1,
   };
 }

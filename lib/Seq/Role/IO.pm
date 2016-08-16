@@ -45,7 +45,8 @@ has endOfLineChar => (
 ); 
 
 state $tar = which('tar');
-state $gzip = which('pigz') || which('gzip');
+#state $gzip = which('pigz') || which('gzip');
+state $gzip = which('gzip');
 $tar = "$tar --use-compress-program=$gzip";
 
 has gzipPath => (is => 'ro', isa => 'Str', init_arg => undef, lazy => 1,
@@ -78,8 +79,8 @@ sub get_read_fh {
   
   #duck type compressed files
   my $compressed = 0;
-  if($filePath =~ /\.gz|\.zip$/) {
-     $compressed = 1;
+  if($filePath =~ /\.gz$|\.zip$/) {
+    $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
     open ($fh, '-|', "$gzip -d -c $file");
@@ -101,10 +102,11 @@ sub get_write_fh {
   $self->log('fatal', "get_fh() expected a filename") unless $file;
 
   my $fh;
-  if ( $file =~ m/\.gz|\.zip\Z/ ) {
+  if ( $file =~ m/\.gz$|\.zip$/ ) {
+    # open($fh, "<:gzip", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");;
     open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
   } else {
-    open($fh, ">", $file) or die $self->log('fatal', "Couldn't open $file for writing");
+    open($fh, ">", $file) or return $self->log('fatal', "Couldn't open $file for writing: $!");
   }
   return $fh;
 }
@@ -184,8 +186,10 @@ sub compressPath {
     ) );
     
   if($outcome) {
-    $self->log( 'warn', "Zipping failed with $?" )
+    return $self->log( 'warn', "Zipping failed with $?" );
   }
+
+  return $compressName;
 }
 
 sub getFileSize {
@@ -194,11 +198,13 @@ sub getFileSize {
   if($compressed) {
     my @raw = `gzip --list $file`;
     my $size = ( split " ", $raw[1] )[1];
+    
     return $size;
   }
   
   my @raw = stat($file);
-  return $raw[8];
+  
+  return $raw[7];
 }
 
 no Mouse::Role;

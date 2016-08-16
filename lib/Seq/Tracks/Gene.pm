@@ -63,6 +63,14 @@ state $stopLoss = 'stopGain';
 state $stopGain = 'stopLoss';
 state $truncated = 'truncatedCodon';
 
+state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
+state $codonSequenceKey = $siteUnpacker->codonSequenceKey;
+state $strandIdx = $siteUnpacker->strandIdx;
+state $siteTypeIdx = $siteUnpacker->siteTypeIdx;
+state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
+state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
+state $codonNumberIdx = $siteUnpacker->codonNumberIdx;
+
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
   default => sub{ return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; },
@@ -185,8 +193,7 @@ sub get {
   ################## Populate site information ########################
   # save unpacked sites, for use in txEffectsKey population #####
   #moose attrs are very slow, cache
-  state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
-  state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
+  
 
   my $hasCodon;
   OUTER: for my $site ($multiple ? @$siteData : $siteData) {
@@ -222,9 +229,6 @@ sub get {
   # ################# Populate $transcriptEffectsKey, $newAminoAcidKey #####################
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
-
-  state $codonSequenceKey = $siteUnpacker->codonSequenceKey;
-  state $strandIdx = $siteUnpacker->strandIdx;
   
   # Looping over string, int, or ref: https://ideone.com/4APtzt
   TX_EFFECTS_LOOP: for my $allele (ref $allelesAref ? @$allelesAref : $allelesAref) {
@@ -241,7 +245,6 @@ sub get {
     }
 
     ######### Most cases are just snps, so  inline that functionality ##########
-    state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 
     ### We only populate newAminoAcidKey for snps ###
     my $i = 0;
@@ -300,6 +303,7 @@ sub get {
   return \%out;
 };
 
+# TODO: remove the "NA"
 sub _annotateIndel {
   my ($self, $chr, $dbPosition, $allele) = @_;
 
@@ -331,43 +335,35 @@ sub _annotateIndel {
   for my $data (@$dbDataAref) {
     if (! defined $data->[$self->dbName] ) {
       #this position doesn't have a gene track, so skip
-      $middle .= "$intergenic";
+      $middle .= "$intergenic,";
       next;
     }
-   
-    ####### Get all transcript numbers, and site data for this position #########
-    my $siteData;
 
-    # is an <ArrayRef[ArrayRef>|ArrayRef[Int]>, each Aref is [$referenceNumberToRegionDatabase, $siteData] ]
-    if( $data->[$self->dbName] ) {
-      if( ref $data->[$self->dbName][0] ) {
-        foreach ( @{ $data->[$self->dbName] } ) {
-          push @$siteData, $_->[1];
+    my $siteData = $siteUnpacker->unpack($data->[$self->dbName]);
+
+    # If this position covers multiple transcripts, $siteData will be an array of arrays
+      # and if not, it will be a 1D array of scalars
+    for my $oneSiteData (ref $siteData->[0] ? @$siteData : $siteData) {
+       #Accumulate the annotation. We aren't using Seq::Output to format, because
+        #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
+        if ( defined $oneSiteData->[ $codonNumberIdx ] && $oneSiteData->[ $codonNumberIdx ] == 1 ) {
+          $middle .= "$startLoss;";
+        } elsif ( defined $oneSiteData->[ $codonSequenceIdx ]
+        &&  $codonMap->codon2aa( $oneSiteData->[ $codonSequenceIdx ] ) eq '*' ) {
+          $middle .= "$stopLoss;";
+        } else {
+          $middle .= $oneSiteData->[ $siteTypeIdx ] . ";";
         }
-      } else {
-        $siteData = $data->[$self->dbName][1]; 
-      }
     }
 
-    for my $oneSiteData (ref $siteData eq 'ARRAY' ? @$siteData : $siteData) {
-      my $site = $siteUnpacker->unpackCodon($oneSiteData);
-
-      #Accumulate the annotation. We aren't using Seq::Output to format, because
-      #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
-      if ( defined $site->{ $siteUnpacker->codonNumberKey } && $site->{ $siteUnpacker->codonNumberKey } == 1 ) {
-        $middle .= "$startLoss;";
-      } elsif ( defined $site->{ $siteUnpacker->codonSequenceKey }
-      &&  $codonMap->codon2aa( $site->{ $siteUnpacker->codonSequenceKey } ) eq '*' ) {
-        $middle .= "$stopLoss;";
-      } else {
-        $middle .= $site->{ $siteUnpacker->siteTypeKey } . ";";
-      }
-    }
+    chop $middle;
+    $middle .= ',';
   }
   
   chop $middle;
 
   return $beginning . $middle . "]";
+
 }
 
 __PACKAGE__->meta->make_immutable;

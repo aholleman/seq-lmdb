@@ -9,7 +9,7 @@ our $VERSION = '0.001';
 # ABSTRACT: Annotate a snp file
 
 use Mouse 2;
-use Types::Path::Tiny qw/AbsPath AbsFile/;
+use Types::Path::Tiny qw/AbsPath AbsFile AbsDir/;
 use namespace::autoclean;
 
 use DDP;
@@ -23,6 +23,7 @@ use Seq::Headers;
 use Seq::Tracks;
 use Seq::Statistics;
 use Seq::DBManager;
+use Path::Tiny;
 
 extends 'Seq::Base';
 
@@ -31,6 +32,9 @@ has snpfile => (is => 'ro', isa => AbsFile, coerce => 1, required => 1,
 
 has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
   handles => { outputFilePath => 'stringify' });
+
+has temp_dir => ( is => 'rw', isa => AbsDir, coerce => 1,
+  handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash
 has tracks => (is => 'ro', required => 1);
@@ -74,14 +78,33 @@ my ($sampleIDsToIndexesMap, $sampleIDaref);
 # pass the true reference base to other getters, like CADD, that may want it
 my ($refTrackGetter, $trackGettersExceptReference);
 # We may want to log progress. So we'll stat the file, and chunk the input into N bytes
-my ($fileSize, $chunkSize);
+my ($fileSize, $compressed, $chunkSize);
+
+# If we specify temp_dir, user data will be written here first, then moved to the
+# final destination
+my $tempOutPath;
+
+sub BUILDARGS {
+  my ($class, $data) = @_;
+
+  if($data->{temp_dir} ) {
+    # It's a string, convert to path
+    if(!ref $data->{temp_dir}) {
+      $data->{temp_dir} = path($data->{temp_dir});
+    }
+
+    $data->{temp_dir} = _makeRandomTempDir($data->{temp_dir});
+  }
+  
+  return $data;
+};
 
 sub BUILD {
   my $self = shift;
 
   # Expects DBManager to have been given a database_dir
   $db = Seq::DBManager->new();
-
+  
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
   $db->setReadOnly(1);
@@ -98,6 +121,17 @@ sub BUILD {
       push @$trackGettersExceptReference, $trackGetter;
     }
   }
+
+  if($self->temp_dir) {
+    # Provided by Seq::Base
+    my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
+    
+    unlink $self->logPath;
+
+    $self->setLogPath($logPath);
+
+    $tempOutPath = $self->temp_dir->child( $self->out_file->basename );
+  }
 }
 
 sub annotate_snpfile {
@@ -109,11 +143,18 @@ sub annotate_snpfile {
       minorAllelesKey => $minorAllelesKey,
     ) } );
   }
-
+  
   # File size is available to logProgressAndStatistics
-  my $fh;
-  ($fileSize, undef, $fh) = $self->get_read_fh($self->inputFilePath);
+  ($fileSize, $compressed, my $fh) = $self->get_read_fh($self->inputFilePath);
 
+  if($fileSize == -1) {
+    if(!$compressed) {
+      return $self->log('fatal', "Negative input file size detected. Check file and try again");
+    }
+    
+    return $self->log('fatal', "Negative input file size detected. You likely have more than"
+      . " one file in the archive that you uploaded");
+  }
   my $taint_check_regex = $self->taint_check_regex; 
   my $delimiter = $self->delimiter;
 
@@ -152,7 +193,8 @@ sub annotate_snpfile {
   # Outputter needs to know which fields we're going to pass it
   $outputter->setOutputDataFieldsWanted( $headers->get() );
 
-  my $outFh = $self->get_write_fh( $self->outputFilePath );
+  # If user specified a temp output path, use that
+  my $outFh = $self->get_write_fh( $tempOutPath || $self->outputFilePath );
 
   # Write the header
   say $outFh $headers->getString();
@@ -165,7 +207,7 @@ sub annotate_snpfile {
   my $allStatisticsHref = {};
 
   MCE::Loop::init {
-    max_workers => 16, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
   };
 
@@ -218,14 +260,48 @@ sub annotate_snpfile {
     $self->log('info', "Gathering and printing statistics");
 
     $ratiosAndQcHref = $statisticsHandler->makeRatios($allStatisticsHref);
-    $statisticsHandler->printStatistics($ratiosAndQcHref, $self->outputFilePath);
+    $statisticsHandler->printStatistics($ratiosAndQcHref, $tempOutPath || $self->outputFilePath);
   }
 
   ################ Compress if wanted ##########
+  my $compressedOutPath;
+  
   if($self->compress) {
     $self->log('info', "Compressing output");
-    $self->compressPath($self->out_file);
+    $compressedOutPath = $self->compressPath( $tempOutPath || $self->out_file);
   }
+
+  $self->log('info', 'Deleting input file');
+
+  close $fh;
+  unlink $self->snpfile;
+
+  my $finalDestination;
+  if($tempOutPath) {
+    $self->log('info', 'Moving output file to final destination on NFS (EFS) or S3');
+
+    my $result;
+    if($compressedOutPath) {
+      my $compressedFileName = path($compressedOutPath)->basename;
+
+      my $source = $self->temp_dir->child($compressedFileName);
+      
+      $finalDestination = $self->out_file->parent->child($compressedFileName );
+
+      $result = system("mv $source $finalDestination");
+    } else {
+      $finalDestination = $self->out_file->parent;
+      $result = system("mv " . $self->tempPath . "/* $finalDestination");
+    }
+
+    if($result != 0) {
+      return $self->log('fatal', "Failed to move file to final destination");
+    }
+
+    $self->log("info", 'Moved outputs into final desitnation');
+
+    $self->temp_dir->remove_tree;
+  } 
 
   return $ratiosAndQcHref;
 }
@@ -255,6 +331,10 @@ sub logProgressAndStatistics {
       } else {
         $progress = sprintf '%0.2f', $total / $fileSize;
       }
+
+      #say "progress is $progress";
+      #say "total is $total";
+      #say "file size is $fileSize";]
 
       $self->publishProgress($progress);
       return;
@@ -309,7 +389,7 @@ sub annotateLines {
 
         # $outputter->indexOutput(\@output);
 
-        @positions = (); @output = (); @inputData = ();
+        undef $dataFromDatabaseAref; undef @positions; undef @output; undef @inputData;
       }
 
       $wantedChr = $fieldsAref->[$chrFieldIdx];
@@ -340,6 +420,8 @@ sub annotateLines {
 
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
       \@positions, \@output);
+
+    undef $dataFromDatabaseAref; undef @positions; undef @inputData;
   }
 
   if($statisticsHandler) {
@@ -349,8 +431,8 @@ sub annotateLines {
   # write everything for this part
   # This should come last, makeOutputString may mutate @output
   MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
-  
   # $outputter->indexOutput(\@output);
+  undef @output;
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -380,7 +462,8 @@ sub finishAnnotatingLines {
 
     # May not match the reference assembly
     if( $outAref->[$i]{$refTrackName} ne $givenRef) {
-      $self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
+      next;
+      #$self->log('warn', "Reference discordant @ $inputAref->[$i][$chrFieldIdx]\:$inputAref->[$i][$positionFieldIdx]");
     }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
@@ -435,6 +518,30 @@ sub finishAnnotatingLines {
   return $outAref;
 }
 
+#http://www.perlmonks.org/?node_id=233023
+sub _makeRandomTempDir {
+  my ($parentDir) = @_;
+
+  srand( time() ^ ($$ + ($$ << 15)) );
+  my @v = qw ( a e i o u y );
+  my @c = qw ( b c d f g h j k l m n p q r s t v w x z );
+
+  my ($flip, $childDir) = (0,'');
+  $childDir .= ($flip++ % 2) ? $v[rand(6)] : $c[rand(20)] for 1 .. 9;
+  $childDir =~ s/(....)/$1 . int rand(10)/e;
+  $childDir = ucfirst $childDir if rand() > 0.5;
+
+  my $newDir = $parentDir->child($childDir);
+
+  # it shouldn't exist
+  if($newDir->is_dir) {
+    goto &_makeRandomTempDir;
+  }
+
+  $newDir->mkpath;
+
+  return $newDir;
+}
 __PACKAGE__->meta->make_immutable;
 
 1;

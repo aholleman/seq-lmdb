@@ -71,21 +71,7 @@ sub dbRead {
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
   my $db = $_[0]->_getDbi($_[1]);
   my $dbi = $db->{dbi};
-
-  my $txn;
-
-  # It seems to be necessary to have only one open tx on an environment
-  if($dbReadOnly) {
-    if(!defined $db->{rdOnlyTx} ) {
-      $db->{rdOnlyTx} = $db->{env}->BeginTxn(MDB_RDONLY);
-    }
-
-    $txn = $db->{rdOnlyTx};
-
-    $txn->renew();
-  } else {
-    $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-  }
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my @out;
   my $json;
@@ -117,11 +103,7 @@ sub dbRead {
     push @out, $mp->unpack($json);
   }
 
-  if($dbReadOnly) {
-    $txn->reset();
-  } else {
-    $txn->abort();
-  }
+  $txn->abort();
   
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;

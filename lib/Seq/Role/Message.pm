@@ -16,6 +16,11 @@ use Mouse::Role 2;
 # use AnyEvent::Log;
 
 use Log::Fast;
+use namespace::autoclean;
+#with 'MooX::Role::Logger';
+use Beanstalk::Client;
+use Cpanel::JSON::XS;
+use DDP return_value => 'dump';
 
 $Seq::Role::Message::LOG = Log::Fast->global();
 $Seq::Role::Message::LOG = Log::Fast->new({
@@ -37,19 +42,6 @@ $Seq::Role::Message::mapLevels = {
   DEBUG => 'DEBUG',
   NOTICE => 'NOTICE',
 };
-
-use Parallel::ForkManager;
-use Redis::hiredis;
-
-use namespace::autoclean;
-#with 'MooX::Role::Logger';
-
-use Cpanel::JSON::XS;
-use DDP return_value => 'dump';
-#TODO: figure out how to not need peopel to do if $self->debug
-#instead just use noop
-
-$Seq::Role::Message::pm = Parallel::ForkManager->new(4);
 
 state $debug = 0;
 sub setLogPath {
@@ -74,31 +66,31 @@ sub setLogLevel {
   $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
 }
 
-state $messageBase;
-state $publisher;
-has hasPublisher => (is => 'ro', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
+my $publisher;
+my $messageBase;
+has hasPublisher => (is => 'ro', init_arg => undef, writer => '_setPublisher', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
 
-sub setPublisherAndAddress {
-  my ($self, $passedMessageBase, $passedAddress) = @_;
+sub setPublisher {
+  my ($self, $publisherConfig) = @_;
 
-  if(!ref $passedMessageBase eq 'Hash') {
-    $self->_logger->warn('setPublisherAndAddress requires hashref messanger, given ' 
-      . ref $passedMessageBase);
-    return;
+  if(!ref $publisherConfig eq 'Hash') {
+    return $self->log->('fatal', 'setPublisherAndAddress requires hash');
   }
 
-  $messageBase = $passedMessageBase;
-
-  if(!ref $passedAddress eq 'ARRAY') {
-    $self->_logger->warn('setPublisher requires ARRAY ref passedAddress, given '
-      . ref $passedAddress);
-    return;
+  if(!( defined $publisherConfig->{server} && defined $publisherConfig->{queue}
+  && defined $publisherConfig->{messageBase} ) ) {
+    return $self->log('fatal', 'setPublisher server, queue, messageBase properties');
   }
 
-  $publisher = Redis::hiredis->new(
-    host => $passedAddress->[0],
-    port => $passedAddress->[1],
-  );
+  $publisher = Beanstalk::Client->new({
+    server => $publisherConfig->{server},
+    default_tube => $publisherConfig->{queue},
+    connect_timeout => 1,
+  });
+
+  $self->_setPublisher(!!$publisher);
+
+  $messageBase = $publisherConfig->{messageBase};
 }
 
 # note, accessing hash directly because traits don't work with Maybe types
@@ -108,9 +100,13 @@ sub publishMessage {
 
   # because predicates don't trigger builders, need to check hasPublisherAddress
   return unless $publisher;
-  $messageBase->{message}{data} = $_[1];
-  $publisher->command(
-    [ 'publish', $messageBase->{event}, encode_json( $messageBase) ] );
+  
+  $messageBase->{data} = $_[1];
+  
+  $publisher->put({
+    priority => 0,
+    data => encode_json($messageBase),
+  });
 }
 
 sub publishProgress {
@@ -119,9 +115,13 @@ sub publishProgress {
 
   # because predicates don't trigger builders, need to check hasPublisherAddress
   return unless $publisher;
-  $messageBase->{message}{data} = { progress => $_[1] };
-  $publisher->command(
-    [ 'publish', $messageBase->{event}, encode_json( $messageBase ) ] );
+
+  $messageBase->{data} = { progress => $_[1] };
+
+  $publisher->put({
+    priority => 0,
+    data => encode_json($messageBase),
+  });
 }
 
 sub log {

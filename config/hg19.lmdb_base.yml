@@ -27,6 +27,7 @@ chromosomes:
   - chrY
 database_dir: /ssd/seqant_db_build/hg19_snp142/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg19_snp142/raw/
+temp_dir: ''
 output:
   order:
   - hg19

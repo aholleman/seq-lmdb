@@ -27,6 +27,7 @@ chromosomes:
 - chrY
 database_dir: /ssd/seqant_db_build/hg38_snp146/index_lmdb/
 files_dir: /ssd/seqant_db_build/hg38_snp146/raw/
+temp_dir: ''
 output:
   order:
   - hg38

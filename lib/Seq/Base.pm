@@ -23,9 +23,7 @@ with 'Seq::Role::ConfigFromFile',
 has database_dir => (is => 'ro', required => 1);
 
 ############# Optional Arguments #############
-has publisherMessageBase => (is => 'ro');
-
-has publisherAddress => (is => 'ro');
+has publisher => (is => 'ro');
 
 has logPath => (is => 'ro');
 
@@ -42,13 +40,13 @@ sub BUILD {
   Seq::DBManager->setDefaultDatabaseDir($self->database_dir);
 
   # Seq::Role::Message settigns
-  if($self->publisherMessageBase && $self->publisherAddress) {
-    $self->setPublisher($self->publisherMessageBase, $self->publisherAddress);
+  if($self->publisher) {
+    $self->setPublisher($self->publisher);
   }
 
-  if ($self->logPath) {
-    $self->setLogPath($self->logPath);
-  }
+  # if ($self->logPath) {
+  #   $self->setLogPath($self->logPath);
+  # }
 
   #todo: finisih ;for now we have only one level
   if ( $self->debug) {

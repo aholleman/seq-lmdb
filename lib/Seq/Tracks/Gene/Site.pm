@@ -42,8 +42,8 @@ has codonMap => (
 );
 
 #These describe the site
-has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
-has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
+has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
+has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
 has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
 has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
 has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);

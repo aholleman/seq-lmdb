@@ -24,9 +24,14 @@ use Seq;
 with 'MouseX::Getopt', 'Seq::Role::Message';
 
 subtype AbsFile => as 'Path::Tiny';
-coerce AbsFile => from 'Str' => via { if(! -e $_) {die; }; path($_)->absolute; };
-  subtype AbsPath => as 'Path::Tiny';
+coerce AbsFile => from 'Str' => via { if(! -e $_) {die "File doesn't exist"; }; path($_)->absolute; };
+
+subtype AbsPath => as 'Path::Tiny';
 coerce AbsPath => from 'Str' => via { path($_)->absolute; };
+
+subtype AbsDir => as 'Path::Tiny';
+coerce AbsDir => from 'Str' => via { path($_)->absolute; };
+
 
 #without this, Getopt won't konw how to handle AbsFile, AbsPath, and you'll get
 #Invalid 'config_file' : File '/mnt/icebreaker/data/home/akotlar/my_projects/seq/1' does not exist
@@ -66,6 +71,15 @@ has out_file => (
   documentation => qq{Where you want your output.},
 );
 
+has temp_dir => (
+  is          => 'ro',
+  isa         => 'AbsDir',
+  coerce      => 1,
+  metaclass => 'Getopt',
+  cmd_aliases   => [qw/out output/],
+  documentation => qq{Where you want to temporarily store your output},
+);
+
 has config => (
   is          => 'ro',
   isa         => 'AbsFile',
@@ -96,25 +110,24 @@ has debug => (
  );
 
 
+has compress => (
+  is => 'ro', 
+  isa => 'Bool',
+  metaclass   => 'Getopt',
+  documentation =>
+    qq{Compress the output?},
+  default => 0,
+);
+
+
 subtype HashRefJson => as 'HashRef'; #subtype 'HashRefJson', as 'HashRef', where { ref $_ eq 'HASH' };
 coerce HashRefJson => from 'Str' => via { from_json $_ };
 subtype ArrayRefJson => as 'ArrayRef';
 coerce ArrayRefJson => from 'Str' => via { from_json $_ };
 
-has messanger => (
-  is => 'rw',
-  isa => 'HashRefJson',
-  coerce => 1,
-  required => 0,
-  metaclass   => 'Getopt',
-  documentation => 
-    qq{Tell Seqant how to send messages to a plugged-in interface 
-      (such as a web interface) }
-);
-
-has publisherAddress => (
+has publisher => (
   is => 'ro',
-  isa => 'ArrayRefJson',
+  isa => 'HashRefJson',
   coerce => 1,
   required => 0,
   metaclass   => 'Getopt',
@@ -178,7 +191,8 @@ sub _buildLogPath {
 
 sub _buildAnnotator {
   my $self = shift;
-  return Seq->new_with_config({
+
+  my $args = {
     config => $self->configfilePath,
     snpfile => $self->snpfilePath,
     out_file => $self->output_path,
@@ -186,9 +200,15 @@ sub _buildAnnotator {
     ignore_unknown_chr => $self->ignore_unknown_chr,
     overwrite => $self->overwrite,
     logPath => $self->logPath,
-    messanger => $self->messanger,
-    publisherAddress => $self->publisherAddress,
-  })
+    publisher => $self->publisher,
+    compress => $self->compress
+  };
+  
+  if($self->temp_dir) {
+    $args->{temp_dir} = $self->temp_dir;
+  }
+
+  return Seq->new_with_config($args);
 }
 
 with 'Interface::Validator';
@@ -197,8 +217,10 @@ sub BUILD {
   my $self = shift;
   my $args = shift;
 
+  say "running interface";
   #exit if errors found via this Validator.pm method
   $self->validateState;
+  say "past interface";
 }
 
 #I wish for a neater way; but can't find method in MouseX::GetOpt to return just these arguments

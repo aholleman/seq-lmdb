@@ -67,7 +67,6 @@ sub countTransitionsAndTransversions {
     } elsif($_->{$homKey}) {
       $sampleIds = $_->{$homKey};
     } else {
-      $self->log('warn', "No samples found in countTransitionsAndTransversions");
       next OUTPUT_LOOP;
     }
     
