@@ -217,10 +217,8 @@ sub BUILD {
   my $self = shift;
   my $args = shift;
 
-  say "running interface";
   #exit if errors found via this Validator.pm method
   $self->validateState;
-  say "past interface";
 }
 
 #I wish for a neater way; but can't find method in MouseX::GetOpt to return just these arguments

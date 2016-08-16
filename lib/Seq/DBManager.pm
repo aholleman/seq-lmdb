@@ -42,6 +42,7 @@ state $databaseDir;
 has database_dir => (is => 'ro', isa => AbsPath, coerce => 1, required => 1,
     default => sub {$databaseDir});
 
+
 # Can call as class method (DBManager->setDefaultDatabaseDir), or as instance method
 sub setDefaultDatabaseDir {
   $databaseDir = @_ == 2 ? $_[1] : $_[0];
@@ -71,18 +72,22 @@ sub dbRead {
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
   my $db = $_[0]->_getDbi($_[1]);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
-
+  
+  my $txn = _getReadOnlyTxn($db);
+  
   my @out;
   my $json;
 
   #will return a single value if we were passed one value
   if(!ref $_[2] ) {
     $txn->get($dbi, $_[2], $json);
+
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
       $_[0]->log('fatal', "dbRead LMDB error $LMDB_File::last_err");
     }
-    $txn->commit();
+
+    _closeReadOnlyTxn($txn);
+
     $LMDB_File::last_err = 0;
     return $json ? $mp->unpack($json) : undef;
   }
@@ -90,6 +95,7 @@ sub dbRead {
   #or an array of values, in order
   for my $pos ( @{ $_[2] } ) {
     $txn->get($dbi, $pos, $json);
+
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
         $_[0]->log('fatal', "dbRead LMDB error $LMDB_File::last_err");
@@ -103,8 +109,8 @@ sub dbRead {
     push @out, $mp->unpack($json);
   }
 
-  $txn->abort();
-  
+  _closeReadOnlyTxn($txn);
+
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
@@ -354,7 +360,7 @@ sub dbReadAll {
   #==   $_[0]   $_[1]
   my $db = $_[0]->_getDbi($_[1]);
 
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  my $txn = _getReadOnlyTxn($db);
 
   #unfortunately if we close the transaction, cursors stop working
   #a limitation of the current API
@@ -369,6 +375,7 @@ sub dbReadAll {
   my $cursor = $DB->Cursor;
 
   my ($key, $value, %out);
+  my $i = 0;
   while(1) {
     $cursor->get($key, $value, MDB_NEXT);
       
@@ -386,7 +393,7 @@ sub dbReadAll {
     $out{$key} = $mp->unpack($value);
   }
 
-  $txn->commit();
+  _closeReadOnlyTxn($txn);
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
@@ -442,7 +449,6 @@ sub _getDbi {
   #across all threads
   #and because there is some minor overhead with opening many named databases
   state $dbis;
-  state $envs;
 
   return $dbis->{$name} if defined $dbis->{$name};
   
@@ -450,21 +456,22 @@ sub _getDbi {
 
   #create database unless dontCreate flag set
   if(!$dontCreate && !$dbReadOnly) {
-    if(!$dbPath->child($name)->is_dir) {
-      $dbPath->child($name)->mkpath;
+    if(!$dbPath->is_dir) {
+      $dbPath->mkpath;
     }
   }
 
   $dbPath = $dbPath->stringify;
 
   my $flags;
+
   if($dbReadOnly) {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
+    $flags = MDB_NOMETASYNC | MDB_NOSYNC;
   } else {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC;
+    $flags = MDB_NOMETASYNC;
   }
 
-  $envs->{$name} = $envs->{$name} ? $envs->{$name} : LMDB::Env->new($dbPath, {
+  my $env = LMDB::Env->new($dbPath, {
     mapsize => 128 * 1024 * 1024 * 1024, # Plenty space, don't worry
     #maxdbs => 20, # Some databases
     mode   => 0600,
@@ -472,17 +479,16 @@ sub _getDbi {
     #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
     #in the docs
     flags => $flags,
-    maxreaders => 1000,
-    maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
+    #maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
-  if(!$envs->{$name} ) {
-    return $self->log('fatal', "Failed to open environment because $LMDB_File::last_err");
+  if(!$env) {
+    return $self->log('fatal', "Failed to open environment $name because $LMDB_File::last_err");
   }
 
-  my $txn = $envs->{$name}->BeginTxn();
-  
-  my $DB = $txn->OpenDB();
+  my $txn = $env->BeginTxn();
+
+  my $DB = LMDB_File->new( $txn, $txn->open() );
 
   # ReadMode 1 gives memory pointer for perf reasons, not safe
   $DB->ReadMode(1);
@@ -491,12 +497,40 @@ sub _getDbi {
   $txn->commit();
 
   if($LMDB_File::last_err) {
-    return $self->log('fatal', "Failed to open database beacuse of $LMDB_File::last_err");
+    return $self->log('fatal', "Failed to open database $name beacuse of $LMDB_File::last_err");
   }
 
-  $dbis->{$name} = {env => $envs->{$name}, dbi => $DB->dbi, path => $dbPath, rdOnlyTx => undef };
+  my $rdOnlyTxn;
+
+  if($dbReadOnly) {
+    $rdOnlyTxn = $env->BeginTxn(MDB_RDONLY);
+    $rdOnlyTxn->renew();
+  }
+
+  $dbis->{$name} = {env => $env, dbi => $DB->dbi, rdOnlyTxn => $rdOnlyTxn};
 
   return $dbis->{$name};
+}
+
+sub _getReadOnlyTxn {
+  # my $dbis;
+  #    $_[0];
+  if($dbReadOnly) {
+    $_[0]->{rdOnlyTxn}->renew();
+    return $_[0]->{rdOnlyTxn};
+  }
+
+  return $_[0]->{env}->BeginTxn(MDB_RDONLY);
+}
+
+sub _closeReadOnlyTxn {
+  # my $txn;
+  #    $_[0];
+  if($dbReadOnly) {
+    return $_[0]->reset();
+  }
+
+  return $_[0]->abort();
 }
 
 __PACKAGE__->meta->make_immutable;

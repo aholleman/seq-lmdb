@@ -127,8 +127,6 @@ sub checkInputFileHeader {
 
   $lastSnpFileFieldIdx = max(@indicesFound);
 
-  say "last index found is $lastSnpFileFieldIdx";
-
   if($notFound) {
     if($dontDieOnUnkown) {
       return;

@@ -95,6 +95,9 @@ sub BUILDARGS {
 
     $data->{temp_dir} = _makeRandomTempDir($data->{temp_dir});
   }
+
+  $data->{out_file} .= '.annotated.tab';
+  $data->{logPath} .= '.annotation.log';
   
   return $data;
 };
@@ -149,12 +152,17 @@ sub annotate_snpfile {
 
   if($fileSize == -1) {
     if(!$compressed) {
+      $self->_cleanUpFiles();
+
       return $self->log('fatal', "Negative input file size detected. Check file and try again");
     }
-    
+
+    $self->_cleanUpFiles();
+
     return $self->log('fatal', "Negative input file size detected. You likely have more than"
       . " one file in the archive that you uploaded");
   }
+  
   my $taint_check_regex = $self->taint_check_regex; 
   my $delimiter = $self->delimiter;
 
@@ -167,7 +175,9 @@ sub annotate_snpfile {
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
     @firstLine = split $delimiter, $1;
   } else {
-    $self->log('fatal', "First line of input file has illegal characters");
+    $self->_cleanUpFiles();
+
+    return $self->log('fatal', "First line of input file has illegal characters");
   }
 
   $inputFileProcessor->checkInputFileHeader(\@firstLine);
@@ -232,7 +242,7 @@ sub annotate_snpfile {
         chomp $line;
         my @fields = split $delimiter, $line;
 
-        if ( !$refTrackGetter->chrIsWanted($fields[0] ) ) {
+        if ( !defined $refTrackGetter->chromosomes->{ $fields[0] } ) {
           next;
         }
 
@@ -246,9 +256,11 @@ sub annotate_snpfile {
     }
     close  $MEM_FH;
 
-    # Annotate lines, write the data, and MCE->Gather any statistics
-    $self->annotateLines(\@lines, $outFh);
-
+    if(@lines) {
+      # Annotate lines, write the data, and MCE->Gather any statistics
+      $self->annotateLines(\@lines, $outFh);
+    }
+    
     # Write progress
     MCE->gather(undef);
   } $fh;
@@ -274,34 +286,8 @@ sub annotate_snpfile {
   $self->log('info', 'Deleting input file');
 
   close $fh;
-  unlink $self->snpfile;
-
-  my $finalDestination;
-  if($tempOutPath) {
-    $self->log('info', 'Moving output file to final destination on NFS (EFS) or S3');
-
-    my $result;
-    if($compressedOutPath) {
-      my $compressedFileName = path($compressedOutPath)->basename;
-
-      my $source = $self->temp_dir->child($compressedFileName);
-      
-      $finalDestination = $self->out_file->parent->child($compressedFileName );
-
-      $result = system("mv $source $finalDestination");
-    } else {
-      $finalDestination = $self->out_file->parent;
-      $result = system("mv " . $self->tempPath . "/* $finalDestination");
-    }
-
-    if($result != 0) {
-      return $self->log('fatal', "Failed to move file to final destination");
-    }
-
-    $self->log("info", 'Moved outputs into final desitnation');
-
-    $self->temp_dir->remove_tree;
-  } 
+  
+  $self->_cleanUpFiles($compressedOutPath);
 
   return $ratiosAndQcHref;
 }
@@ -541,6 +527,45 @@ sub _makeRandomTempDir {
   $newDir->mkpath;
 
   return $newDir;
+}
+
+sub _cleanUpFiles {
+  my $self = shift;
+  my $compressedOutPath = shift;
+
+  my $finalDestination;
+
+  if($self->temp_dir) {
+    $self->log('info', 'Moving output file to final destination on NFS (EFS) or S3');
+
+    my $result;
+    if($compressedOutPath) {
+      my $compressedFileName = path($compressedOutPath)->basename;
+
+      my $source = $self->temp_dir->child($compressedFileName);
+      
+      $finalDestination = $self->out_file->parent->child($compressedFileName );
+
+      $result = system("mv $source $finalDestination");
+    } else {
+      $finalDestination = $self->out_file->parent;
+      $result = system("mv " . $self->tempPath . "/* $finalDestination");
+    }
+
+    $self->temp_dir->remove_tree;
+
+    if($result) {
+      return $self->log('fatal', "Failed to move file to final destination");
+    }
+
+    # we had something to move
+    if($result == 0) {
+      $self->log("info", 'Moved outputs into final desitnation');
+    }
+  } else {
+    ## TODO: TEST unlink out file and everything associated
+    $self->out_file->parent->remove_tree;
+  }
 }
 __PACKAGE__->meta->make_immutable;
 
