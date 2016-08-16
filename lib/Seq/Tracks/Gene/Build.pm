@@ -236,7 +236,7 @@ sub buildTrack {
 
           my (%siteData, %sitesCoveredByTX);
 
-          $self->log('info', "Starting to build transcript for $file");
+          $self->log('debug', "Starting to build transcript for $file");
 
           my @allTxStartsAscending = sort { $a <=> $b } keys %{ $allData{$chr} };
 
@@ -256,7 +256,7 @@ sub buildTrack {
             for my $txData ( @{ $allData{$chr}->{$txStart} } ) {
               my $txNumber = $txData->{$txNumberKey};
 
-              $self->log('info', "Starting to make transcript \#$txNumber for $chr");
+              $self->log('debug', "Starting to make transcript \#$txNumber for $chr");
 
               my $txInfo = Seq::Tracks::Gene::Build::TX->new($txData);
 
@@ -284,7 +284,7 @@ sub buildTrack {
                 $largestTxEnd = $txData->{$self->txEnd_field_name};
               }
 
-              $self->log('info', "Finished making transcript \#$txNumber for $chr");
+              $self->log('debug', "Finished making transcript \#$txNumber for $chr");
             }
           }
 
@@ -321,8 +321,10 @@ sub buildTrack {
         my ($pid, $exitCode, $chr) = @_;
         if(!defined $exitCode || $exitCode != 0) {
           # Exit early, meaning parent doesn't $pm->finish(0), to reduce corruption
-          $self->log('fatal', "Failed to build transcripts for $chr");
+          return $self->log('fatal', "Failed to build transcripts for $chr");
         }
+        
+        $self->log('info', "Finished buidling transcripts for $chr, with exit code $exitCode");
       });
 
       $pm2->wait_all_children;
