@@ -45,8 +45,8 @@ has endOfLineChar => (
 ); 
 
 state $tar = which('tar');
-#state $gzip = which('pigz') || which('gzip');
-state $gzip = which('gzip');
+state $gzip = which('pigz') || which('gzip');
+# state $gzip = which('gzip');
 $tar = "$tar --use-compress-program=$gzip";
 
 has gzipPath => (is => 'ro', isa => 'Str', init_arg => undef, lazy => 1,

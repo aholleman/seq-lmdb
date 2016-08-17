@@ -150,6 +150,8 @@ sub annotate_snpfile {
   # File size is available to logProgressAndStatistics
   ($fileSize, $compressed, my $fh) = $self->get_read_fh($self->inputFilePath);
 
+  say "file size is $fileSize";
+
   if($fileSize == -1) {
     if(!$compressed) {
       $self->_cleanUpFiles();
@@ -217,7 +219,7 @@ sub annotate_snpfile {
   my $allStatisticsHref = {};
 
   MCE::Loop::init {
-    max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    max_workers => 16, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
   };
 
@@ -313,9 +315,9 @@ sub logProgressAndStatistics {
       $total += $chunkSize;
       # Can exceed total because last chunk may be over-stated in size
       if($total > $fileSize) {
-        $progress = 1;
+        $progress = 100;
       } else {
-        $progress = sprintf '%0.2f', $total / $fileSize;
+        $progress = sprintf '%0.3f', ( $total / $fileSize ) * 100;
       }
 
       #say "progress is $progress";
