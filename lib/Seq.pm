@@ -78,11 +78,19 @@ my ($sampleIDsToIndexesMap, $sampleIDaref);
 # pass the true reference base to other getters, like CADD, that may want it
 my ($refTrackGetter, $trackGettersExceptReference);
 # We may want to log progress. So we'll stat the file, and chunk the input into N bytes
-my ($fileSize, $compressed, $chunkSize);
+my ($fileSize, $compressed, $chunkSize, $fh);
 
 # If we specify temp_dir, user data will be written here first, then moved to the
 # final destination
 my $tempOutPath;
+
+# use sigtrap 'handler' => \&myhand, 'normal-signals error-signals';
+
+# sub myhand {
+#   if($db) {
+#     db->cleanUp;
+#   }
+# }
 
 sub BUILDARGS {
   my ($class, $data) = @_;
@@ -148,20 +156,18 @@ sub annotate_snpfile {
   }
   
   # File size is available to logProgressAndStatistics
-  ($fileSize, $compressed, my $fh) = $self->get_read_fh($self->inputFilePath);
-
-  say "file size is $fileSize";
+  ($fileSize, $compressed, $fh) = $self->get_read_fh($self->inputFilePath);
 
   if($fileSize == -1) {
     if(!$compressed) {
       $self->_cleanUpFiles();
 
-      return $self->log('fatal', "Negative input file size detected. Check file and try again");
+      return $self->_errorWithCleanup("Negative input file size detected. Check file and try again");
     }
 
     $self->_cleanUpFiles();
 
-    return $self->log('fatal', "Negative input file size detected. You likely have more than"
+    return $self->_errorWithCleanup("Negative input file size detected. You likely have more than"
       . " one file in the archive that you uploaded");
   }
   
@@ -179,7 +185,7 @@ sub annotate_snpfile {
   } else {
     $self->_cleanUpFiles();
 
-    return $self->log('fatal', "First line of input file has illegal characters");
+    return $self->_errorWithCleanup("First line of input file has illegal characters");
   }
 
   $inputFileProcessor->checkInputFileHeader(\@firstLine);
@@ -225,21 +231,24 @@ sub annotate_snpfile {
 
   # We need to know the chunk size, and only way to do that 
   # Is to get it from within one worker, unless we use MCE::Core interface
-  my $m1 = MCE::Mutex->new;
-  tie $chunkSize, 'MCE::Shared', 0;
+  #my $m1 = MCE::Mutex->new;
+  #tie $chunkSize, 'MCE::Shared', 0;
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
-    if(!$chunkSize) {
-       $m1->synchronize( sub { $chunkSize = $mce->chunk_size(); });
-    }
+  #  if(!$chunkSize) {
+  #     $m1->synchronize( sub { $chunkSize = $mce->chunk_size(); });
+  #  }
 
     my @lines;
 
     open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
+    my $lineCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
+      $lineCount++;
+
       if ($line =~ /$taint_check_regex/) {
         chomp $line;
         my @fields = split $delimiter, $line;
@@ -256,15 +265,18 @@ sub annotate_snpfile {
         push @lines, \@fields;
       }
     }
+
     close  $MEM_FH;
 
-    if(@lines) {
+    if(@lines) { 
       # Annotate lines, write the data, and MCE->Gather any statistics
+
+      #TODO: implement better error handling
       $self->annotateLines(\@lines, $outFh);
     }
     
     # Write progress
-    MCE->gather(undef);
+    MCE->gather(undef, $lineCount);
   } $fh;
 
   ################ Finished writing file. If statistics, print those ##########
@@ -298,33 +310,43 @@ sub logProgressAndStatistics {
   my $self = shift;
   my $allStatsHref = shift;
 
-  my ($total, $progress) = (0, 0);
+  #my ($total, $progress, $error) = (0, 0, '');
+  # my $error = '';
+  my $total = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
-    #$statistics == $_[0]
+    #my ($statistics, $progress, $error) = @_;
+    ##    $_[0]         $_[1]      $_[2]
     #We have two gather calls, one for progress, one for statistics
     #If for statistics, $_[0] will have a value
 
-    if(!$_[0]) {
+    if(defined $_[2]) {
+      $self->_cleanUpFiles();
+      $db->cleanUp();
+      $self->log('fatal', $_[2]);
+    }
+
+    if(defined $_[1]) {
       if(!$hasPublisher) {
         return;
       }
 
-      $total += $chunkSize;
+      #$total += $chunkSize;
       # Can exceed total because last chunk may be over-stated in size
-      if($total > $fileSize) {
-        $progress = 100;
-      } else {
-        $progress = sprintf '%0.3f', ( $total / $fileSize ) * 100;
-      }
+      # if($total > $fileSize) {
+      #   $progress = 100;
+      # } else {
+      #   $progress = sprintf '%0.1f', ( $total / $fileSize ) * 100;
+      # }
 
       #say "progress is $progress";
       #say "total is $total";
       #say "file size is $fileSize";]
+      $total += $_[1];
 
-      $self->publishProgress($progress);
+      $self->publishProgress($total);
       return;
     }
 
@@ -355,6 +377,7 @@ sub annotateLines {
     if(!$wantedChr || $fieldsAref->[$chrFieldIdx] ne $wantedChr) {
       if(@positions) {
         # Get db data for all @positions accumulated up to this point
+        #TODO: get error code, or check for presence of data
         my $dataFromDatabaseAref = $db->dbRead($wantedChr, \@positions); 
 
         # It's possible that we were only asking for 1 record
@@ -366,6 +389,11 @@ sub annotateLines {
         # accumulate results in @output
         $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
           \@positions, \@output);
+
+        # TODO: better error handling
+        # if(!$success) {
+        #   return;
+        # }
         
         # Accumulate statistics from this @output
         if($statisticsHandler) {
@@ -409,6 +437,11 @@ sub annotateLines {
     $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
       \@positions, \@output);
 
+    # TODO: better error handling
+    # if(!$success) {
+    #   return;
+    # }
+
     undef $dataFromDatabaseAref; undef @positions; undef @inputData;
   }
 
@@ -421,6 +454,10 @@ sub annotateLines {
   MCE->print($outFh, $outputString . $outputter->makeOutputString(\@output) );
   # $outputter->indexOutput(\@output);
   undef @output;
+
+  # 0 indicates success
+  # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
+  return 0;
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -434,13 +471,14 @@ my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
 sub finishAnnotatingLines {
   my ($self, $chr, $dataFromDbAref, $inputAref, $positionsAref, $outAref) = @_;
 
-  state $refTrackName = $refTrackGetter->name;
-  # Cache $alleles
-  state $cached;
+  my $refTrackName = $refTrackGetter->name;
 
+  # Cache $alleles; even in long running process this is desirable
+  state $cached;
+  
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
-      $self->log('fatal', "$chr: $inputAref->[$i][1] not found. Wrong assembly?");
+      return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] not found. Wrong assembly?");
     }
 
     $outAref->[$i]{$refTrackName} = $refTrackGetter->get($dataFromDbAref->[$i]);
@@ -503,7 +541,8 @@ sub finishAnnotatingLines {
     }
   }
 
-  return $outAref;
+  # 0 status indicates success
+  return 0;
 }
 
 #http://www.perlmonks.org/?node_id=233023
@@ -556,18 +595,27 @@ sub _cleanUpFiles {
 
     $self->temp_dir->remove_tree;
 
+    # System returns 0 unless error
     if($result) {
-      return $self->log('fatal', "Failed to move file to final destination");
+      return $self->_errorWithCleanup("Failed to move file to final destination");
     }
 
-    # we had something to move
-    if($result == 0) {
-      $self->log("info", 'Moved outputs into final desitnation');
-    }
+    $self->log("info", 'Moved outputs into final desitnation');
   } else {
     ## TODO: TEST unlink out file and everything associated
     $self->out_file->parent->remove_tree;
   }
+}
+
+sub _errorWithCleanup {
+  my ($self, $msg) = @_;
+
+  # $self->_cleanUpFiles();
+
+  # $db->cleanUp();
+
+  MCE->gather(undef, undef, $msg);
+  #return $self->log('fatal', $msg);
 }
 __PACKAGE__->meta->make_immutable;
 

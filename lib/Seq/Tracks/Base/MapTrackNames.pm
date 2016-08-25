@@ -19,11 +19,15 @@ with 'Seq::Role::Message';
 ################### Public Exports ##########################
 # The name of the track is required
 has name => ( is => 'ro', isa => 'Str', required => 1 );
+has assembly => ( is => 'ro', isa => 'Str', required => 1 );
 
 # Unlike MapFieldNames, there is only a single name for each $self->name
 # So, we store this into a memoized name.
 has dbName => (is => 'ro', init_arg => undef, lazy => 1, builder => 'buildDbName');
 
+has db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
+  return Seq::DBManager->new();
+});
 ############## Private variables ##############
 #Unlike MapFieldNames, this class stores meta for all tracks
 #We may move MapFieldNames to a similar system if it proves more efficient
@@ -34,11 +38,6 @@ state $trackDbNamesMap = {};
 
 # Track names are stroed under a database ('table') called $self->name_$metaKey
 my $metaKey = 'name';
-state $db;
-sub BUILD {
-  # Must be instantiated during build, to make the DBManager has been configured w/ database_dir
-  $db = $db || Seq::DBManager->new;
-}
 
 ####################### Public methods ################
 #For a $self->name (track name) get a specific field database name
@@ -47,17 +46,19 @@ sub BUILD {
 #and return it
 sub buildDbName {
   my $self = shift;
-    
-  if (!exists $trackNamesMap->{$self->name} ) {
+      
+  # p $trackNamesMap;
+  
+  if (!exists $trackNamesMap->{$self->assembly}{$self->name} ) {
     $self->_fetchTrackNameMeta();
   }
 
   # If after fetching it still doesn't exist, we need to add it
-  if(!exists $trackNamesMap->{$self->name} ) {
+  if(!exists $trackNamesMap->{$self->assembly}{$self->name} ) {
     $self->_addTrackNameMeta();
   }
 
-  return $trackNamesMap->{$self->name};
+  return $trackNamesMap->{$self->assembly}{$self->name};
 }
 
 ################### Private Methods ###################
@@ -65,7 +66,7 @@ sub buildDbName {
 sub _fetchTrackNameMeta {
   my $self = shift;
 
-  my $nameNumber = $db->dbReadMeta($self->name, $metaKey) ;
+  my $nameNumber = $self->db->dbReadMeta($self->name, $metaKey) ;
 
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
@@ -73,16 +74,20 @@ sub _fetchTrackNameMeta {
     return;
   }
   
-  $trackNamesMap->{$self->name} = $nameNumber;
+  $trackNamesMap->{$self->assembly}{$self->name} = $nameNumber;
 
   #fieldNames map is name => dbName; dbNamesMap is the inverse
-  $trackDbNamesMap->{ $nameNumber } = $self->name;
+  $trackDbNamesMap->{$self->assembly}{ $nameNumber } = $self->name;
 }
 
 sub _addTrackNameMeta {
   my $self = shift;
 
-  my @trackNumbers = keys %$trackDbNamesMap;
+  if(!exists $trackDbNamesMap->{$self->assembly} ) {
+    $trackDbNamesMap->{$self->assembly} = {};
+  }
+
+  my @trackNumbers = keys %{$trackDbNamesMap->{$self->assembly} };
   
   my $nameNumber;
   if(!@trackNumbers) {
@@ -100,10 +105,10 @@ sub _addTrackNameMeta {
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
-  $db->dbPatchMeta($self->name, $metaKey, $nameNumber);
+  $self->db->dbPatchMeta($self->name, $metaKey, $nameNumber);
 
-  $trackNamesMap->{$self->name} = $nameNumber;
-  $trackDbNamesMap->{$nameNumber} = $self->name;
+  $trackNamesMap->{$self->assembly}{$self->name} = $nameNumber;
+  $trackDbNamesMap->{$self->assembly}{$nameNumber} = $self->name;
 }
 
 __PACKAGE__->meta->make_immutable;

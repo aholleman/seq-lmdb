@@ -71,9 +71,18 @@ sub countTransitionsAndTransversions {
     }
     
     my $isTrans = 0;
-    my $hasRs;
+    my $hasRs; 
 
     my $reference = $_->{$refTrack->name};
+
+    if(!$reference) {
+      say "reference is";
+      p $reference;
+      p $_;
+      p $refTrack->name;
+    }
+    
+
     my $minorAlleles = $_->{$alleleKey};
 
     # We don't include multi-allelic sites for now
@@ -331,6 +340,10 @@ sub makeRatios {
     push @allSampleRatios, $ratios{$sampleId}{"$totalKey $trTvRatioKey"};
   }
 
+  if(!@allSampleRatios) {
+    return undef;
+  }
+
   ####################### Now accumulate all undefined values ##################
 
   my @allSiteOrTxEffectTypesSeen = keys %siteTypesOrTxEffectsSeen;
@@ -364,22 +377,29 @@ sub makeRatios {
   my $mean = $self->_mean(\@allSampleRatios);
   my $standardDev = $self->_stDev(\@allSampleRatios, $mean);
 
-  my $threeSd = 3*$standardDev;
-
   $qualityControl{stats}{Mean} = $mean;
   $qualityControl{stats}{'Standard Deviation'} = $standardDev;
 
-  for my $sampleId (keys %sampleTotalTransitions) {
-    if(abs($ratios{$sampleId}{$trTvRatioKey} - $mean) > $threeSd) {
-      $qualityControl{fail}{$sampleId} = ">3SD";
+  if(defined $standardDev) {
+    my $threeSd = 3*$standardDev;
+
+    for my $sampleId (keys %sampleTotalTransitions) {
+      if(abs($ratios{$sampleId}{$trTvRatioKey} - $mean) > $threeSd) {
+        $qualityControl{fail}{$sampleId} = ">3SD";
+      }
     }
   }
+  
 
   return {ratios => \%ratios, ratiosOutputOrder => \@order, qc => \%qualityControl};
 }
 
 sub printStatistics {
   my ($self, $statsHref, $outputFilePath) = @_;
+
+  if(!$statsHref || !%$statsHref) {
+    return;
+  }
 
   my $ratiosHref = $statsHref->{ratios};
   my @outputOrder = @{ $statsHref->{ratiosOutputOrder} };
@@ -420,10 +440,10 @@ sub printStatistics {
 }
 
 #https://edwards.sdsu.edu/research/calculating-the-average-and-standard-deviation/
-sub _mean{
+sub _mean {
   my($self, $data) = @_;
   if (!@$data) {
-    $self->log('fatal', "Data required in _mean");
+    return $self->log('warn', "Data required in _mean");
   }
 
   my $total = 0;
@@ -437,6 +457,10 @@ sub _stDev{
   my($self, $data, $average) = @_;
   if(@$data == 1) {
     return 0;
+  }
+
+  if(!defined $average) {
+    return undef;
   }
 
   my $sqtotal = 0;

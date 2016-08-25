@@ -107,7 +107,9 @@ while(my $job = $beanstalk->reserve) {
     }  } );
 
     my $statistics = handleJob($jobDataHref, $job->id);
-    
+      
+    say "statistics are";
+    p $statistics;
     # Signal completion before completion actually occurs via delete
     # To be conservative; since after delete message is lost
     $beanstalkEvents->put({ priority => 0, data =>  encode_json({
@@ -171,10 +173,10 @@ sub handleJob {
     my $annotate_instance = Interface->new($inputHref);
     my $result            = $annotate_instance->annotate;
 
-    if(!defined $result) {
-      $log->error('Nothing returned from annotator');
-      die 'Error: Nothing returned from annotator';
-    }
+    # if(!defined $result) {
+    #   $log->error('Nothing returned from annotator');
+    #   die 'Error: Nothing returned from annotator';
+    # }
 
     return $result;
   } catch {

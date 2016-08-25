@@ -107,6 +107,8 @@ sub publishMessage {
     priority => 0,
     data => encode_json($messageBase),
   });
+
+  return;
 }
 
 sub publishProgress {
@@ -142,17 +144,30 @@ sub log {
     if($debug) {
       $_[0]->publishMessage( "[DEBUG] $_[2]" );
     }
+
+    # Do not publish debug messages
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 
     $_[0]->publishMessage( "[WARN] $_[2]" );
+  } elsif( $_[1] eq 'error' ) {
+    $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
+    
+    $_[0]->publishMessage( "[ERROR] $_[2]" );
+
+    if($debug) {
+      say STDERR "[ERROR] $_[2]";
+    }
+
   } elsif( $_[1] eq 'fatal' ) {
     $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
-    #$_[0]->publishMessage($_[1], $_[2]);
+
     $_[0]->publishMessage( "[FATAL] $_[2]" );
 
     die "[FATAL] $_[2]";
   }
+
+  return;
 }
 
 no Mouse::Role;

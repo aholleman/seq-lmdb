@@ -37,16 +37,16 @@ sub BUILD {
   # 2) readOnly : Whether we plan to do any writing.
   # Since we never have more than one database_dir, it's a global property we can set
   # in this package, which Seq.pm and Seq::Build extend from
-  Seq::DBManager->setDefaultDatabaseDir($self->database_dir);
+  Seq::DBManager->setGlobalDatabaseDir($self->database_dir);
 
   # Seq::Role::Message settigns
   if($self->publisher) {
     $self->setPublisher($self->publisher);
   }
 
-  # if ($self->logPath) {
-  #   $self->setLogPath($self->logPath);
-  # }
+  if ($self->logPath) {
+    $self->setLogPath($self->logPath);
+  }
 
   #todo: finisih ;for now we have only one level
   if ( $self->debug) {

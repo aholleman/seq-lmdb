@@ -44,6 +44,7 @@ has name => ( is => 'ro', isa => 'Str', required => 1);
 
 has type => ( is => 'ro', isa => 'TrackType', required => 1);
 
+has assembly => ( is => 'ro', isa => 'Str', required => 1);
 #anything with an underscore comes from the config format
 #anything config keys that can be set in YAML but that only need to be used
 #during building should be defined here
@@ -60,7 +61,8 @@ has chromosomes => (
 
 has fieldNames => (is => 'ro', init_arg => undef, default => sub {
   my $self = shift;
-  return Seq::Tracks::Base::MapFieldNames->new({name => $self->name, debug => $self->debug});
+  return Seq::Tracks::Base::MapFieldNames->new({name => $self->name,
+    assembly => $self->assembly, debug => $self->debug});
 }, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
@@ -132,7 +134,7 @@ sub BUILD {
   #Genome-wide tracks have lower indexes, so that higher indexes can be used for 
   #sparser items, because we cannot store a sparse array, must store 1 byte per field
   if($self->hasNearest) {
-    my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name . '.nearest'});
+    my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name . '.nearest', assembly => $self->assembly});
 
     $dbNameBuilder->buildDbName();
 
@@ -141,8 +143,8 @@ sub BUILD {
     $self->log('debug', "Set " . $self->name . ' nearest dbName as ' . $self->nearestDbName);
   }
 
-  my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name});
-
+  my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name, assembly => $self->assembly});
+  
   $dbNameBuilder->buildDbName();
 
   $self->_setDbName($dbNameBuilder->dbName);

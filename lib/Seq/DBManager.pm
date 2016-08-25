@@ -23,6 +23,10 @@ use Hash::Merge::Simple qw/ merge /;
 use Path::Tiny;
 use Scalar::Util qw/looks_like_number/;
 
+# We will maintain our own, internal database log for errors
+use Cwd;
+use Log::Fast;
+
 # Most common error is "MDB_NOTFOUND" which isn't nec. bad.
 $LMDB_File::die_on_err = 0;
 
@@ -38,13 +42,31 @@ has dry_run_insertions => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 # We expect the class to be used with one database directory only.
 # It's formally possible to use others as well, so we allow consumer to decide
 # By providing a way to set a singleton default
-state $databaseDir;
-has database_dir => (is => 'ro', isa => AbsPath, coerce => 1, required => 1,
-    default => sub {$databaseDir});
+my $databaseDir;
 
+# DBManager maintains its own, internal log, so that in a multi-user environment
+# DBA can keep track of key errors
+# TODO: Warning: cwd may fill up if left unchecked
+my $internalLog = Log::Fast->new({
+  path            => path( getcwd() )->child('dbManager-error.log')->stringify,
+  pid             => $$,
+});
+
+#has database_dir => (is => 'ro', isa => 'Str', required => 1, default => sub {$databaseDir});
+
+# Instance variable holding our databases; this way can be used 
+# in environment where calling process never dies
+# {
+#   database_dir => {
+#     env => $somEnv, dbi => $someDbi
+#   }
+# }
+
+has _envs => (is => 'rw', init_arg => undef, default => sub{ {} });
 
 # Can call as class method (DBManager->setDefaultDatabaseDir), or as instance method
-sub setDefaultDatabaseDir {
+sub setGlobalDatabaseDir {
+  #say "setting database dir to " . (@_ == 2 ? $_[1] : $_[0]);
   $databaseDir = @_ == 2 ? $_[1] : $_[0];
 }
 
@@ -57,8 +79,15 @@ sub setReadOnly {
 
 sub BUILD {
   my $self = shift;
-  if(!$self->database_dir->exists) { $self->database_dir->mkpath; }
-  if(!$self->database_dir->is_dir) { $self->log('fatal', 'database_dir not a directory'); }
+
+  if(!$databaseDir) {
+    $self->log('fatal', "DBManager requires databaseDir");
+  }
+
+  my $dbDir = path($databaseDir)->absolute();
+
+  if(!$dbDir->exists) { $dbDir->mkpath; }
+  if(!$dbDir->is_dir) { $self->log('fatal', 'database_dir not a directory'); }
 };
 
 # Our packing function
@@ -70,62 +99,30 @@ $mp->prefer_integer(); #treat "1" as an integer, save more space
 sub dbRead {
   #my ($self, $chr, $posAref) = @_;
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
-
-  if($LMDB_File::last_err) {
-    $_[0]->log('warn', "dbRead had LMDB error before entering func: $LMDB_File::last_err");
-
-    $LMDB_File::last_err = 0;
-  }
-
   my $db = $_[0]->_getDbi($_[1]);
 
-  # A chr may have no data associated with it.
-  # In this case, it's better not to die
-  # This should only happen when the database is put into read only mode.
   if(!$db) {
     if(!$dbReadOnly) {
-      return $_[0]->log('warn', "dbRead couldn't open db for $_[1]");
+      return $_[0]->_errorWithCleanup("Couldn't open database $_[1] in dbRead");
     }
-    
+
     return ref $_[2] ? [] : undef;
   }
 
   my $dbi = $db->{dbi};
-  
-  my $txn = _getReadOnlyTxn($db);
-    
-  if(!$txn) {
-    my $err = $LMDB_File::last_err;
-
-    # prevent shared environment from being affected
-    $LMDB_File::last_err = 0;
-
-    $_[0]->log('fatal', "dbRead couldn\'t open transaction due to $err");
-  }
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   my @out;
   my $json;
 
-  if($LMDB_File::last_err) {
-    $_[0]->log('warn', "dbRead had LMDB error before entering loop: $LMDB_File::last_err");
-
-    $LMDB_File::last_err = 0;
-  }
-  
   #will return a single value if we were passed one value
   if(!ref $_[2] ) {
     $txn->get($dbi, $_[2], $json);
-
-    # if MDB_NOTLS not set, could cause issues if we don't close
-    _closeReadOnlyTxn($txn);
+      
+    $txn->commit();
 
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
-      my $err = $LMDB_File::last_err;
-
-      # don't affect other processes
-      $LMDB_File::last_err = 0;
-
-      $_[0]->log('fatal', "dbRead LMDB error $err");
+      return $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
     }
 
     $LMDB_File::last_err = 0;
@@ -136,18 +133,10 @@ sub dbRead {
   #or an array of values, in order
   for my $pos ( @{ $_[2] } ) {
     $txn->get($dbi, $pos, $json);
-
+    
     if(!$json) {
       if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-        # if MDB_NOTLS not set, could cause issues if we don't close
-        _closeReadOnlyTxn($txn);
-
-        my $err = $LMDB_File::last_err;
-
-        # don't affect other processes
-        $LMDB_File::last_err = 0;
-
-        $_[0]->log('fatal', "dbRead LMDB error $err");
+        return $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
       }
 
       #we return exactly the # of items, and order, given to us
@@ -157,18 +146,14 @@ sub dbRead {
     }
     push @out, $mp->unpack($json);
   }
-
-  _closeReadOnlyTxn($txn);
+  
+  $txn->commit();
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    my $err = $LMDB_FILE::last_err;
-
-    # don't affect other processes
-    $LMDB_File::last_err = 0;
-
-    return $_[0]->log('fatal', "dbRead LMDB error $err");
+    return $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $LMDB_File::last_err");
   }
 
+  #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
   #will return a single value if we were passed one value
@@ -191,16 +176,10 @@ sub dbPatchHash {
   my ( $self, $chr, $pos, $dataHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   if(ref $dataHref ne 'HASH') {
-    return $self->log('fatal', "dbPatchHash requires a 1-element hash of a hash");
+    return $self->_errorWithCleanup("dbPatchHash requires a 1-element hash of a hash");
   }
 
   my $db = $self->_getDbi($chr);
-
-  # If we're trying to build and can't get, that's a fatal issue (can't inset)
-  if(!$db) {
-    return $self->log('fatal', "dbPatchHash couldn't get db for $chr");
-  }
-
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -214,7 +193,7 @@ sub dbPatchHash {
   $txn->commit();
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    $self->log('fatal', "dbPatchHash LMDB error $LMDB_File::last_err");
+    return $self->_errorWithCleanup("dbPatchHash LMDB error $LMDB_File::last_err");
   }
 
   # If deleting, and there is no existing data, nothing to do
@@ -226,11 +205,11 @@ sub dbPatchHash {
     my ($trackKey, $trackValue) = %{$dataHref};
 
     if(!defined $trackKey || ref $trackKey ) {
-      $self->log('fatal', "dbPatchHash requires scalar trackKey");
+      return $self->_errorWithCleanup("dbPatchHash requires scalar trackKey");
     }
 
     if(!defined $trackValue) {
-      $self->log('fatal', "dbPatchHash requires trackValue");
+      return $self->_errorWithCleanup("dbPatchHash requires trackValue");
     }
 
     if( defined $href->{$trackKey} ) {
@@ -256,16 +235,10 @@ sub dbPatchHash {
 
   #Else we don't modify dataHref, and it gets passed on as is to dbPut
   
-  #Treat insertion errors with utmost seriousness
-  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    my $err = $LMDB_File::last_err;
-
-    $LMDB_File::last_err = 0;
-
-    $self->log('fatal', "dbPatchHash ended with error: $err");
-  }
+  #reset the calls error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
   
-  goto &dbPut;
+  return &dbPut;
 }
   
 # Method to write multiple positions in the database, as arrays
@@ -280,12 +253,6 @@ sub dbPatchBulkArray {
   my ( $self, $chr, $posHref, $overrideOverwrite, $mergeFunc, $deleteOverride) = @_;
 
   my $db = $self->_getDbi($chr);
-
-  # If we're trying to build and can't get, that's a fatal issue (can't inset)
-  if(!$db) {
-    return $self->log('fatal', "dbPatchBulkArray couldn't get db for $chr");
-  }
-
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -298,13 +265,13 @@ sub dbPatchBulkArray {
 
   for my $pos ( @allPositions ) {
     if(ref $posHref->{$pos} ne 'HASH') {
-      return $self->log('fatal', "dbPatchBulkAsArray requires a 1-element hash of a hash");
+      return $self->_errorWithCleanup("dbPatchBulkAsArray requires a 1-element hash of a hash");
     }
 
     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
     
     if(!defined $trackIndex || ! looks_like_number($trackIndex) ) {
-      $self->log('fatal', "dbPatchBulkAsArray requies numeric trackIndex");
+      return $self->_errorWithCleanup("dbPatchBulkAsArray requies numeric trackIndex");
     }
 
     # Undefined values allowed
@@ -314,7 +281,7 @@ sub dbPatchBulkArray {
 
     #trigger this only if json isn't found, save on many if calls
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-      $self->log('fatal', "dbPatchBulk LMDB error $LMDB_File::last_err");
+      return $self->_errorWithCleanup("dbPatchBulk LMDB error $LMDB_File::last_err");
     }
 
     my $aref = defined $json ? $mp->unpack($json) : [];
@@ -331,7 +298,7 @@ sub dbPatchBulkArray {
         $posHref->{$pos} = $aref;
       } else {
         # if the position is defined, and we don't want to overwrite the data,
-        # remove this position
+        # remove this position from list of those we will put into the db
         delete $posHref->{$pos};
       }
     } elsif(!$delete) {
@@ -348,15 +315,8 @@ sub dbPatchBulkArray {
 
   $txn->abort();
 
-  #Treat insertion errors with utmost seriousness
-  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    my $err = $LMDB_File::last_err;
-
-    # don't affect other processes
-    $LMDB_File::last_err = 0;
-
-    $self->log('fatal', "dbPatchBulkArray ended with error: $err");
-  }
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
 
   return $self->dbPutBulk($chr, $posHref, \@allPositions);
 }
@@ -366,6 +326,9 @@ sub dbPut {
 
   if($self->dry_run_insertions) {
     return $self->log('info', "Received dry run request: chr:pos $chr:$pos");
+    #say "Received dry run request: chr:pos $chr:$pos";
+    #p $data;
+    #return;
   }
 
   if(!defined $pos) {
@@ -377,28 +340,17 @@ sub dbPut {
   }
 
   my $db = $self->_getDbi($chr);
-
-  # If we're trying to build and can't get, that's a fatal issue (can't inset)
-  if(!$db) {
-    return $self->log('fatal', "dbPut couldn't get db for $chr");
-  }
-
   my $txn = $db->{env}->BeginTxn();
 
   $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
 
-  $txn->commit();
-  
-  #Treat insertion errors with utmost seriousness
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
-    my $err = $LMDB_File::last_err;
-
-    # don't affect other processes
-    $LMDB_File::last_err = 0;
-
-    $self->log('fatal', "dbPut ended with error: $err");
+    return $self->_errorWithCleanup("dbPut LMDB error: $LMDB_File::last_err");
   }
 
+  $txn->commit();
+  
+  #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 }
 
@@ -407,19 +359,19 @@ sub dbPutBulk {
 
   if($self->dry_run_insertions) {
     return $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
+    #say "Received dry run request";
+    #p $posHref;
+    #return;
   }
 
   my $db = $self->_getDbi($chr);
-
-  # If we're trying to build and can't get, that's a fatal issue (can't inset)
-  if(!$db) {
-    return $self->log('fatal', "dbPutBulk couldn't get db for $chr");
-  }
-
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn();
 
-  for my $pos ( @{ $passedSortedPosAref || xsort( [keys %{$posHref}] ) } ) {
+  #Enforce putting in ascending lexical or numerical order
+  my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
+  
+  for my $pos (@$sortedPosAref) {
     # User may have passed a sortedPosAref that has more values than the 
     # $posHref, to avoid a second (large) sort
     if(!exists $posHref->{$pos}) { next; }
@@ -427,27 +379,13 @@ sub dbPutBulk {
     $txn->put($dbi, $pos, $mp->pack( $posHref->{$pos} ) );
 
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
-      my $err = $LMDB_File::last_err;
-
-      #don't affect other processes
-      $LMDB_File::last_err = 0;
-
-      return $self->log('fatal', "dbPutBulk LMDB error: $err");
+      return $self->_errorWithCleanup("dbPutBulk LMDB error: $LMDB_File::last_err");
     }
   }
 
   $txn->commit();
 
-  #Treat insertion errors with utmost seriousness
-  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
-    my $err = $LMDB_File::last_err;
-
-    # don't affect other processes
-    $LMDB_File::last_err = 0;
-
-    $self->log('fatal', "dbPutBulk ended with error: $err");
-  }
-
+  #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 }
 
@@ -456,7 +394,7 @@ sub dbGetNumberOfEntries {
   my ( $self, $chr ) = @_;
 
   #get database, but don't create it if it doesn't exist
-  my $db = $self->_getDbi($chr, 1);
+  my $db = $self->_getDbi($chr,1);
 
   return $db ? $db->{env}->stat->{entries} : 0;
 }
@@ -465,24 +403,17 @@ sub dbGetNumberOfEntries {
 sub dbReadAll {
   #my ( $self, $chr ) = @_;
   #==   $_[0]   $_[1]
-
-  if($LMDB_File::last_err) {
-    $_[0]->log('warn', "dbReadAll had LMDB error before entering func: $LMDB_File::last_err");
-
-    $LMDB_File::last_err = 0;
-  }
-
   my $db = $_[0]->_getDbi($_[1]);
 
   if(!$db) {
     if(!$dbReadOnly) {
-      return $_[0]->log('fatal', "dbRead couldn't open db for $_[1]");
+      return $_[0]->_errorWithCleanup("Couldn't open database $_[1] in dbReadAll");
     }
-    
+
     return {};
   }
 
-  my $txn = _getReadOnlyTxn($db);
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   #unfortunately if we close the transaction, cursors stop working
   #a limitation of the current API
@@ -497,8 +428,6 @@ sub dbReadAll {
   my $cursor = $DB->Cursor;
 
   my ($key, $value, %out);
-  my $i = 0;
-
   while(1) {
     $cursor->get($key, $value, MDB_NEXT);
       
@@ -506,37 +435,23 @@ sub dbReadAll {
     #we want to capture it before the next iteration 
     #hence this is not inside while( )
     if($LMDB_File::last_err == MDB_NOTFOUND) {
-      $LMDB_File::last_err = 0;
-
       last;
     }
 
     if($LMDB_FILE::last_err) {
-      # Don't cause issues if MDB_NOTLS not set
-      _closeReadOnlyTxn($txn);
-
-      my $err = $LMDB_FILE::last_err;
-
-      # don't affect other processes
-      $LMDB_FILE::last_err = 0;
-
-      return $_[0]->log('fatal', "dbReadAll LMDB error $err");
+      return $_[0]->_errorWithCleanup("dbReadAll LMDB error $LMDB_FILE::last_err");
     }
 
     $out{$key} = $mp->unpack($value);
   }
 
-  _closeReadOnlyTxn($txn);
-  
-  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
-    my $err = $LMDB_File::last_err;
+  $txn->commit();
 
-    # don't affect other processes
-    $LMDB_File::last_err = 0;
-
-    return $_[0]->log('fatal', "dbReadAll LMDB error $err");
+  if($LMDB_FILE::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    return $_[0]->_errorWithCleanup("dbReadAll LMDB error after loop: $LMDB_FILE::last_err");
   }
 
+  #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
   return \%out;
@@ -583,32 +498,32 @@ sub dbPatchMeta {
 }
 
 sub _getDbi {
-  my ($self, $name, $dontCreate) = @_;
-  #using state to make implicit singleton for the state that we want
-  #shared across all instances, without requiring exposing to public
-  #at the moment we generate a new environment for each $name
-  #because we can only have one writer per environment,
-  #across all threads
-  #and because there is some minor overhead with opening many named databases
-  state $dbis;
-
-  return $dbis->{$name} if exists $dbis->{$name};
+  # Exists and not defined, because in read only database we may discover
+  # that some chromosomes don't have any data (example: hg38 refSeq chrM)
+  if ( exists $_[0]->_envs->{$_[1]} ) {
+    return $_[0]->_envs->{$_[1]};
+  }
   
-  my $dbPath = $self->database_dir->child($name);
+  #   $_[0]  $_[1], $_[2]
+  # Don't create used by dbGetNumberOfEntries
+  my ($self, $name, $dontCreate) = @_;
+
+  # $self->log('debug', "received request to make database for $databaseDir $name");
+  
+  my $dbPath = path($databaseDir)->child($name);
 
   #create database unless dontCreate flag set
   if(!$dontCreate && !$dbReadOnly) {
-    if(!$dbPath->is_dir) {
-      $dbPath->mkpath;
+    if(!$dbPath->child($name)->is_dir) {
+      $dbPath->child($name)->mkpath;
     }
   }
 
   $dbPath = $dbPath->stringify;
 
   my $flags;
-
   if($dbReadOnly) {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOSYNC | MDB_RDONLY;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
     $flags = MDB_NOTLS | MDB_NOMETASYNC;
   }
@@ -621,20 +536,25 @@ sub _getDbi {
     #MDB_RDONLY can also be set per-transcation; it's just not mentioned 
     #in the docs
     flags => $flags,
-    #maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
+    maxdbs => 1, # Some databases; else we get a MDB_DBS_FULL error (max db limit reached)
   });
 
-  if(!$env) {
-    $self->log('warn', "Failed to open environment $name because $LMDB_File::last_err");
-    
+  if(! $env ) {
+    if(!$dbReadOnly) {
+      return $self->_errorWithCleanup("Failed to create environment $name for $databaseDir beacuse of $LMDB_File::last_err");
+    }
+
+    # If dbReadOnly, won't be able to open the database, but this isn't a problem
     $LMDB_File::last_err = 0;
-    # assignment returns the value assigned http://stackoverflow.com/questions/23491922/assignment-operator-and-returning-values-in-perl
-    return $dbis->{$name} = undef;
+
+    $self->_envs->{$name} = undef;
+
+    return $self->_envs->{$name};
   }
 
   my $txn = $env->BeginTxn();
-
-  my $DB = LMDB_File->new( $txn, $txn->open() );
+  
+  my $DB = $txn->OpenDB();
 
   # ReadMode 1 gives memory pointer for perf reasons, not safe
   $DB->ReadMode(1);
@@ -642,57 +562,63 @@ sub _getDbi {
   # Now db is open
   $txn->commit();
 
-  # Reliance on LMDB_File::last_err potentially means that in forked programs
-  # we may have cascading issues.
   if($LMDB_File::last_err) {
-    my $err = $LMDB_File::last_err;
-    
-    $LMDB_File::last_err = 0;
-    
-    return $self->log('fatal', "Failed to open database $name beacuse of $LMDB_File::last_err");
+    return $self->_errorWithCleanup("Failed to open database $name for $databaseDir beacuse of $LMDB_File::last_err");
   }
 
-  my $rdOnlyTxn;
+  $self->_envs->{$name} = {env => $env, dbi => $DB->dbi};
 
-  if($dbReadOnly) {
-    $rdOnlyTxn = $env->BeginTxn(MDB_RDONLY);
-    $rdOnlyTxn->renew();
+  #say "made database $name for " .$databaseDir;
 
-    if($LMDB_File::last_err) {
-      my $err = $LMDB_File::last_err;
-      
-      $LMDB_File::last_err = 0;
-      
-      return $self->log('fatal', "Failed to open read only transaction on $name beacuse of $LMDB_File::last_err");
+  return $self->_envs->{$name};
+}
+
+
+sub cleanUp {
+  my $self = shift;
+  
+  foreach (keys %{ $self->_envs} ) {
+    # Check defined because database may be empty (and will be stored as undef)
+    if(defined $self->_envs->{$_} ) {
+      $self->_envs->{$_}{env}->Clean();
     }
   }
 
-  $dbis->{$name} = {env => $env, dbi => $DB->dbi, rdOnlyTxn => $rdOnlyTxn};
+  # Break reference to the environment; should cause the object DESTROY method
+  # to be called; unless some bad consumer has made references to this class
+  $self->_envs({});
+}
 
+# For now, we'll throw the error, until program is changed to expect error/success
+# status from functions
+sub _errorWithCleanup {
+  my ($self, $msg) = @_;
+
+  $self->cleanUp();
+  $internalLog->ERR($msg);
+  # Reset error message, not sure if this is the best way
   $LMDB_File::last_err = 0;
-
-  return $dbis->{$name};
+  return $self->log('fatal', $msg);
 }
 
-sub _getReadOnlyTxn {
-  # my $dbis;
-  #    $_[0];
+# Get a transaction for dbRead; often we may use the database in read-only
+# mode
+sub _getDbReadTx {
+  # $self, $chr
+  # $_[0], $_[1];
+  my $env = $_[0]->_envs->{$_[1]};
+
   if($dbReadOnly) {
-    $_[0]->{rdOnlyTxn}->renew();
-    return $_[0]->{rdOnlyTxn};
+    if(defined $env->{readOnlyTx}) {
+      $env->{readOnlyTx}->renew();
+    } else {
+      $env->{readOnlyTx} = $env->BeginTxn(MDB_RDONLY);
+      # probably unnecessary
+      $env->{readOnlyTx}->reset();
+    }
+
+    return ( $env->{dbi}, $env->{readOnlyTx} );
   }
-
-  return $_[0]->{env}->BeginTxn(MDB_RDONLY);
-}
-
-sub _closeReadOnlyTxn {
-  # my $txn;
-  #    $_[0];
-  if($dbReadOnly) {
-    return $_[0]->reset();
-  }
-
-  return $_[0]->abort();
 }
 
 __PACKAGE__->meta->make_immutable;

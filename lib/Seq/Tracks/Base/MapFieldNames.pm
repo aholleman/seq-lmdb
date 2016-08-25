@@ -18,8 +18,13 @@ use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
+has assembly => (is => 'ro', isa => 'Str', required => 1);
 has name => (is => 'ro', isa => 'Str', required => 1);
 has debug => (is => 'ro', lazy => 1, default => 0);
+
+has db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
+  return Seq::DBManager->new();
+});
 
 ################ Private ##################
 # Share state across all names because the order of one track must account
@@ -36,10 +41,6 @@ state $fieldDbNamesMap;
 #in roles that extend this role, this key's default can be overloaded
 state $metaKey = 'fields';
 
-state $db;
-sub BUILD {
-  $db = $db || Seq::DBManager->new();
-}
 ############## Public #################
 #For a $self->name (track name) get a specific field database name
 #Expected to be used during database building
@@ -52,19 +53,20 @@ sub getFieldDbName {
   
   #$self = $_[0]
   #$fieldName = $_[1]
-  if (! exists $fieldNamesMap->{$_[0]->name} ) {
+
+  if (! exists $fieldNamesMap->{$_[0]->assembly}{$_[0]->name} ) {
     $_[0]->_fetchMetaFields();
   }
 
-  if(! exists $fieldNamesMap->{$_[0]->name}->{ $_[1] } ) {
+  if(! exists $fieldNamesMap->{$_[0]->assembly}{$_[0]->name}{ $_[1] } ) {
     $_[0]->addMetaField( $_[1] );
   }
   
-  if(!defined $fieldNamesMap->{$_[0]->name}->{$_[1]} ) {
+  if(!defined $fieldNamesMap->{$_[0]->assembly}{$_[0]->name}->{$_[1]} ) {
     return $_[0]->log('fatal', "getFieldDbName failed to find or make a dbName for $_[1]");
   }
 
-  return $fieldNamesMap->{$_[0]->name}->{$_[1]};
+  return $fieldNamesMap->{$_[0]->assembly}{$_[0]->name}->{$_[1]};
 }
 
 #this function returns the human readable name
@@ -76,22 +78,22 @@ sub getFieldName {
 
   #$self = $_[0]
   #$fieldNumber = $_[1]
-  if (! exists $fieldNamesMap->{ $_[0]->name } ) {
+  if (! exists $fieldNamesMap->{$_[0]->assembly}{ $_[0]->name } ) {
     $_[0]->_fetchMetaFields();
   }
 
-  if(! defined $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] } ) {
+  if(! defined $fieldDbNamesMap->{$_[0]->assembly}{ $_[0]->name }{ $_[1] } ) {
     return $_[0]->log('fatal', "getFieldName failed to find a name for $_[1]");
   }
 
-  return $fieldDbNamesMap->{ $_[0]->name }->{ $_[1] };
+  return $fieldDbNamesMap->{$_[0]->assembly}{ $_[0]->name }{ $_[1] };
 }
 
 
 sub _fetchMetaFields {
   my $self = shift;
 
-  my $dataHref = $db->dbReadMeta($self->name, $metaKey) ;
+  my $dataHref = $self->db->dbReadMeta($self->name, $metaKey) ;
 
   if ($self->debug) {
     say "Currently, _fetchMetaFields found";
@@ -101,15 +103,15 @@ sub _fetchMetaFields {
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
   if( !$dataHref ) {
-    $fieldNamesMap->{$self->name} =  {};
-    $fieldDbNamesMap->{$self->name} = {};
+    $fieldNamesMap->{$self->assembly}{$self->name} =  {};
+    $fieldDbNamesMap->{$self->assembly}{$self->name} = {};
     return;
   }
 
-  $fieldNamesMap->{$self->name} = $dataHref;
+  $fieldNamesMap->{$self->assembly}{$self->name} = $dataHref;
   #fieldNames map is name => dbName; dbNamesMap is the inverse
   for my $fieldName (keys %$dataHref) {
-    $fieldDbNamesMap->{$self->name}{ $dataHref->{$fieldName} } = $fieldName;
+    $fieldDbNamesMap->{$self->assembly}{$self->name}{ $dataHref->{$fieldName} } = $fieldName;
   }
 }
 
@@ -117,7 +119,7 @@ sub addMetaField {
   my $self = shift;
   my $fieldName = shift;
 
-  my @fieldKeys = keys %{ $fieldDbNamesMap->{$self->name} };
+  my @fieldKeys = keys %{ $fieldDbNamesMap->{$self->assembly}{$self->name} };
   
   if($self->debug) {
     say "in addMetaField, fields keys are";
@@ -142,12 +144,12 @@ sub addMetaField {
   #but I may have mistook one issue for another
   #passing 1 to overwrite existing fields
   #since the below mapping ends up relying on our new values
-  $db->dbPatchMeta($self->name, $metaKey, {
+  $self->db->dbPatchMeta($self->name, $metaKey, {
     $fieldName => $fieldNumber
   }, 1);
 
-  $fieldNamesMap->{$self->name}->{$fieldName} = $fieldNumber;
-  $fieldDbNamesMap->{$self->name}->{$fieldNumber} = $fieldName;
+  $fieldNamesMap->{$self->assembly}{$self->name}{$fieldName} = $fieldNumber;
+  $fieldDbNamesMap->{$self->assembly}{$self->name}{$fieldNumber} = $fieldName;
 }
 
 __PACKAGE__->meta->make_immutable;
