@@ -377,8 +377,8 @@ sub makeRatios {
   my $mean = $self->_mean(\@allSampleRatios);
   my $standardDev = $self->_stDev(\@allSampleRatios, $mean);
 
-  $qualityControl{stats}{Mean} = $mean;
-  $qualityControl{stats}{'Standard Deviation'} = $standardDev;
+  $qualityControl{stats}{"$transitionsKey:$transversionsKey mean"} = $mean;
+  $qualityControl{stats}{"$transitionsKey:$transversionsKey standard deviation"} = $standardDev;
 
   if(defined $standardDev) {
     my $threeSd = 3*$standardDev;

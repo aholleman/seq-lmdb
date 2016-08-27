@@ -52,20 +52,9 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 # these keys should match the corresponding fields in the web server
 # mongoose schema; TODO: at startup request file from webserver with this config
 my $jobKeys = {};
-$jobKeys->{inputFilePath}    = 'inputFilePath',
-$jobKeys->{attempts}       = 'attempts',
-$jobKeys->{outputFilePath} = 'outputFilePath',
-$jobKeys->{options}        = 'options',
-$jobKeys->{started}        = 'started',
-$jobKeys->{completed}      = 'completed',
-$jobKeys->{failed}         = 'failed',
-$jobKeys->{result}         = 'annotationSummary',
-$jobKeys->{assembly}       = 'assembly',
-$jobKeys->{comm}           = 'comm',
-$jobKeys->{clientComm}     = 'client',
-$jobKeys->{serverComm}     = 'server',
-$jobKeys->{log} = 'log';
-$jobKeys->{logException} = 'exceptions';
+$jobKeys->{inputFilePath}    = 'inputFilePath';
+$jobKeys->{outputFilePath} = 'outputFilePath';
+$jobKeys->{assembly}       = 'assembly';
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -116,7 +105,7 @@ while(my $job = $beanstalk->reserve) {
       event => 'completed',
       queueId => $job->id,
       # jobId   => $jobDataHref->{_id},
-      result  => $statistics,
+      results  => $statistics,
     }) } );
     
      say "completed job with queue id " . $job->id;

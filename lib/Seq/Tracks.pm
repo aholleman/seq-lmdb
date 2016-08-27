@@ -30,6 +30,8 @@ use DDP;
 use Mouse 2;
 with 'Seq::Role::Message';
 
+use Seq::Headers;
+
 use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
 use Seq::Tracks::Sparse;
@@ -159,6 +161,9 @@ sub BUILD {
 
   # Cache for future calls to Seq::Tracks
   my $tracks = $self->tracks;
+
+  # Clear existing headers
+  Seq::Headers::initialize();
 
   $self->_buildTrackGetters($tracks);
 

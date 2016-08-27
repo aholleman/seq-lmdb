@@ -349,6 +349,7 @@ sub _annotateIndel {
         if ( defined $oneSiteData->[ $codonNumberIdx ] && $oneSiteData->[ $codonNumberIdx ] == 1 ) {
           $middle .= "$startLoss;";
         } elsif ( defined $oneSiteData->[ $codonSequenceIdx ]
+        &&  defined $codonMap->codon2aa( $oneSiteData->[ $codonSequenceIdx ] )
         &&  $codonMap->codon2aa( $oneSiteData->[ $codonSequenceIdx ] ) eq '*' ) {
           $middle .= "$stopLoss;";
         } else {

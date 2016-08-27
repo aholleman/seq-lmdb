@@ -12,6 +12,10 @@ with 'Seq::Role::Message';
 # [ { $parent => [ $child1, $child2 ] }, $feature2, $feature3, etc ]
 state $orderedHeaderFeaturesAref = [];
 
+sub initialize {
+  $orderedHeaderFeaturesAref = [];
+}
+
 sub get {
   return $orderedHeaderFeaturesAref;
 }

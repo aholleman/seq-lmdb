@@ -77,8 +77,6 @@ my ($sampleIDsToIndexesMap, $sampleIDaref);
 # Ref track separate for others so that we can caluclate discordant bases, and 
 # pass the true reference base to other getters, like CADD, that may want it
 my ($refTrackGetter, $trackGettersExceptReference);
-# We may want to log progress. So we'll stat the file, and chunk the input into N bytes
-my ($fileSize, $compressed, $chunkSize, $fh);
 
 # If we specify temp_dir, user data will be written here first, then moved to the
 # final destination
@@ -93,7 +91,7 @@ my $tempOutPath;
 # }
 
 sub BUILDARGS {
-  my ($class, $data) = @_;
+  my ($self, $data) = @_;
 
   if($data->{temp_dir} ) {
     # It's a string, convert to path
@@ -101,7 +99,7 @@ sub BUILDARGS {
       $data->{temp_dir} = path($data->{temp_dir});
     }
 
-    $data->{temp_dir} = _makeRandomTempDir($data->{temp_dir});
+    $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
   }
 
   $data->{out_file} .= '.annotated.tab';
@@ -133,6 +131,7 @@ sub BUILD {
     }
   }
 
+  # If we're given a temp_dir, then we need to make temporary out paths and log paths
   if($self->temp_dir) {
     # Provided by Seq::Base
     my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
@@ -156,17 +155,9 @@ sub annotate_snpfile {
   }
   
   # File size is available to logProgressAndStatistics
-  ($fileSize, $compressed, $fh) = $self->get_read_fh($self->inputFilePath);
+  (my $err, undef, undef, my $fh) = $self->get_read_fh($self->inputFilePath);
 
-  if($fileSize == -1) {
-    if(!$compressed) {
-      $self->_cleanUpFiles();
-
-      return $self->_errorWithCleanup("Negative input file size detected. Check file and try again");
-    }
-
-    $self->_cleanUpFiles();
-
+  if($err) {
     return $self->_errorWithCleanup("Negative input file size detected. You likely have more than"
       . " one file in the archive that you uploaded");
   }
@@ -545,31 +536,6 @@ sub finishAnnotatingLines {
   return 0;
 }
 
-#http://www.perlmonks.org/?node_id=233023
-sub _makeRandomTempDir {
-  my ($parentDir) = @_;
-
-  srand( time() ^ ($$ + ($$ << 15)) );
-  my @v = qw ( a e i o u y );
-  my @c = qw ( b c d f g h j k l m n p q r s t v w x z );
-
-  my ($flip, $childDir) = (0,'');
-  $childDir .= ($flip++ % 2) ? $v[rand(6)] : $c[rand(20)] for 1 .. 9;
-  $childDir =~ s/(....)/$1 . int rand(10)/e;
-  $childDir = ucfirst $childDir if rand() > 0.5;
-
-  my $newDir = $parentDir->child($childDir);
-
-  # it shouldn't exist
-  if($newDir->is_dir) {
-    goto &_makeRandomTempDir;
-  }
-
-  $newDir->mkpath;
-
-  return $newDir;
-}
-
 sub _cleanUpFiles {
   my $self = shift;
   my $compressedOutPath = shift;
@@ -615,6 +581,8 @@ sub _errorWithCleanup {
   # $db->cleanUp();
 
   MCE->gather(undef, undef, $msg);
+  return;
+
   #return $self->log('fatal', $msg);
 }
 __PACKAGE__->meta->make_immutable;

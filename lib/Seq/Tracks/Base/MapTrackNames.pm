@@ -19,7 +19,6 @@ with 'Seq::Role::Message';
 ################### Public Exports ##########################
 # The name of the track is required
 has name => ( is => 'ro', isa => 'Str', required => 1 );
-has assembly => ( is => 'ro', isa => 'Str', required => 1 );
 
 # Unlike MapFieldNames, there is only a single name for each $self->name
 # So, we store this into a memoized name.
@@ -49,16 +48,16 @@ sub buildDbName {
       
   # p $trackNamesMap;
   
-  if (!exists $trackNamesMap->{$self->assembly}{$self->name} ) {
+  if (!exists $trackNamesMap->{$self->name} ) {
     $self->_fetchTrackNameMeta();
   }
 
   # If after fetching it still doesn't exist, we need to add it
-  if(!exists $trackNamesMap->{$self->assembly}{$self->name} ) {
+  if(!exists $trackNamesMap->{$self->name} ) {
     $self->_addTrackNameMeta();
   }
 
-  return $trackNamesMap->{$self->assembly}{$self->name};
+  return $trackNamesMap->{$self->name};
 }
 
 ################### Private Methods ###################
@@ -74,20 +73,20 @@ sub _fetchTrackNameMeta {
     return;
   }
   
-  $trackNamesMap->{$self->assembly}{$self->name} = $nameNumber;
+  $trackNamesMap->{$self->name} = $nameNumber;
 
   #fieldNames map is name => dbName; dbNamesMap is the inverse
-  $trackDbNamesMap->{$self->assembly}{ $nameNumber } = $self->name;
+  $trackDbNamesMap->{ $nameNumber } = $self->name;
 }
 
 sub _addTrackNameMeta {
   my $self = shift;
 
-  if(!exists $trackDbNamesMap->{$self->assembly} ) {
-    $trackDbNamesMap->{$self->assembly} = {};
+  if(!exists $trackDbNamesMap->{$self->name} ) {
+    $trackDbNamesMap->{$self->name} = {};
   }
 
-  my @trackNumbers = keys %{$trackDbNamesMap->{$self->assembly} };
+  my @trackNumbers = keys %{$trackDbNamesMap->{$self->name} };
   
   my $nameNumber;
   if(!@trackNumbers) {
@@ -107,8 +106,8 @@ sub _addTrackNameMeta {
   #but I may have mistook one issue for another
   $self->db->dbPatchMeta($self->name, $metaKey, $nameNumber);
 
-  $trackNamesMap->{$self->assembly}{$self->name} = $nameNumber;
-  $trackDbNamesMap->{$self->assembly}{$nameNumber} = $self->name;
+  $trackNamesMap->{$self->name} = $nameNumber;
+  $trackDbNamesMap->{$nameNumber} = $self->name;
 }
 
 __PACKAGE__->meta->make_immutable;
