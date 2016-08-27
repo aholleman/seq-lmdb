@@ -16,98 +16,82 @@ use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
-################### Public Exports ##########################
-# The name of the track is required
-has name => ( is => 'ro', isa => 'Str', required => 1 );
 
-# Unlike MapFieldNames, there is only a single name for each $self->name
-# So, we store this into a memoized name.
-has dbName => (is => 'ro', init_arg => undef, lazy => 1, builder => 'buildDbName');
-
-has db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
+############## Private variables ##############
+#_db shouldn't be static, because in long running environment, can lead to 
+# the wrong db config being used in a run
+has _db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
   return Seq::DBManager->new();
 });
-############## Private variables ##############
-#Unlike MapFieldNames, this class stores meta for all tracks
-#We may move MapFieldNames to a similar system if it proves more efficient
-#the hash of names => dbName map
-state $trackNamesMap = {};
-#the hash of dbNames => names
-state $trackDbNamesMap = {};
 
 # Track names are stroed under a database ('table') called $self->name_$metaKey
-my $metaKey = 'name';
+my $metaDb = 'trackNames';
 
 ####################### Public methods ################
-#For a $self->name (track name) get a specific field database name
-#Expected to be used during database building
-#If the fieldName doesn't have a corresponding database name, make one, store,
-#and return it
-sub buildDbName {
+# Look in the $trackName meta database (create if not exit), for a "name" => dbNameInt
+# pair. If none found, create one (by iterating the max found)
+# @param $trackName: Some name that we call a track name
+sub getOrMakeDbName {
   my $self = shift;
+  my $trackName = shift;
       
   # p $trackNamesMap;
-  
-  if (!exists $trackNamesMap->{$self->name} ) {
-    $self->_fetchTrackNameMeta();
-  }
-
-  # If after fetching it still doesn't exist, we need to add it
-  if(!exists $trackNamesMap->{$self->name} ) {
-    $self->_addTrackNameMeta();
-  }
-
-  return $trackNamesMap->{$self->name};
-}
-
-################### Private Methods ###################
-
-sub _fetchTrackNameMeta {
-  my $self = shift;
-
-  my $nameNumber = $self->db->dbReadMeta($self->name, $metaKey) ;
+  my $trackNumber = $self->_db->dbReadMeta($metaDb, $trackName);
 
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
-  if( !defined $nameNumber ) {
-    return;
-  }
-  
-  $trackNamesMap->{$self->name} = $nameNumber;
+  if( !defined $trackNumber ) {
+    $self->log('debug', "Creating new trackNmber for $trackName");
+    
+    $trackNumber = $self->_addTrackNameMeta($trackName);
 
-  #fieldNames map is name => dbName; dbNamesMap is the inverse
-  $trackDbNamesMap->{ $nameNumber } = $self->name;
+    $self->log('debug', "Created new max trackNumber $trackNumber");
+  }
+
+  return $trackNumber;
 }
 
+sub renameTrack {
+  my ($self, $trackName, $newTrackName) = @_;
+
+  my $trackNumber = $self->_db->dbReadMeta($metaDb, $trackName);
+
+  if(!defined $trackNumber) {
+    return $self->log('warn', "Couldn't find an existing trackNumber for track $trackName"
+      . " Therefore skipping renameTrack operation");
+  }
+
+  # pass 1 as 4th argument to signify that we're deleting
+  $self->_db->dbDeleteMeta($metaDb, $trackName);
+
+  $self->_db->dbPatchMeta($metaDb, $newTrackName, $trackNumber);
+}
+
+################### Private Methods ###################
 sub _addTrackNameMeta {
   my $self = shift;
+  my $trackName = shift;
 
-  if(!exists $trackDbNamesMap->{$self->name} ) {
-    $trackDbNamesMap->{$self->name} = {};
-  }
-
-  my @trackNumbers = keys %{$trackDbNamesMap->{$self->name} };
+  state $largetTrackNumberKey = '_largestTrackNumber';
   
-  my $nameNumber;
-  if(!@trackNumbers) {
-    $nameNumber = 0;
+  my $maxNumber = $self->_db->dbReadMeta($metaDb, $largetTrackNumberKey);
+
+  my $trackNumber;
+  if(!defined $maxNumber) {
+    $trackNumber = 0;
   } else {
-    #https://ideone.com/eX3dOh
-    $nameNumber = max(@trackNumbers) + 1;
+    $trackNumber = $maxNumber + 1;
   }
 
-  $self->log('debug', "adding a new track name to the ". $self->name ." meta database" );
-  $self->log('debug', "for " . $self->name ." we'll use a dbName of ");
-  
   #need a way of checking if the insertion actually worked
   #but that may be difficult with the currrent LMDB_File API
   #I've had very bad performance returning errors from transactions
   #which are exposed in the C api
   #but I may have mistook one issue for another
-  $self->db->dbPatchMeta($self->name, $metaKey, $nameNumber);
+  $self->_db->dbPatchMeta($metaDb, $trackName, $trackNumber);
+  $self->_db->dbPatchMeta($metaDb, $largetTrackNumberKey, $trackNumber);
 
-  $trackNamesMap->{$self->name} = $nameNumber;
-  $trackDbNamesMap->{$nameNumber} = $self->name;
+  return $trackNumber;
 }
 
 __PACKAGE__->meta->make_immutable;

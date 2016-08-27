@@ -389,6 +389,32 @@ sub dbPutBulk {
   $LMDB_File::last_err = 0;
 }
 
+sub dbDelete {
+  my ( $self, $chr, $pos) = @_;
+
+  if($self->dry_run_insertions) {
+    return $self->log('info', "Received dry run request to delete: chr:pos $chr:$pos");
+  }
+
+  if(!defined $chr || !defined $pos) {
+    return $self->log('warn', "dbDelete requires chr and position");
+  }
+
+  my $db = $self->_getDbi($chr);
+  my $txn = $db->{env}->BeginTxn();
+
+  $txn->del($db->{dbi}, $pos);
+
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
+    return $self->_errorWithCleanup("dbPut LMDB error: $LMDB_File::last_err");
+  }
+
+  $txn->commit();
+  
+  #reset the class error variable, to avoid crazy error reporting later
+  $LMDB_File::last_err = 0;
+}
+
 #TODO: check if this works
 sub dbGetNumberOfEntries {
   my ( $self, $chr ) = @_;
@@ -469,13 +495,20 @@ state $metaDbNamePart = '_meta';
 #For example, users may want to store field name mappings, how many rows inserted
 #whether building the database was a success, and more
 sub dbReadMeta {
-  my ( $self, $databaseName, $metaType ) = @_;
+  my ( $self, $databaseName, $metaKey ) = @_;
   
   #dbGet returns an array only when it's given an array
-  #so for a single "position"/key (in our case $metaType)
+  #so for a single "position"/key (in our case $metaKey)
   #only a single value should be returned (whether a hash, or something else
   # based on caller's expectations)
-  return $self->dbRead($databaseName . $metaDbNamePart, $metaType, 1);
+  return $self->dbRead($databaseName . $metaDbNamePart, $metaKey, 1);
+}
+
+sub dbDeleteMeta {
+  my ( $self, $databaseName, $metaKey ) = @_;
+  
+  #dbDelete returns nothing
+  return $self->dbDelete($databaseName . $metaDbNamePart, $metaKey);
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with
@@ -483,7 +516,7 @@ sub dbReadMeta {
  # a.k.a the top-level key in that meta database, what type of meta data this is 
 #@param <HashRef|Scalar> $data : {someField => someValue} or a scalar value
 sub dbPatchMeta {
-  my ( $self, $databaseName, $metaKey, $data ) = @_;
+  my ( $self, $databaseName, $metaKey, $data) = @_;
   
   # If the user treats this metaKey as a scalar value, overwrite whatever was there
   if(!ref $data) {

@@ -129,25 +129,18 @@ sub BUILD {
     $self->getFieldDbName($featureName);
   }
   
+  my $trackNameMapper = Seq::Tracks::Base::MapTrackNames->new();
   #Set the nearest track names first, because they may be applied genome wide
   #And if we use array format to store data (to save space) good to have
   #Genome-wide tracks have lower indexes, so that higher indexes can be used for 
   #sparser items, because we cannot store a sparse array, must store 1 byte per field
   if($self->hasNearest) {
-    my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name . '.nearest', assembly => $self->assembly});
-
-    $dbNameBuilder->buildDbName();
-
-    $self->_setNearestDbName($dbNameBuilder->dbName);
+    $self->_setNearestDbName( $trackNameMapper->getOrMakeDbName($self->nearestDbName) );
 
     $self->log('debug', "Set " . $self->name . ' nearest dbName as ' . $self->nearestDbName);
   }
 
-  my $dbNameBuilder = Seq::Tracks::Base::MapTrackNames->new({name => $self->name, assembly => $self->assembly});
-  
-  $dbNameBuilder->buildDbName();
-
-  $self->_setDbName($dbNameBuilder->dbName);
+  $self->_setDbName( $trackNameMapper->getOrMakeDbName($self->name) );
 
   $self->log('debug', "Track " . $self->name . " dbName is " . $self->dbName);
 
