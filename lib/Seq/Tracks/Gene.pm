@@ -36,7 +36,8 @@ use Seq::DBManager;
 # #exports regionTrackPath
 # with 'Seq::Tracks::Region::RegionTrackPath',
 
-state $db;
+has _db => (is => 'ro', init_arg => undef, default => sub { Seq::DBManager->new() });
+
 state $geneDef = Seq::Tracks::Gene::Definition->new();
 
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
@@ -78,31 +79,35 @@ has '+features' => (
 
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
-state $nearestSubTrackName;
-
+state $geneTrackRegionHref;
 ########################### Public attribute exports ###########################
 has txEffectsKey => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {$txEffectsKey} );
+
+# In long running environment, clear stale data
+sub initialize {
+  my $self = shift;
+
+  $allCachedDbNames->{$self->name} = {};
+  $geneTrackRegionHref->{$self->name} = {};
+}
 
 #### Add our other "features", everything we find for this site ####
 sub BUILD {
   my $self = shift;
 
-  # Must instantiate in BUILD or after, to make sure it has been configured
-  # with the database directory
-  $db = $db || Seq::DBManager->new();
+  $self->initialize();
+
   # 1 to prepend
   $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->codonSequenceKey,
     $newCodonKey, $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonPositionKey,
     $siteUnpacker->codonNumberKey, $siteUnpacker->strandKey], $self->name, 1);
 
-  $allCachedDbNames->{$self->name} = {};
-
   if($self->hasNearest) {
-    $nearestSubTrackName = $self->nearestTrackName;
+    my $nTrackPrefix = $self->nearestTrackName;
 
-    $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $self->nearestDbName;
+    $allCachedDbNames->{$self->name}{$nTrackPrefix} = $self->nearestDbName;
   
-    $self->addFeaturesToHeader( [ map { "$nearestSubTrackName.$_" } $self->allNearestFeatureNames ], $self->name);
+    $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
 
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
@@ -142,7 +147,7 @@ sub get {
   ################# Cache track's region data ##############
   state $geneTrackRegionHref = {};
   if(!defined $geneTrackRegionHref->{$self->name}{$chr} ) {
-    $geneTrackRegionHref->{$self->name}{$chr} = $db->dbReadAll( $self->regionTrackPath($chr) );
+    $geneTrackRegionHref->{$self->name}{$chr} = $self->_db->dbReadAll( $self->regionTrackPath($chr) );
   }
   
   ####### Get all transcript numbers, and site data for this position #########
@@ -158,15 +163,16 @@ sub get {
 
   # ################# Populate nearestGeneSubTrackName ##############
   if($self->hasNearest) {
+    my $nTrackPrefix = $self->nearestTrackName;
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
-    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$nearestSubTrackName}];
+    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$nTrackPrefix}];
 
     if($nearestGeneNumber) {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
           for my $nFeature ($self->allNearestFeatureNames) {
-            push @{ $out{"$nearestSubTrackName.$nFeature"} },
+            push @{ $out{"$nTrackPrefix.$nFeature"} },
               $geneTrackRegionHref->{$self->name}{$chr}{$geneRef}{ $cachedDbNames->{$nFeature} };
           }
       }
@@ -319,13 +325,13 @@ sub _annotateIndel {
 
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
-    $dbDataAref = $db->dbRead( $chr, [ $dbPosition + 1 ] );
+    $dbDataAref = $self->_db->dbRead( $chr, [ $dbPosition + 1 ] );
   } elsif($type eq '-') {
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
     #get everything including the current dbPosition, in order to simplify code
     #small perf hit because few indels
-    $dbDataAref = $db->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
+    $dbDataAref = $self->_db->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
   } else {
     $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
       as valid indel (must start with - or +)");
