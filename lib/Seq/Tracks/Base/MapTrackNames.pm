@@ -16,12 +16,14 @@ use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
+has dry_run_insertions => (is => 'ro', default => 0);
 
 ############## Private variables ##############
 #_db shouldn't be static, because in long running environment, can lead to 
 # the wrong db config being used in a run
 has _db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
-  return Seq::DBManager->new();
+  my $self = shift;
+  return Seq::DBManager->new({dry_run_insertions => $self->dry_run_insertions});
 });
 
 # Track names are stroed under a database ('table') called $self->name_$metaKey
@@ -57,14 +59,18 @@ sub renameTrack {
   my $trackNumber = $self->_db->dbReadMeta($metaDb, $trackName);
 
   if(!defined $trackNumber) {
-    return $self->log('warn', "Couldn't find an existing trackNumber for track $trackName"
-      . " Therefore skipping renameTrack operation");
+    $self->log('warn', "trackName not found in tracknames meta database, skipping rename");
+    return "trackName not found in tracknames meta database";
   }
 
+  # TODO: handle errors from dbManager
   # pass 1 as 4th argument to signify that we're deleting
   $self->_db->dbDeleteMeta($metaDb, $trackName);
 
   $self->_db->dbPatchMeta($metaDb, $newTrackName, $trackNumber);
+
+  # 0 indicates success
+  return 0;
 }
 
 ################### Private Methods ###################

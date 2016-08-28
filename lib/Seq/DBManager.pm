@@ -188,6 +188,9 @@ sub dbPatchHash {
   }
 
   my $db = $self->_getDbi($chr);
+
+  say "getting data for $chr";
+  
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
@@ -505,7 +508,9 @@ sub dbDelete {
   my $db = $self->_getDbi($chr);
   my $txn = $db->{env}->BeginTxn();
 
-  $txn->del($db->{dbi}, $pos);
+  # Error with LMDB_File api, means $data is required as 3rd argument,
+  # even if it is undef
+  $txn->del($db->{dbi}, $pos, undef);
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $self->_errorWithCleanup("dbDelete LMDB error: $LMDB_File::last_err");
@@ -604,9 +609,9 @@ sub _getDbi {
 
   my $flags;
   if($dbReadOnly) {
-    $flags = MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOMETASYNC;
+    $flags = MDB_NOTLS | MDB_NOMETASYNC;
   }
 
   my $env = LMDB::Env->new($dbPath, {

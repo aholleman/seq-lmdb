@@ -19,7 +19,7 @@ use Path::Tiny qw/path/;
 my $localtime = join("_", split(" ", localtime) );
 
 ############## Arguments accepted #############
-# The track name that they want to split
+# The track name that they want to use
 has name => (is => 'ro', isa => 'Str', required => 1);
 
 # The YAML config file path
@@ -32,18 +32,21 @@ has logPath => ( is => 'ro', lazy => 1, default => sub {
 });
 
 # Debug log level?
-has debug => (is => 'ro', isa => 'Bool', lazy => 1, default => 0);
+has debug => (is => 'ro');
 
 # Compress the output?
-has compress => (is => 'ro', isa => 'Bool', lazy => 1,default => 0);
+has compress => (is => 'ro');
 
 # Overwrite files if they exist?
-has overwrite => (is => 'ro', isa => 'Bool', lazy => 1,default => 0);
+has overwrite => (is => 'ro');
 
-has publisherMessageBase => (is => 'ro', lazy => 1, default => undef);
-has publisherAddress => (is => 'ro', lazy => 1, default => undef);
+has publisher => (is => 'ro');
+
+has verbose => (is => 'ro');
 
 #########'Protected' vars (Meant to be used by child class only) ############ 
+has _wantedTrack => ( is => 'ro', init_arg => undef, writer => '_setWantedTrack' );
+
 has _decodedConfig => ( is => 'ro', isa => 'HashRef', lazy => 1, default => sub {
   my $self = shift; return LoadFile($self->configPath);
 });
@@ -60,12 +63,6 @@ has _localFilesDir => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
   return $dir->stringify;
 });
 
-has _wantedTrack => ( is => 'ro', isa => 'HashRef', lazy => 1, default => sub{
-  my $self = shift;
-  my $trackIndex = first_index {$_->{name} eq $self->name} @{$self->_decodedConfig->{tracks}};
-  return $self->_decodedConfig->{tracks}[$trackIndex];
-});
-
 has _newConfigPath => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
   my $self = shift;
 
@@ -76,15 +73,44 @@ has _newConfigPath => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
 sub BUILD {
   my $self = shift;
 
-  if($self->publisherMessageBase && $self->publisherAddress) {
-    $self->setPublisher($self->publisherMessageBase, $self->publisherAddress);
+  # If in long-running process, clear singleton state
+  Seq::Role::Message::initialize();
+
+  # Seq::Role::Message settings
+  # We manually set the publisher, logPath, verbosity, and debug, because
+  # Seq::Role::Message is meant to be consumed globally, but configured once
+  # Treating publisher, logPath, verbose, debug as instance variables
+  # would result in having to configure this class in every consuming class
+  if($self->publisher) {
+    $self->setPublisher($self->publisher);
   }
 
-  $self->setLogPath($self->logPath);
+  if ($self->logPath) {
+    $self->setLogPath($self->logPath);
+  }
+
+  if($self->verbose) {
+    $self->setVerbosity($self->verbose);
+  }
 
   #todo: finisih ;for now we have only one level
-  if ( $self->debug) { $self->setLogLevel('DEBUG'); } 
-  else { $self->setLogLevel('INFO'); }
+  if ( $self->debug) {
+    $self->setLogLevel('DEBUG');
+  } else {
+    $self->setLogLevel('INFO');
+  }
+
+  # Must happen here, because we need to account for the case where track isn't found
+  # And you cannot throw an error from within a default, and I think it is
+  # More clear to throw a fatal error from the BUILD method than a builder=> method
+  my $trackIndex = first_index { $_->{name} eq $self->name } @{ $self->_decodedConfig->{tracks} };
+  
+  if($trackIndex == -1) {
+    $self->log('fatal', "Desired track " . $self->name . " wasn't found");
+    return;
+  }
+
+  $self->_setWantedTrack( $self->_decodedConfig->{tracks}[$trackIndex] );
 }
 
 sub _backupAndWriteConfig {

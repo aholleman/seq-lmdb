@@ -14,15 +14,17 @@ use Utils::SplitCadd;
 use Utils::Fetch;
 use Utils::LiftOverCadd;
 use Utils::SortCadd;
+use Utils::RenameTrack;
 
 use DDP;
 
 use Seq::Build;
 
 my (
-  $yaml_config, $wantedName, $sort,
+  $yaml_config, $wantedName, $sort, $renameTrack,
   $help,        $liftOver, $liftOver_path, $liftOver_chain_path, 
-  $debug,       $overwrite, $fetch, $split, $compress, $toBed
+  $debug,       $overwrite, $fetch, $split, $compress, $toBed,
+  $renameTrackTo, $verbose, $dryRunInsertions,
 );
 
 # usage
@@ -35,14 +37,19 @@ GetOptions(
   'fetch' => \$fetch,
   'splitCadd' => \$split,
   'sortCadd'  => \$sort,
+  'renameTrack'  => \$renameTrack,
   'liftOver_cadd' => \$liftOver,
   'compress' => \$compress,
   'to_bed'   => \$toBed,
   'liftOver_path=s' => \$liftOver_path,
   'liftOver_chain_path=s' => \$liftOver_chain_path,
+  'rename_track_to=s' => \$renameTrackTo,
+  'verbose' => \$verbose,
+  'dry_run_insertions' => \$dryRunInsertions,
 );
 
-if ( (!$fetch && !$split && !$liftOver && !$sort) || $help) {
+if ( (!$fetch && !$split && !$liftOver && !$sort && !$renameTrack) || $help) {
+  say $renameTrack;
   Pod::Usage::pod2usage(1);
   exit;
 }
@@ -61,6 +68,9 @@ my %options = (
   overwrite    => $overwrite || 0,
   liftOver_path => $liftOver_path || '',
   liftOver_chain_path => $liftOver_chain_path || '',
+  rename_track_to => $renameTrackTo,
+  verbose => $verbose,
+  dry_run_insertions => $dryRunInsertions,
 );
 
 # If user wants to split their local files, needs to happen before we build
@@ -85,6 +95,12 @@ if($sort) {
   $sorter->sort();
 }
 
+if($renameTrack) {
+  say "renaming";
+  my $renamer = Utils::RenameTrack->new(\%options);
+  $renamer->go();
+}
+
 #say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
 
 
@@ -99,7 +115,7 @@ run_utils - Runs items in lib/Utils
 run_utils
   --config <file>
   --compress
-  --track_name
+  --name
   [--debug]
 
 =head1 DESCRIPTION
@@ -120,9 +136,9 @@ Config: A YAML genome assembly configuration file that specifies the various
 tracks and data associated with the assembly. This is the same file that is
 used by the Seq Package to annotate snpfiles.
 
-=item B<-w>, B<--track_name>
+=item B<-w>, B<--name>
 
-track_name: The name of the track in the YAML config file
+name: The name of the track in the YAML config file
 
 =back
 
