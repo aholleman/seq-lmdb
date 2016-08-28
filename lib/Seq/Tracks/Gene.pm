@@ -59,8 +59,8 @@ state $replacement = 'nonSynonymous';
 state $frameshift = 'frameshift';
 state $inFrame = 'nonFrameshift';
 state $startLoss = 'startLoss';
-state $stopLoss = 'stopGain';
-state $stopGain = 'stopLoss';
+state $stopLoss = 'stopLoss';
+state $stopGain = 'stopGain';
 state $truncated = 'truncatedCodon';
 
 state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
@@ -98,7 +98,7 @@ sub BUILD {
   $allCachedDbNames->{$self->name} = {};
 
   if($self->hasNearest) {
-    $nearestSubTrackName = $self->nearesTrackName;
+    $nearestSubTrackName = $self->nearestTrackName;
 
     $allCachedDbNames->{$self->name}{$nearestSubTrackName} = $self->nearestDbName;
   

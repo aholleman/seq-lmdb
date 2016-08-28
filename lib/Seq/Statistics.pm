@@ -424,8 +424,9 @@ sub printStatistics {
   ###################### Print Quality Contorl Information #####################
   $fh = $self->get_write_fh($outputFilePath . $qcExt);
 
-  say $fh "#Mean\t$qcHref->{stats}{Mean}\n".
-          "#SD\t$qcHref->{stats}{'Standard Deviation'}";
+  foreach ( keys %{$qcHref->{stats} } ) {
+    say $fh "$_\t$qcHref->{stats}{$_}";
+  }
 
   close $fh;
 

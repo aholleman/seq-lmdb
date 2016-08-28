@@ -43,6 +43,7 @@ has wantedName => (
 # Tracks configuration hash
 has tracks => (is => 'ro', required => 1);
 
+has meta_only => (is => 'ro', default => 0);
 #Figures out what track type was asked for 
 #and then builds that track by calling the tracks 
 #"buildTrack" method
@@ -50,6 +51,12 @@ sub BUILD {
   my $self = shift;
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks});
+
+  # Meta tracks are built during instantiation, so if we only want to build the
+  # meta data, we can return here safely.
+  if($self->meta_only) {
+    return;
+  }
 
   my @builders;
   if($self->wantedType) {

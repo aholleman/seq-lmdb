@@ -17,12 +17,11 @@ use Mouse::Role 2;
 
 use Log::Fast;
 use namespace::autoclean;
-#with 'MooX::Role::Logger';
 use Beanstalk::Client;
 use Cpanel::JSON::XS;
 use DDP return_value => 'dump';
+use Carp qw/croak/;
 
-$Seq::Role::Message::LOG = Log::Fast->global();
 $Seq::Role::Message::LOG = Log::Fast->new({
   level           => 'WARN',
   prefix          =>  '%D %T ',
@@ -43,7 +42,19 @@ $Seq::Role::Message::mapLevels = {
   NOTICE => 'NOTICE',
 };
 
+# Static variables; these need to be cleared by the consuming class
 state $debug = 0;
+state $verbose = 0;
+state $publisher;
+state $messageBase;
+
+sub initialize {
+  $debug = 0;
+  $verbose = 0;
+  $publisher = undef;
+  $messageBase = undef;
+}
+
 sub setLogPath {
   my ($self, $path) = @_;
   #open($Seq::Role::Message::Fh, '<', $path);
@@ -66,8 +77,12 @@ sub setLogLevel {
   $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
 }
 
-my $publisher;
-my $messageBase;
+sub setVerbosity {
+  my ($self, $verboseLevel) = @_;
+  
+  $verbose = !!$verboseLevel;
+}
+
 has hasPublisher => (is => 'ro', init_arg => undef, writer => '_setPublisher', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
 
 sub setPublisher {
@@ -141,11 +156,10 @@ sub log {
   } elsif( $_[1] eq 'debug') {
     $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
 
+    # do not publish debug messages by default
     if($debug) {
       $_[0]->publishMessage( "[DEBUG] $_[2]" );
     }
-
-    # Do not publish debug messages
   } elsif( $_[1] eq 'warn' ) {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 
@@ -155,16 +169,16 @@ sub log {
     
     $_[0]->publishMessage( "[ERROR] $_[2]" );
 
-    if($debug) {
-      say STDERR "[ERROR] $_[2]";
-    }
-
   } elsif( $_[1] eq 'fatal' ) {
     $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
 
     $_[0]->publishMessage( "[FATAL] $_[2]" );
 
-    die "[FATAL] $_[2]";
+    croak("[FATAL] $_[2]");
+  }
+
+  if($verbose) {
+    say $_[2];
   }
 
   return;

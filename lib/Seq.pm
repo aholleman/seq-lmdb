@@ -24,6 +24,7 @@ use Seq::Tracks;
 use Seq::Statistics;
 use Seq::DBManager;
 use Path::Tiny;
+use Carp qw/croak/;
 
 extends 'Seq::Base';
 
@@ -82,14 +83,6 @@ my ($refTrackGetter, $trackGettersExceptReference);
 # final destination
 my $tempOutPath;
 
-# use sigtrap 'handler' => \&myhand, 'normal-signals error-signals';
-
-# sub myhand {
-#   if($db) {
-#     db->cleanUp;
-#   }
-# }
-
 sub BUILDARGS {
   my ($self, $data) = @_;
 
@@ -140,7 +133,15 @@ sub BUILD {
 
     $self->setLogPath($logPath);
 
-    $tempOutPath = $self->temp_dir->child( $self->out_file->basename );
+    $tempOutPath = $self->temp_dir->child( $self->out_file->basename )->stringify;
+  }
+
+  local $SIG{__WARN__} = sub {
+    my $message = shift;
+
+    $self->_cleanUpFiles();
+
+    croak($message);
   }
 }
 
@@ -277,22 +278,14 @@ sub annotate_snpfile {
     $self->log('info', "Gathering and printing statistics");
 
     $ratiosAndQcHref = $statisticsHandler->makeRatios($allStatisticsHref);
+
     $statisticsHandler->printStatistics($ratiosAndQcHref, $tempOutPath || $self->outputFilePath);
   }
 
   ################ Compress if wanted ##########
-  my $compressedOutPath;
-  
-  if($self->compress) {
-    $self->log('info', "Compressing output");
-    $compressedOutPath = $self->compressPath( $tempOutPath || $self->out_file);
-  }
-
-  $self->log('info', 'Deleting input file');
-
   close $fh;
   
-  $self->_cleanUpFiles($compressedOutPath);
+  $self->_cleanUpFiles();
 
   return $ratiosAndQcHref;
 }
@@ -538,7 +531,13 @@ sub finishAnnotatingLines {
 
 sub _cleanUpFiles {
   my $self = shift;
-  my $compressedOutPath = shift;
+
+  my $compressedOutPath;
+
+  if($self->compress) {
+    $self->log('info', "Compressing output");
+    $compressedOutPath = $self->compressPath( $tempOutPath || $self->out_file);
+  }
 
   my $finalDestination;
 
@@ -573,6 +572,9 @@ sub _cleanUpFiles {
   }
 }
 
+# This function is expected to run within a fork, so itself it doesn't clean up 
+# files
+# TODO: better error handling
 sub _errorWithCleanup {
   my ($self, $msg) = @_;
 

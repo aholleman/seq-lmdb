@@ -19,7 +19,7 @@ use Seq::Build;
 
 my (
   $yaml_config, $wantedType,        $wantedName,        $verbose, $maxThreads,
-  $help,        $wantedChr,        $dryRunInsertions,   $logDir,
+  $help,        $wantedChr,        $dryRunInsertions,   $logDir,  $metaOnly,
   $debug,       $overwrite,  $delete, $regionTrackOnly, $skipCompletionCheck
 );
 
@@ -40,6 +40,7 @@ GetOptions(
   'dry_run_insertions|dry' => \$dryRunInsertions,
   'log_dir=s' => \$logDir,
   'max_threads=i' => \$maxThreads,
+  'meta_only' => \$metaOnly,
 );
 
 if ($help) {
@@ -76,10 +77,12 @@ my $builder_options_href = {
   overwrite    => $overwrite || 0,
   debug        => $debug || 0,
   logPath      => $logPath,
-  delete       => $delete || 0,
-  build_region_track_only => $regionTrackOnly || 0,
-  skip_completion_check => $skipCompletionCheck || 0,
-  dry_run_insertions => $dryRunInsertions || 0
+  delete       => !!$delete,
+  build_region_track_only => !!$regionTrackOnly,
+  skip_completion_check => !!$skipCompletionCheck,
+  dry_run_insertions => !!$dryRunInsertions,
+  meta_only => !!$metaOnly,
+  verbose => !!$verbose,
 };
 
 if(defined $maxThreads) {

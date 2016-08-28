@@ -30,7 +30,7 @@ has dbName => ( is => 'ro', init_arg => undef, writer => '_setDbName');
 
 # Some tracks may have a nearest property; these are stored as their own track, but
 # conceptually are a sub-track, 
-has nearesTrackName => ( is => 'ro', isa => 'Str', init_arg => undef, default => 'nearest');
+has nearestTrackName => ( is => 'ro', isa => 'Str', init_arg => undef, default => 'nearest');
 
 has nearestDbName => ( is => 'ro', isa => 'Str', init_arg => undef, writer => '_setNearestDbName');
 
@@ -135,15 +135,17 @@ sub BUILD {
   #Genome-wide tracks have lower indexes, so that higher indexes can be used for 
   #sparser items, because we cannot store a sparse array, must store 1 byte per field
   if($self->hasNearest) {
-    $self->_setNearestDbName( $trackNameMapper->getOrMakeDbName($self->nearestDbName) );
+    my $nearestFullQualifiedTrackName = $self->name . '.' . $self->nearestTrackName;
 
-    $self->log('debug', "Set " . $self->name . ' nearest dbName as ' . $self->nearestDbName);
+    $self->_setNearestDbName( $trackNameMapper->getOrMakeDbName($nearestFullQualifiedTrackName) );
+
+    $self->log('debug', "Track " . $self->name . ' nearest dbName is ' . $self->nearestDbName);
   }
 
   $self->_setDbName( $trackNameMapper->getOrMakeDbName($self->name) );
 
   $self->log('debug', "Track " . $self->name . " dbName is " . $self->dbName);
-
+  
   if(defined $self->join ) {
     if(!defined $self->join->{track}) {
       $self->log('fatal', "'join' requires track key");

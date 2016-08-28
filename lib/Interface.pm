@@ -58,7 +58,7 @@ has snpfile => (
   documentation => qq{Input file path.},
 );
 
-has out_file => (
+has out => (
   is          => 'ro',
   isa         => 'AbsPath',
   coerce      => 1,
@@ -66,17 +66,17 @@ has out_file => (
   handles => {
     output_path => 'stringify',
   },
+  cmd_aliases   => [qw/o out_file/],
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/out output/],
   documentation => qq{Where you want your output.},
 );
 
-has temp_dir => (
+has temp => (
   is          => 'ro',
   isa         => 'AbsDir',
   coerce      => 1,
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/out output/],
+  cmd_aliases   => [qw/t temp_dir/],
   documentation => qq{Where you want to temporarily store your output},
 );
 
@@ -201,11 +201,11 @@ sub _buildAnnotator {
     overwrite => $self->overwrite,
     logPath => $self->logPath,
     publisher => $self->publisher,
-    compress => $self->compress
+    compress => $self->compress,
   };
   
-  if($self->temp_dir) {
-    $args->{temp_dir} = $self->temp_dir;
+  if($self->temp) {
+    $args->{temp_dir} = $self->temp;
   }
 
   return Seq->new_with_config($args);
