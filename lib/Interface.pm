@@ -58,7 +58,7 @@ has snpfile => (
   documentation => qq{Input file path.},
 );
 
-has out => (
+has out_file => (
   is          => 'ro',
   isa         => 'AbsPath',
   coerce      => 1,
@@ -66,7 +66,7 @@ has out => (
   handles => {
     output_path => 'stringify',
   },
-  cmd_aliases   => [qw/o out_file/],
+  cmd_aliases   => [qw/o out out_file/],
   metaclass => 'Getopt',
   documentation => qq{Where you want your output.},
 );
