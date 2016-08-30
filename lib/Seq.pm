@@ -43,6 +43,8 @@ has tracks => (is => 'ro', required => 1);
 # The statistics package config options
 has statistics => (is => 'ro');
 
+has run_statistics => (is => 'ro', isa => 'Bool');
+
 # Do we want to compress?
 has compress => (is => 'ro');
 
@@ -140,7 +142,8 @@ sub BUILD {
 sub annotate_snpfile {
   my $self = shift; $self->log( 'info', 'Beginning annotation' );
   
-  if($self->statistics) {
+  say "has statistics? " . $self->run_statistics;
+  if($self->run_statistics) {
     $statisticsHandler = Seq::Statistics->new( { %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
       minorAllelesKey => $minorAllelesKey,

@@ -211,6 +211,7 @@ sub coerceInputs {
     },
     compress => 1,
     verbose => $verbose,
+    run_statistics => 1,
   };
 }
 

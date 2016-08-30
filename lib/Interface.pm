@@ -126,6 +126,15 @@ has compress => (
   default => 0,
 );
 
+has run_statistics => (
+  is => 'ro', 
+  isa => 'Bool',
+  metaclass   => 'Getopt',
+  documentation =>
+    qq{Create per-sample feature statistics (like transition:transversions)?},
+  default => 0,
+);
+
 
 subtype HashRefJson => as 'HashRef'; #subtype 'HashRefJson', as 'HashRef', where { ref $_ eq 'HASH' };
 coerce HashRefJson => from 'Str' => via { from_json $_ };
@@ -210,6 +219,7 @@ sub _buildAnnotator {
     publisher => $self->publisher,
     compress => $self->compress,
     verbose => $self->verbose,
+    run_statistics => $self->run_statistics,
   };
   
   if($self->temp) {
