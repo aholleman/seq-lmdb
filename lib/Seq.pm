@@ -142,7 +142,6 @@ sub BUILD {
 sub annotate_snpfile {
   my $self = shift; $self->log( 'info', 'Beginning annotation' );
   
-  say "has statistics? " . $self->run_statistics;
   if($self->run_statistics) {
     $statisticsHandler = Seq::Statistics->new( { %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
@@ -222,13 +221,17 @@ sub annotate_snpfile {
   my $m1 = MCE::Mutex->new;
   tie my $loopErr, 'MCE::Shared', '';
 
-  # local $SIG{__WARN__} = sub {
-  #   my $message = shift;
+  local $SIG{INT} = sub {
+    my $message = shift;
 
-  #   $self->_cleanUpFiles();
+    MCE->abort();
 
-  #   # MCE::Loop::finish;
-  # }
+    # Clean up temp dir; could also move the file; but if sending sig int
+    # I think the intention is to cancel
+    $self->temp_dir->remove_tree;
+
+    exit;
+  };
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
@@ -541,7 +544,6 @@ sub _cleanUpFiles {
   my $compressedOutPath;
 
   if($self->compress) {
-    $self->log('info', "Compressing output");
     $compressedOutPath = $self->compressPath( $tempOutPath || $self->out_file);
   }
 
@@ -556,22 +558,27 @@ sub _cleanUpFiles {
 
       my $source = $self->temp_dir->child($compressedFileName);
       
-      $finalDestination = $self->out_file->parent->child($compressedFileName );
+      if(-e $compressedFileName && -e $source) {
+        $finalDestination = $self->out_file->parent->child($compressedFileName );
 
-      $result = system("mv $source $finalDestination");
+        $result = system("mv $source $finalDestination");
+      }
+      
     } else {
       $finalDestination = $self->out_file->parent;
-      $result = system("mv " . $self->tempPath . "/* $finalDestination");
+      if(-e $self->tempPath) {
+        $result = system("mv " . $self->tempPath . "/* $finalDestination");
+      }
     }
 
     $self->temp_dir->remove_tree;
-
+    
     # System returns 0 unless error
     if($result) {
       return $self->_errorWithCleanup("Failed to move file to final destination");
     }
 
-    $self->log("info", 'Moved outputs into final desitnation');
+    $self->log("info", 'Moved outputs into final destination');
   } else {
     ## TODO: TEST unlink out file and everything associated
     $self->out_file->parent->remove_tree;

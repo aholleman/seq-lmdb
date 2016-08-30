@@ -83,10 +83,11 @@ while(my $job = $beanstalk->reserve) {
   # Also using forks helps clean up leaked memory from LMDB_File
   # Unfortunately, parallel fork manager doesn't play nicely with try tiny
   # prevents anything within the try from executing
+  
   my $jobDataHref;
-    
+  my ($err, $statistics);
+
   try {
-    say "in try";
     $jobDataHref = decode_json( $job->data );
   
     $beanstalkEvents->put({ priority => 0, data => encode_json{
@@ -95,56 +96,41 @@ while(my $job = $beanstalk->reserve) {
       queueId => $job->id,
     }  } );
 
-    my ($err, $statistics) = handleJob($jobDataHref, $job->id);
-    
-    say "received statistics from handle jobs";
-    p $statistics;
-    p $err;
-    if($err) {
-      say "job ". $job->id . " failed due to found error, which is $err";
-      
-      $beanstalkEvents->put( { priority => 0, data => encode_json({
-        event => 'failed',
-        reason => $err,
-        queueId => $job->id,
-      }) } );
-
-      $job->bury;
-
-      next;
-    }
-
-    say "statistics are";
-    p $statistics;
-    # Signal completion before completion actually occurs via delete
-    # To be conservative; since after delete message is lost
-    $beanstalkEvents->put({ priority => 0, data =>  encode_json({
-      event => 'completed',
-      queueId => $job->id,
-      # jobId   => $jobDataHref->{_id},
-      results  => $statistics,
-    }) } );
-    
-     say "completed job with queue id " . $job->id;
-
-    $beanstalk->delete($job->id);
+    ($err, $statistics) = handleJob($jobDataHref, $job->id);
   
   } catch {
     say "job ". $job->id . " failed due to $_";
       
     # Don't store the stack
-    my $reason = $_; #substr($_, 0, index($_, 'at'));
+    $err = $_; #substr($_, 0, index($_, 'at'));
+  };
 
-    # Signal before bury, because we always want to record that the job failed
-    # even if burying fails
+  if ($err) { 
+    say "job ". $job->id . " failed due to found error, which is $err";
+    
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => 'failed',
-      reason => $reason,
+      reason => $err,
       queueId => $job->id,
     }) } );
 
-    $job->bury;
-  } 
+    $job->bury; 
+
+    next;
+  }
+
+  # Signal completion before completion actually occurs via delete
+  # To be conservative; since after delete message is lost
+  $beanstalkEvents->put({ priority => 0, data =>  encode_json({
+    event => 'completed',
+    queueId => $job->id,
+    # jobId   => $jobDataHref->{_id},
+    results  => $statistics,
+  }) } );
+  
+  say "completed job with queue id " . $job->id;
+
+  $beanstalk->delete($job->id);
 }
  
 sub handleJob {
