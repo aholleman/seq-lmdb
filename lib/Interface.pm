@@ -109,6 +109,13 @@ has debug => (
   metaclass   => 'Getopt',
  );
 
+has verbose => (
+  is          => 'ro',
+  isa         => 'Bool',
+  default     => 0,
+  required    => 0,
+  metaclass   => 'Getopt',
+ );
 
 has compress => (
   is => 'ro', 
@@ -202,6 +209,7 @@ sub _buildAnnotator {
     logPath => $self->logPath,
     publisher => $self->publisher,
     compress => $self->compress,
+    verbose => $self->verbose,
   };
   
   if($self->temp) {

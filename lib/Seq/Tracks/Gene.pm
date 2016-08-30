@@ -80,6 +80,8 @@ has '+features' => (
 ### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
 state $allCachedDbNames;
 state $geneTrackRegionHref;
+state $allNearestFieldNames;
+state $allJoinFieldNames;
 ########################### Public attribute exports ###########################
 has txEffectsKey => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {$txEffectsKey} );
 
@@ -88,6 +90,8 @@ sub initialize {
   my $self = shift;
 
   $allCachedDbNames->{$self->name} = {};
+  $allNearestFieldNames->{$self->name} = {};
+  $allJoinFieldNames->{$self->name} = {};
   $geneTrackRegionHref->{$self->name} = {};
 }
 
@@ -105,23 +109,26 @@ sub BUILD {
   if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
 
-    $allCachedDbNames->{$self->name}{$nTrackPrefix} = $self->nearestDbName;
-  
-    $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
-
+    $allCachedDbNames->{$self->name}{ $self->nearestTrackName } = $self->nearestDbName;
+    
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
+      $allNearestFieldNames->{$self->name}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
       $allCachedDbNames->{$self->name}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
     }
+
+    $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
   }
 
   if($self->join) {
-    $self->addFeaturesToHeader( [ map { $self->joinTrackName . ".$_" }
-      @{$self->joinTrackFeatures} ], $self->name);
+    my $joinTrackName = $self->joinTrackName;
+
+    $self->addFeaturesToHeader( [ map { "joinTrackName.$_" } @{$self->joinTrackFeatures} ], $self->name);
 
     # TODO: ould theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
     for my $fName ( @{$self->joinTrackFeatures} ) {
+      $allJoinFieldNames->{$self->name}{$fName} = "joinTrackName.$fName";
       $allCachedDbNames->{$self->name}{$fName} = $self->getFieldDbName($fName);
     }
   }
@@ -145,7 +152,6 @@ sub get {
   my $cachedDbNames = $allCachedDbNames->{$self->name};
 
   ################# Cache track's region data ##############
-  state $geneTrackRegionHref = {};
   if(!defined $geneTrackRegionHref->{$self->name}{$chr} ) {
     $geneTrackRegionHref->{$self->name}{$chr} = $self->_db->dbReadAll( $self->regionTrackPath($chr) );
   }
@@ -163,16 +169,16 @@ sub get {
 
   # ################# Populate nearestGeneSubTrackName ##############
   if($self->hasNearest) {
-    my $nTrackPrefix = $self->nearestTrackName;
+
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
-    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$nTrackPrefix}];
+    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
 
     if($nearestGeneNumber) {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
           for my $nFeature ($self->allNearestFeatureNames) {
-            push @{ $out{"$nTrackPrefix.$nFeature"} },
+            push @{ $out{ $allNearestFieldNames->{$self->name}{$nFeature} } },
               $geneTrackRegionHref->{$self->name}{$chr}{$geneRef}{ $cachedDbNames->{$nFeature} };
           }
       }
@@ -183,7 +189,7 @@ sub get {
     for my $txNumber(ref $txNumbers ? @$txNumbers : $txNumbers) {
       #the features specified in the region database which we want for nearest gene records
       for my $fName ( @{$self->joinTrackFeatures} ) {
-        push @{$out{$self->joinTrackName. ".$fName"} },
+        push @{$out{ $allJoinFieldNames->{$self->name}{$fName} } },
          $geneTrackRegionHref->{$self->name}{$chr}{$txNumber}{$cachedDbNames->{$fName} };
       }
     }
@@ -325,20 +331,24 @@ sub _annotateIndel {
 
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
-    $dbDataAref = $self->_db->dbRead( $chr, [ $dbPosition + 1 ] );
+    $dbDataAref = $self->_db->dbReadOne( $chr, $dbPosition + 1 );
   } elsif($type eq '-') {
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
     #get everything including the current dbPosition, in order to simplify code
     #small perf hit because few indels
-    $dbDataAref = $self->_db->dbRead( $chr, [ $dbPosition + $allele .. $dbPosition ] );
+    $dbDataAref = [ $dbPosition + $allele .. $dbPosition ];
+
+    # dbRead modifies by reference; each position in dbDataAref gets database data or undef
+    # if nothing found
+    $self->_db->dbRead( $chr, $dbDataAref );
   } else {
     $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
       as valid indel (must start with - or +)");
     return undef;
   }
 
-  for my $data (@$dbDataAref) {
+  for my $data (ref $dbDataAref ? @$dbDataAref : $dbDataAref) {
     if (! defined $data->[$self->dbName] ) {
       #this position doesn't have a gene track, so skip
       $middle .= "$intergenic,";

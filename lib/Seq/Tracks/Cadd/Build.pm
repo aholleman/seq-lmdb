@@ -217,7 +217,7 @@ sub buildTrack {
             $self->log('warn', "lastPosition $chr\:$lastPosition not found in CADD scores hash");
           } else {
             ########### Check refBase against the assembly's reference #############
-            my $dbData = $self->db->dbRead( $wantedChr, $lastPosition );
+            my $dbData = $self->db->dbReadOne( $wantedChr, $lastPosition );
             my $assemblyRefBase = $refTrack->get($dbData);
 
             if(!defined $assemblyRefBase) {
@@ -354,7 +354,7 @@ sub buildTrack {
               # always safe to delete here; last time we'll check it
               delete $skipSites{"$chr\_$position"};
             } else {
-              my $dbData = $self->db->dbRead( $chr, $position );
+              my $dbData = $self->db->dbReadOne( $chr, $position );
               my $assemblyRefBase = $refTrack->get($dbData);
 
               if( $assemblyRefBase ne $scores{$chr}{$position}{ref} ) {

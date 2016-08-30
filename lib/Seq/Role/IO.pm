@@ -79,66 +79,49 @@ sub get_read_fh {
   
   #duck type compressed files
   my $compressed = 0;
-  if($filePath =~ /\.gz$|\.zip$/) {
+  my $err;
+  if($filePath =~ /\.gz$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$gzip -d -c $file");
+    # open ($fh, '-|', "$gzip -d -c $file");
+
+    open($fh, "<:gzip", $filePath);
+  } elsif($filePath =~ /\.zip$/) {
+    $compressed = 1;
+    #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
+    #and then exits, so use gunzip, standard on linux, and faster
+    # open ($fh, '-|', "$gzip -d -c $file");
+    
+    open($fh, "<:gzip(none)", $filePath);
   } else {
     open($fh, '<:unix', "$filePath");
   };
 
-  #open($fh, '<', $filePath) unless $fh;
-  $self->log('fatal', "Unable to open file $filePath") unless $fh;
-
-  my $fileSize = $self->getFileSize($filePath, $compressed);
-
-  my $err;
-  if($fileSize == -1) {
-    if(!$compressed) {
-      $err = "Negative input file size: Check file and try again";
-    } else {
-      $err = "Negative input file size: Likely > 1 file in the archive you uploaded";
-    }
+  if(!$fh) {
+    $err = "Failed to open file";
   }
-
-  return ($err, $fileSize, $compressed, $fh);
+  return ($err, $compressed, $fh);
 }
 
+# TODO: return error if failed
 sub get_write_fh {
   my ( $self, $file ) = @_;
 
   $self->log('fatal', "get_fh() expected a filename") unless $file;
 
   my $fh;
-  if ( $file =~ m/\.gz$|\.zip$/ ) {
-    # open($fh, "<:gzip", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");;
+  if ( $file =~ /\.gz$/ ) {
+    # open($fh, ">:gzip", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");
     open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
+  } elsif ( $file =~ /\.zip$/ ) {
+    open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
+    # open($fh, ">:gzip(none)", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");
   } else {
     open($fh, ">", $file) or return $self->log('fatal', "Couldn't open $file for writing: $!");
   }
+
   return $fh;
-}
-
-sub get_write_bin_fh {
-  my ( $self, $file ) = @_;
-
-  if(!$file) {
-    $self->log('fatal', "Get_write_bin_fh() expects a filename");
-  }
-
-  my $fh = $self->get_write_fh($file);
-
-  binmode $fh;
-  return $fh;
-}
-
-sub clean_line {
-  #my ( $class, $line ) = @_;
-  if ( $_[1] =~ m/$taint_check_regex/xm ) {
-    return $1;
-  }
-  return;
 }
 
 sub getCleanFields {
@@ -199,21 +182,6 @@ sub compressPath {
   }
 
   return $compressName;
-}
-
-sub getFileSize {
-  my ( $self, $file, $compressed ) = @_;
-
-  if($compressed) {
-    my @raw = `gzip --list $file`;
-    my $size = ( split " ", $raw[1] )[1];
-    
-    return $size;
-  }
-  
-  my @raw = stat($file);
-  
-  return $raw[7];
 }
 
 #http://www.perlmonks.org/?node_id=233023

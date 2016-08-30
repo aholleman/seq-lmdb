@@ -135,14 +135,6 @@ sub BUILD {
 
     $tempOutPath = $self->temp_dir->child( $self->out_file->basename )->stringify;
   }
-
-  local $SIG{__WARN__} = sub {
-    my $message = shift;
-
-    $self->_cleanUpFiles();
-
-    croak($message);
-  }
 }
 
 sub annotate_snpfile {
@@ -156,11 +148,11 @@ sub annotate_snpfile {
   }
   
   # File size is available to logProgressAndStatistics
-  (my $err, undef, undef, my $fh) = $self->get_read_fh($self->inputFilePath);
+  (my $err, undef, my $fh) = $self->get_read_fh($self->inputFilePath);
 
   if($err) {
-    return $self->_errorWithCleanup("Negative input file size detected. You likely have more than"
-      . " one file in the archive that you uploaded");
+    $self->_errorWithCleanup($!);
+    return ($!, undef);
   }
   
   my $taint_check_regex = $self->taint_check_regex; 
@@ -177,7 +169,8 @@ sub annotate_snpfile {
   } else {
     $self->_cleanUpFiles();
 
-    return $self->_errorWithCleanup("First line of input file has illegal characters");
+    $self->_errorWithCleanup("First line of input file has illegal characters");
+    return ("First line of input file has illegal characters", undef);
   }
 
   $inputFileProcessor->checkInputFileHeader(\@firstLine);
@@ -217,21 +210,25 @@ sub annotate_snpfile {
   my $allStatisticsHref = {};
 
   MCE::Loop::init {
-    max_workers => 16, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
   };
 
   # We need to know the chunk size, and only way to do that 
   # Is to get it from within one worker, unless we use MCE::Core interface
-  #my $m1 = MCE::Mutex->new;
-  #tie $chunkSize, 'MCE::Shared', 0;
+  my $m1 = MCE::Mutex->new;
+  tie my $loopErr, 'MCE::Shared', '';
+
+  # local $SIG{__WARN__} = sub {
+  #   my $message = shift;
+
+  #   $self->_cleanUpFiles();
+
+  #   # MCE::Loop::finish;
+  # }
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
-
-  #  if(!$chunkSize) {
-  #     $m1->synchronize( sub { $chunkSize = $mce->chunk_size(); });
-  #  }
 
     my @lines;
 
@@ -264,12 +261,24 @@ sub annotate_snpfile {
       # Annotate lines, write the data, and MCE->Gather any statistics
 
       #TODO: implement better error handling
-      $self->annotateLines(\@lines, $outFh);
+      my $err = $self->annotateLines(\@lines, $outFh);
+
+      if($err ne '') {
+        $m1->synchronize( sub { $loopErr = $err });
+        $mce->abort();
+      }
     }
     
     # Write progress
     MCE->gather(undef, $lineCount);
   } $fh;
+
+  # MCE::Loop::finish;
+
+  if($loopErr) {
+    $self->_cleanUpFiles();
+    return ($loopErr, undef);
+  }
 
   ################ Finished writing file. If statistics, print those ##########
   my $ratiosAndQcHref;
@@ -283,11 +292,9 @@ sub annotate_snpfile {
   }
 
   ################ Compress if wanted ##########
-  close $fh;
-  
   $self->_cleanUpFiles();
 
-  return $ratiosAndQcHref;
+  return (undef, $ratiosAndQcHref);
 }
 
 sub logProgressAndStatistics {
@@ -306,11 +313,13 @@ sub logProgressAndStatistics {
     #We have two gather calls, one for progress, one for statistics
     #If for statistics, $_[0] will have a value
 
-    if(defined $_[2]) {
-      $self->_cleanUpFiles();
-      $db->cleanUp();
-      $self->log('fatal', $_[2]);
-    }
+    # if(defined $_[2]) {
+    #   $self->_cleanUpFiles();
+    #   $db->cleanUp();
+    #   MCE->abort;
+      
+    #   #$self->log('fatal', $_[2]);
+    # }
 
     if(defined $_[1]) {
       if(!$hasPublisher) {
@@ -362,17 +371,14 @@ sub annotateLines {
       if(@positions) {
         # Get db data for all @positions accumulated up to this point
         #TODO: get error code, or check for presence of data
-        my $dataFromDatabaseAref = $db->dbRead($wantedChr, \@positions); 
-
-        # It's possible that we were only asking for 1 record
-        # finishAnnotatingLines expects an array
-        if(ref $dataFromDatabaseAref ne "ARRAY") {
-          $dataFromDatabaseAref = [$dataFromDatabaseAref];
-        }
+        $db->dbRead($wantedChr, \@positions); 
 
         # accumulate results in @output
-        $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-          \@positions, \@output);
+        my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
+
+        if($err ne '') {
+          return $err;
+        }
 
         # TODO: better error handling
         # if(!$success) {
@@ -389,7 +395,7 @@ sub annotateLines {
 
         # $outputter->indexOutput(\@output);
 
-        undef $dataFromDatabaseAref; undef @positions; undef @output; undef @inputData;
+        undef @positions; undef @output; undef @inputData;
       }
 
       $wantedChr = $fieldsAref->[$chrFieldIdx];
@@ -411,22 +417,16 @@ sub annotateLines {
 
   # Leftovers
   if(@positions) {
-    my $dataFromDatabaseAref = $db->dbRead($wantedChr, \@positions, 1); 
+    # Positions will be fille with data
+    $db->dbRead($wantedChr, \@positions, 1); 
 
-    # finishAnnotatingLines expects an array
-    if(ref $dataFromDatabaseAref ne "ARRAY") {
-      $dataFromDatabaseAref = [$dataFromDatabaseAref];
+    my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
+
+    if($err ne '') {
+      return $err;
     }
-
-    $self->finishAnnotatingLines($wantedChr, $dataFromDatabaseAref, \@inputData, 
-      \@positions, \@output);
-
-    # TODO: better error handling
-    # if(!$success) {
-    #   return;
-    # }
-
-    undef $dataFromDatabaseAref; undef @positions; undef @inputData;
+    
+    undef @positions; undef @inputData;
   }
 
   if($statisticsHandler) {
@@ -441,7 +441,7 @@ sub annotateLines {
 
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return 0;
+  return '';
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -453,7 +453,7 @@ my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
-  my ($self, $chr, $dataFromDbAref, $inputAref, $positionsAref, $outAref) = @_;
+  my ($self, $chr, $dataFromDbAref, $inputAref, $outAref) = @_;
 
   my $refTrackName = $refTrackGetter->name;
 
@@ -486,14 +486,6 @@ sub finishAnnotatingLines {
       # If have only one allele, pass on only one allele
       $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } = @alleles == 1 ? $alleles[0] : \@alleles;
     }
- 
-    ############### Gather all track data (besides reference) #################
-    foreach(@$trackGettersExceptReference) {
-      # Pass: dataFromDatabase, chromosome, position, real reference, alleles
-      $outAref->[$i]{$_->name} = $_->get(
-        $dataFromDbAref->[$i], $chr, $positionsAref->[$i], $outAref->[$i]{$refTrackName},
-        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } );
-    };
 
     ############# Store chr, position, alleles, type, and minor alleles ###############
 
@@ -502,12 +494,23 @@ sub finishAnnotatingLines {
     $outAref->[$i]{$typeKey} = $inputAref->[$i][$typeFieldIdx];
 
     $outAref->[$i]{$minorAllelesKey} = $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] };
+ 
+    ############### Gather all track data (besides reference) #################
+    foreach(@$trackGettersExceptReference) {
+      # Pass: dataFromDatabase, chromosome, position, real reference, alleles
+      $outAref->[$i]{$_->name} = $_->get(
+        $dataFromDbAref->[$i], $chr, $outAref->[$i]{$positionKey}, $outAref->[$i]{$refTrackName},
+        $cached->{$givenRef}{ $inputAref->[$i][$alleleFieldIdx] } );
+    };
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
+
+    # We call those matching the reference that we have hets or homos, 
+    # not the reference given in the input file
     SAMPLE_LOOP: for my $id ( @$sampleIDaref ) {
       my $geno = $inputAref->[$i][ $sampleIDsToIndexesMap->{$id} ];
 
-      if( $geno eq 'N' || $geno eq $givenRef ) {
+      if( $geno eq 'N' || $geno eq $outAref->[$i]{$refTrackName} ) {
         next SAMPLE_LOOP;
       }
 
@@ -526,7 +529,7 @@ sub finishAnnotatingLines {
   }
 
   # 0 status indicates success
-  return 0;
+  return '';
 }
 
 sub _cleanUpFiles {
@@ -570,6 +573,8 @@ sub _cleanUpFiles {
     ## TODO: TEST unlink out file and everything associated
     $self->out_file->parent->remove_tree;
   }
+
+  return '';
 }
 
 # This function is expected to run within a fork, so itself it doesn't clean up 
@@ -578,14 +583,12 @@ sub _cleanUpFiles {
 sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
-  # $self->_cleanUpFiles();
-
-  # $db->cleanUp();
-
-  MCE->gather(undef, undef, $msg);
-  return;
-
-  #return $self->log('fatal', $msg);
+  # To send a message to clean up files.
+  # TODO: Need somethign better
+  #MCE->gather(undef, undef, $msg);
+  
+  $self->log('warn', $msg);
+  return $msg;
 }
 __PACKAGE__->meta->make_immutable;
 

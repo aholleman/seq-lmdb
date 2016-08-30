@@ -102,42 +102,57 @@ my $mp = Data::MessagePack->new();
 $mp->prefer_integer(); #treat "1" as an integer, save more space
 
 ################### DB Read, Write methods ############################
+# Unsafe for $_[2] ; will be modified if an array is passed
+sub dbReadOne {
+  #my ($self, $chr, $posAref) = @_;
+  #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
+  my $db = $_[0]->_getDbi($_[1]);
 
+  if(!$db) {
+    return undef;
+  }
+
+  # my $dbi = $db->{dbi};
+  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  $txn->get($db->{dbi}, $_[2], my $json);
+      
+  my $err;
+  if($dbReadOnly) {
+    $err = $txn->reset();
+  } else {
+    $err = $txn->abort();
+  }
+
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
+    $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
+    return;
+  }
+
+  $LMDB_File::last_err = 0;
+
+  return $json ? $mp->unpack($json) : undef; 
+}
+
+# Unsafe for $_[2] ; will be modified if an array is passed
 sub dbRead {
   #my ($self, $chr, $posAref) = @_;
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
   my $db = $_[0]->_getDbi($_[1]);
 
   if(!$db) {
-    return ref $_[2] ? [] : undef;
+    return [];
   }
 
-  my $dbi = $db->{dbi};
+  # my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
-
-  my @out;
   my $json;
 
-  #will return a single value if we were passed one value
-  if(!ref $_[2] ) {
-    $txn->get($dbi, $_[2], $json);
-      
-    $txn->commit();
-
-    if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
-      $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
-      return;
-    }
-
-    $LMDB_File::last_err = 0;
-
-    return $json ? $mp->unpack($json) : undef;
-  }
-
+  # my @out;
   #or an array of values, in order
   for my $pos ( @{ $_[2] } ) {
-    $txn->get($dbi, $pos, $json);
+    $txn->get($db->{dbi}, $pos, $json);
     
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
       $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
@@ -146,14 +161,19 @@ sub dbRead {
 
     if(!$json) {
       #we return exactly the # of items, and order, given to us
-      push @out, undef;
+      $pos = undef;
       next;
     }
 
-    push @out, $mp->unpack($json);
+    $pos = $mp->unpack($json);
   }
   
-  my $err = $txn->abort();
+  my $err;
+  if($dbReadOnly) {
+    $err = $txn->reset();
+  } else {
+    $err = $txn->abort();
+  }
 
   if($err) {
     $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $err");
@@ -164,7 +184,7 @@ sub dbRead {
   $LMDB_File::last_err = 0;
 
   #will return a single value if we were passed one value
-  return \@out;
+  return $_[2];#\@out;
 }
 
 #Assumes that the posHref is
@@ -445,19 +465,15 @@ sub dbReadAll {
     return {};
   }
 
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  $db->{DB}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
   #unfortunately if we close the transaction, cursors stop working
   #a limitation of the current API
   #and since dbi wouldn't be available to the rest of this package unless
   #that transaction was comitted
   #we need to re-open the database for dbReadAll transactions
-  my $DB = $txn->OpenDB();
-  #https://metacpan.org/pod/LMDB_File
-  #avoids memory copy on get operation
-  $DB->ReadMode(1);
 
-  my $cursor = $DB->Cursor;
+  my $cursor = $db->{DB}->Cursor;
 
   my ($key, $value, %out);
   while(1) {
@@ -479,8 +495,13 @@ sub dbReadAll {
     $out{$key} = $mp->unpack($value);
   }
 
-  my $err = $txn->abort();
-
+  my $err;
+  if($dbReadOnly) {
+    $err = $db->{DB}->Txn->reset();
+  } else {
+    $err = $db->{DB}->Txn->abort();
+  }
+  
   if($err) {
     $_[0]->_errorWithCleanup("dbReadAll LMDB error at end: $err");
     return;
@@ -546,7 +567,7 @@ sub dbReadMeta {
   #so for a single "position"/key (in our case $metaKey)
   #only a single value should be returned (whether a hash, or something else
   # based on caller's expectations)
-  return $self->dbRead($databaseName . $metaDbNamePart, $metaKey);
+  return $self->dbReadOne($databaseName . $metaDbNamePart, $metaKey);
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with
@@ -650,7 +671,7 @@ sub _getDbi {
     return;
   }
 
-  $envs->{$name} = {env => $env, dbi => $DB->dbi};
+  $envs->{$name} = {env => $env, dbi => $DB->dbi, DB => $DB};
 
   #say "made database $name for " .$databaseDir;
 

@@ -59,7 +59,7 @@ $jobKeys->{assembly}       = 'assembly';
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
 
-my $verbose = 1;
+my $verbose = $ARGV[0];
 
 my $beanstalk = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
@@ -95,8 +95,25 @@ while(my $job = $beanstalk->reserve) {
       queueId => $job->id,
     }  } );
 
-    my $statistics = handleJob($jobDataHref, $job->id);
+    my ($err, $statistics) = handleJob($jobDataHref, $job->id);
+    
+    say "received statistics from handle jobs";
+    p $statistics;
+    p $err;
+    if($err) {
+      say "job ". $job->id . " failed due to found error, which is $err";
       
+      $beanstalkEvents->put( { priority => 0, data => encode_json({
+        event => 'failed',
+        reason => $err,
+        queueId => $job->id,
+      }) } );
+
+      $job->bury;
+
+      next;
+    }
+
     say "statistics are";
     p $statistics;
     # Signal completion before completion actually occurs via delete
@@ -111,11 +128,12 @@ while(my $job = $beanstalk->reserve) {
      say "completed job with queue id " . $job->id;
 
     $beanstalk->delete($job->id);
+  
   } catch {
     say "job ". $job->id . " failed due to $_";
       
     # Don't store the stack
-    my $reason = substr($_, 0, index($_, 'at'));
+    my $reason = $_; #substr($_, 0, index($_, 'at'));
 
     # Signal before bury, because we always want to record that the job failed
     # even if burying fails
@@ -144,47 +162,26 @@ sub handleJob {
 
   my $log_name = join '.', 'annotation', 'jobID', $jobID, 'log';
   my $log_file = File::Spec->rel2abs( ".", $log_name );
-  say "writing log file here: $log_file" if $verbose;
+  
+  say "writing beanstalk queue log file here: $log_file" if $verbose;
+  
   Log::Any::Adapter->set( 'File', $log_file );
+  
   my $log = Log::Any->get_logger();
 
   my $inputHref;
+  
+  $inputHref = coerceInputs($submittedJob, $queueId);
 
-  try {
-    $inputHref = coerceInputs($submittedJob, $queueId);
+  if ($verbose) {
+    say "The user job data sent to annotator is: ";
+    p $inputHref;
+  }
 
-    if ($verbose) {
-      say "The user job data sent to annotator is: ";
-      p $inputHref;
-    }
-
-    # create the annotator
-    my $annotate_instance = Interface->new($inputHref);
-    my $result            = $annotate_instance->annotate;
-
-    # if(!defined $result) {
-    #   $log->error('Nothing returned from annotator');
-    #   die 'Error: Nothing returned from annotator';
-    # }
-
-    return $result;
-  } catch {
-    $log->error($_);
-
-    my $indexOfConstructor = index($_, "Seq::");
-    
-    if(~$indexOfConstructor) {
-      $failed = substr($_, 0, $indexOfConstructor);
-    } else {
-      my $end = length($_);
-      if($end > 100) {
-        $end = 100;
-      }
-      $failed = substr($_, 0, $end);
-    }
-
-    die $failed;
-  };
+  # create the annotator
+  my $annotate_instance = Interface->new($inputHref);
+  
+  return $annotate_instance->annotate;
 }
 
 #Here we may wish to read a json or yaml file containing argument mappings
@@ -213,6 +210,7 @@ sub coerceInputs {
       }
     },
     compress => 1,
+    verbose => $verbose,
   };
 }
 

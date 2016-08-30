@@ -252,9 +252,11 @@ sub _buildTranscript {
     # say "sequence positions are";
     # p @sequencePositions;
     
-    my $dAref = $db->dbRead($self->chrom, $exonPosHref, 1); 
+    # As a result of modifying the reference, each position in exonPosHref
+    # now has database data, or undefined
+    $db->dbRead($self->chrom, $exonPosHref); 
 
-    #Now get the base for each item found in $dAref;
+    #Now get the base for each item found in $dAref ($exonPosHref);
     #This is handled by the refTrack of course
     #Each track has its own "get" method, which fetches its data
     #That can be a scalar or a hashRef
@@ -263,11 +265,11 @@ sub _buildTranscript {
 
     #This doesn't work for some reason.
     #https://ideone.com/1sJC69
-    #$txSequence .= reduce { ref $a ? $refTrack->get($a) : $a . $refTrack->get($b) } @$dAref;
-    # say "length is " . scalar @$dAref;
+    #$txSequence .= reduce { ref $a ? $refTrack->get($a) : $a . $refTrack->get($b) } @$dAref (@$exonPosHref)
+    # say "length is " . scalar @$dAref (@$exonPosHref);
     # exit;
-    for (my $i = 0; $i < scalar @$dAref; $i++) {
-      my $refBase = $refTrack->get( $dAref->[$i] );
+    for (my $i = 0; $i < scalar @$exonPosHref; $i++) {
+      my $refBase = $refTrack->get( $exonPosHref->[$i] );
       
       if(!$refBase) {
         $self->log('fatal', "Position $i doesn't exist in our " . $self->chrom . " database."

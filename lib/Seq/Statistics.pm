@@ -53,11 +53,11 @@ sub BUILD{
 
 # Take data for a single position and generate trTv statistics
 sub countTransitionsAndTransversions {
-  my ($self, $outputLinesAref ) = @_;
-
+  #my ($self, $outputLinesAref ) = @_;
+  #     $_[0], $_[1]
   my (%transitions, %transversions);
 
-  OUTPUT_LOOP: foreach (@$outputLinesAref) {
+  OUTPUT_LOOP: foreach (@{ $_[1] }) {
     my $sampleIds;
     if( $_->{$hetKey} && $_->{$homKey}) {
       $sampleIds = [ref $_->{$hetKey} ? @{ $_->{$hetKey} } : $_->{$hetKey},
@@ -76,13 +76,10 @@ sub countTransitionsAndTransversions {
     my $reference = $_->{$refTrack->name};
 
     if(!$reference) {
-      say "reference is";
-      p $reference;
-      p $_;
-      p $refTrack->name;
+      $_[0]->log('warn', "No reference found for this site");
+      return;
     }
     
-
     my $minorAlleles = $_->{$alleleKey};
 
     # We don't include multi-allelic sites for now
