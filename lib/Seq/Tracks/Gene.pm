@@ -329,9 +329,11 @@ sub _annotateIndel {
   if($type eq '+') {
     $beginning = (length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame) . "[";
 
+    # This makes it easier to use a single string building function below.
+    $dbDataAref = [ $dbPosition + 1 ];
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
-    $dbDataAref = $self->_db->dbReadOne( $chr, $dbPosition + 1 );
+    $self->_db->dbRead( $chr, $dbDataAref );
   } elsif($type eq '-') {
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
@@ -348,7 +350,8 @@ sub _annotateIndel {
     return undef;
   }
 
-  for my $data (ref $dbDataAref ? @$dbDataAref : $dbDataAref) {
+  # Will always be an array of dbData, which is to say an array of array presently
+  for my $data (@$dbDataAref) {
     if (! defined $data->[$self->dbName] ) {
       #this position doesn't have a gene track, so skip
       $middle .= "$intergenic,";

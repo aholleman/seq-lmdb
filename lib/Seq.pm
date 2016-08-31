@@ -213,6 +213,7 @@ sub annotate_snpfile {
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    chunk_size => 8192,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
   };
 
@@ -221,16 +222,12 @@ sub annotate_snpfile {
   my $m1 = MCE::Mutex->new;
   tie my $loopErr, 'MCE::Shared', '';
 
+  my $aborted;
   local $SIG{INT} = sub {
     my $message = shift;
+    $aborted = 1;
 
     MCE->abort();
-
-    # Clean up temp dir; could also move the file; but if sending sig int
-    # I think the intention is to cancel
-    $self->temp_dir->remove_tree;
-
-    exit;
   };
 
   mce_loop_f {
@@ -279,10 +276,29 @@ sub annotate_snpfile {
     MCE->gather(undef, $lineCount);
   } $fh;
 
-  # MCE::Loop::finish;
+  # abortion code needs to happen here, because otherwise LMDB won't get a chance
+  # to close properly
+  if($aborted) {
+    say "got to aborted";
+
+    $self->temp_dir->remove_tree;
+
+    $db->cleanUp();
+
+    return ("aborted by user", undef);
+  }
 
   if($loopErr) {
-    $self->_cleanUpFiles();
+    $self->log('info', "error detected, removing temporary files");
+
+    $self->temp_dir->remove_tree;
+
+    $db->cleanUp();
+    # We could also move people's output files to storage,
+    # but most people probably don't want that, and it costs us money to store
+    # their data
+    #$self->_cleanUpFiles();
+    
     return ($loopErr, undef);
   }
 
@@ -530,6 +546,8 @@ sub finishAnnotatingLines {
         push @{ $outAref->[$i]{$homozygoteIdsKey} }, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous" );
+        say "sample ID aref is";
+        p @$sampleIDaref;
       }
     }
   }
