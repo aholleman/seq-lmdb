@@ -33,14 +33,9 @@ use Seq::Tracks::Gene::Site::CodonMap;
 use Seq::Tracks::Gene::Definition;
 use Seq::DBManager;
 
-# #exports regionTrackPath
-# with 'Seq::Tracks::Region::RegionTrackPath',
-
-has _db => (is => 'ro', init_arg => undef, default => sub { Seq::DBManager->new() });
-
-state $geneDef = Seq::Tracks::Gene::Definition->new();
-
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
+# All of these instantiated classes cannot be configured at instantiation time
+# so safe to use in static context
 state $siteUnpacker = Seq::Tracks::Gene::Site->new();
 state $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
 state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
@@ -74,32 +69,26 @@ state $codonNumberIdx = $siteUnpacker->codonNumberIdx;
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
-  default => sub{ return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; },
+  default => sub { 
+    my $geneDef = Seq::Tracks::Gene::Definition->new();
+    return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; 
+  },
 );
 
-### Cache self->getFieldDbName calls to save a bit on performance & improve readability ###
-state $allCachedDbNames;
-state $geneTrackRegionHref;
-state $allNearestFieldNames;
-state $allJoinFieldNames;
 ########################### Public attribute exports ###########################
 has txEffectsKey => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {$txEffectsKey} );
-
-# In long running environment, clear stale data
-sub initialize {
-  my $self = shift;
-
-  $allCachedDbNames->{$self->name} = {};
-  $allNearestFieldNames->{$self->name} = {};
-  $allJoinFieldNames->{$self->name} = {};
-  $geneTrackRegionHref->{$self->name} = {};
-}
 
 #### Add our other "features", everything we find for this site ####
 sub BUILD {
   my $self = shift;
 
-  $self->initialize();
+  # Private variables, meant to cache often used data
+  $self->{_allCachedDbNames} = {};
+  $self->{_allNearestFieldNames} = {};
+  $self->{_allJoinFieldNames} = {};
+  $self->{_geneTrackRegionHref} = {};
+
+  $self->{_db} = Seq::DBManager->new();
 
   # 1 to prepend
   $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->codonSequenceKey,
@@ -109,12 +98,12 @@ sub BUILD {
   if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
 
-    $allCachedDbNames->{$self->name}{ $self->nearestTrackName } = $self->nearestDbName;
+    $self->{_allCachedDbNames}{ $self->nearestTrackName } = $self->nearestDbName;
     
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
-      $allNearestFieldNames->{$self->name}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
-      $allCachedDbNames->{$self->name}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
+      $self->{_allNearestFieldNames}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
+      $self->{_allCachedDbNames}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
     }
 
     $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
@@ -128,13 +117,13 @@ sub BUILD {
     # TODO: ould theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
     for my $fName ( @{$self->joinTrackFeatures} ) {
-      $allJoinFieldNames->{$self->name}{$fName} = "joinTrackName.$fName";
-      $allCachedDbNames->{$self->name}{$fName} = $self->getFieldDbName($fName);
+      $self->{_allJoinFieldNames}{$fName} = "joinTrackName.$fName";
+      $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
     }
   }
 
   for my $fName ($self->allFeatureNames) {
-    $allCachedDbNames->{$self->name}{$fName} = $self->getFieldDbName($fName);
+    $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
   }
 };
 
@@ -149,11 +138,11 @@ sub get {
   my %out;
 
   # Cached field names to make things easier to read
-  my $cachedDbNames = $allCachedDbNames->{$self->name};
+  my $cachedDbNames = $self->{_allCachedDbNames};
 
   ################# Cache track's region data ##############
-  if(!defined $geneTrackRegionHref->{$self->name}{$chr} ) {
-    $geneTrackRegionHref->{$self->name}{$chr} = $self->_db->dbReadAll( $self->regionTrackPath($chr) );
+  if(!defined $self->{_geneTrackRegionHref}{$chr} ) {
+    $self->{_geneTrackRegionHref}{$chr} = $self->{_db}->dbReadAll( $self->regionTrackPath($chr) );
   }
   
   ####### Get all transcript numbers, and site data for this position #########
@@ -178,8 +167,8 @@ sub get {
     if($nearestGeneNumber) {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
           for my $nFeature ($self->allNearestFeatureNames) {
-            push @{ $out{ $allNearestFieldNames->{$self->name}{$nFeature} } },
-              $geneTrackRegionHref->{$self->name}{$chr}{$geneRef}{ $cachedDbNames->{$nFeature} };
+            push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } },
+              $self->{_geneTrackRegionHref}{$chr}{$geneRef}{ $cachedDbNames->{$nFeature} };
           }
       }
     }# else { $self->log('warn', "no " . $self->name . " or " . $nearestSubTrackName . " found"); }
@@ -189,8 +178,8 @@ sub get {
     for my $txNumber(ref $txNumbers ? @$txNumbers : $txNumbers) {
       #the features specified in the region database which we want for nearest gene records
       for my $fName ( @{$self->joinTrackFeatures} ) {
-        push @{$out{ $allJoinFieldNames->{$self->name}{$fName} } },
-         $geneTrackRegionHref->{$self->name}{$chr}{$txNumber}{$cachedDbNames->{$fName} };
+        push @{$out{ $self->{_allJoinFieldNames}{$fName} } },
+         $self->{_geneTrackRegionHref}{$chr}{$txNumber}{$cachedDbNames->{$fName} };
       }
     }
   }
@@ -229,7 +218,7 @@ sub get {
   # ################# Populate geneTrack's user-defined features #####################
   foreach ($self->allFeatureNames) {
     INNER: for my $txNumber ($multiple ? @$txNumbers : $txNumbers) {
-      push @{ $out{$_} }, $geneTrackRegionHref->{$self->name}{$chr}{$txNumber}{ $cachedDbNames->{$_} };
+      push @{ $out{$_} }, $self->{_geneTrackRegionHref}{$chr}{$txNumber}{ $cachedDbNames->{$_} };
     }
   }
 
@@ -333,7 +322,7 @@ sub _annotateIndel {
     $dbDataAref = [ $dbPosition + 1 ];
     #by passing the dbRead function an array, we get an array of data back
     #even if it's one position worth of data
-    $self->_db->dbRead( $chr, $dbDataAref );
+    $self->{_db}->dbRead( $chr, $dbDataAref );
   } elsif($type eq '-') {
     $beginning = ($allele % 3 ? $frameshift : $inFrame) . "[";
     
@@ -343,7 +332,7 @@ sub _annotateIndel {
 
     # dbRead modifies by reference; each position in dbDataAref gets database data or undef
     # if nothing found
-    $self->_db->dbRead( $chr, $dbDataAref );
+    $self->{_db}->dbRead( $chr, $dbDataAref );
   } else {
     $self->log("warn", "Can't recognize allele $allele on $chr:@{[$dbPosition + 1]}
       as valid indel (must start with - or +)");

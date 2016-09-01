@@ -8,6 +8,11 @@ use warnings;
 #Breaking this thing down to fit in the new contxt
 #based on Seq::Gene in (kyoto-based) seq branch
 #except _get_gene_data moved to Seq::Tracks::GeneTrack::Build
+
+# This package is meant for use in a static variable; it has no set - able 
+# instance attributes
+
+# TODO: Is Seq::Role::Message use safe in a threaded environment during building?
 package Seq::Tracks::Gene::Site;
 
 use Mouse 2;

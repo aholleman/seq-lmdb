@@ -170,7 +170,6 @@ has assembly => (
   isa => 'Str',
   required => 0,
   init_arg => undef,
-  lazy => 1,
   builder => '_buildAssembly',
   metaclass => 'NoGetopt',  # do not attempt to capture this param
 );
@@ -181,7 +180,6 @@ has logPath => (
   isa       => 'Str',
   required  => 0,
   init_arg  => undef,
-  lazy      => 1,
   builder   => '_buildLogPath',
 );
 
@@ -192,7 +190,6 @@ has _annotator => (
     annotate => 'annotate_snpfile',
   },
   init_arg => undef,
-  lazy => 1,
   builder => '_buildAnnotator',
 );
 
@@ -235,6 +232,7 @@ sub BUILD {
   my $self = shift;
   my $args = shift;
 
+  say "Building again";
   #exit if errors found via this Validator.pm method
   $self->validateState;
 }

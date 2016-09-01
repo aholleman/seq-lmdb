@@ -7,8 +7,9 @@ package Seq::Tracks::Gene::Site::SiteTypeMap;
 use Mouse 2;
 use Mouse::Util::TypeConstraints;
 use DDP;
-# define allowable types
-# not at the moment exposing these publicly, no real need
+# Define allowable types
+
+# Safe for use when instantiated to static variable; no set - able properties
 state $codingSite = 'exonic';
 has codingSiteType => (is=> 'ro', lazy => 1, init_arg => undef, default => sub{$codingSite} );
 state $fivePrimeSite = 'UTR5';

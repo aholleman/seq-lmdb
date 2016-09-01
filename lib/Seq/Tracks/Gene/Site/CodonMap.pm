@@ -4,6 +4,8 @@ use warnings;
 
 #Stores all 64 possible codons in a numerical map
 #Stores all 64 possible codons mapped to single-leter amino-acids
+
+# Safe for use when instantiated to static variable; no set - able properties
 package Seq::Tracks::Gene::Site::CodonMap;
 use DDP;
 use Mouse 2;
@@ -68,5 +70,4 @@ sub codon2aa {
 }
 
 __PACKAGE__->meta->make_immutable;
-#__PACKAGE__->meta->make_immutable;
 1;
