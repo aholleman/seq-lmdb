@@ -114,7 +114,7 @@ sub BUILD {
 
   # Handles statistics if requested at construction time
   if($self->run_statistics) {
-    $self->{statisticsHandler} = Seq::Statistics->new( { %{$self->statistics}, (
+    $self->{_statisticsHandler} = Seq::Statistics->new( { %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
       minorAllelesKey => $minorAllelesKey,
     ) } );
@@ -521,10 +521,10 @@ sub finishAnnotatingLines {
 sub _cleanUpFiles {
   my $self = shift;
 
-  my $compressedOutPath;
+  my $source;
 
   if($self->compress) {
-    $compressedOutPath = $self->compressPath( $self->{_tempOutPath} || $self->out_file);
+    $source = $self->compressPath( $self->{_tempOutPath} || $self->out_file);
   }
 
   my $finalDestination;
@@ -533,14 +533,12 @@ sub _cleanUpFiles {
     $self->log('info', 'Moving output file to final destination on NFS (EFS) or S3');
 
     my $result;
-    if($compressedOutPath) {
-      my $compressedFileName = path($compressedOutPath)->basename;
 
-      my $source = $self->temp_dir->child($compressedFileName);
-      
-      if(-e $compressedFileName && -e $source) {
-        $finalDestination = $self->out_file->parent->child($compressedFileName );
+    if($source) {
+      my $compressedFileName = path($source)->basename;
 
+      if(-e $source) {
+        $finalDestination = $self->out_file->parent->child($compressedFileName);
         $result = system("mv $source $finalDestination");
       }
       
@@ -559,9 +557,6 @@ sub _cleanUpFiles {
     }
 
     $self->log("info", 'Moved outputs into final destination');
-  } else {
-    ## TODO: TEST unlink out file and everything associated
-    $self->out_file->parent->remove_tree;
   }
 
   return '';

@@ -112,12 +112,12 @@ sub BUILD {
   if($self->join) {
     my $joinTrackName = $self->joinTrackName;
 
-    $self->addFeaturesToHeader( [ map { "joinTrackName.$_" } @{$self->joinTrackFeatures} ], $self->name);
+    $self->addFeaturesToHeader( [ map { "$joinTrackName.$_" } @{$self->joinTrackFeatures} ], $self->name);
 
     # TODO: ould theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
     for my $fName ( @{$self->joinTrackFeatures} ) {
-      $self->{_allJoinFieldNames}{$fName} = "joinTrackName.$fName";
+      $self->{_allJoinFieldNames}{$fName} = "$joinTrackName.$fName";
       $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
     }
   }

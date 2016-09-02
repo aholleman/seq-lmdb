@@ -169,19 +169,20 @@ sub compressPath {
 
   my $compressName = substr($basename, 0, rindex($basename, ".") ) . $self->_compressExtension;
   
-  my $outcome =
-    system(sprintf("cd %s; $tar --exclude '.*' --exclude %s -cf %s %s --remove-files",
-      $fileObjectOrPath->parent->stringify,
-      $compressName,
-      $compressName, #and don't include our new compressed file in our tarball
-      "$basename*", #the name of the directory we want to compress
-    ) );
+  my $tarCommand = sprintf("cd %s; $tar --exclude '.*' --exclude %s -cf %s * --remove-files",
+    $fileObjectOrPath->parent->stringify,
+    $compressName, #and don't include our new compressed file in our tarball
+    $compressName, # the name of our tarball
+  );
+
+  $self->log('debug', "compress command: $tarCommand");
     
-  if($outcome) {
-    return $self->log( 'warn', "Zipping failed with $?" );
+  if(system($tarCommand) ) {
+    $self->log( 'warn', "Zipping failed with $?" );
+    return;
   }
 
-  return $compressName;
+  return $fileObjectOrPath->parent->child($compressName)->stringify;
 }
 
 #http://www.perlmonks.org/?node_id=233023
