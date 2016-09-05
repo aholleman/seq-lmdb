@@ -190,7 +190,7 @@ sub annotate_snpfile {
 
   my $allStatisticsHref = {};
 
-  my $return = MCE::Loop::init {
+  MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     chunk_size => 8192,
     gather => $self->logProgressAndStatistics($allStatisticsHref),
