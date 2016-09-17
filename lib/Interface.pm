@@ -21,7 +21,7 @@ use YAML::XS qw/LoadFile/;
 use Getopt::Long::Descriptive;
 
 use Seq;
-with 'MouseX::Getopt', 'Seq::Role::Message';
+with 'MouseX::Getopt';
 
 subtype AbsFile => as 'Path::Tiny';
 coerce AbsFile => from 'Str' => via { if(! -e $_) {die "File doesn't exist"; }; path($_)->absolute; };
@@ -52,7 +52,6 @@ has snpfile => (
   handles => {
     snpfilePath => 'stringify',
   },
-  writer => 'setSnpfile',
   metaclass => 'Getopt',
   cmd_aliases   => [qw/input snp i/],
   documentation => qq{Input file path.},
@@ -69,15 +68,6 @@ has out_file => (
   cmd_aliases   => [qw/o out out_file/],
   metaclass => 'Getopt',
   documentation => qq{Where you want your output.},
-);
-
-has temp => (
-  is          => 'ro',
-  isa         => 'AbsDir',
-  coerce      => 1,
-  metaclass => 'Getopt',
-  cmd_aliases   => [qw/t temp_dir/],
-  documentation => qq{Where you want to temporarily store your output},
 );
 
 has config => (
@@ -128,13 +118,20 @@ has compress => (
 
 has run_statistics => (
   is => 'ro', 
-  isa => 'Bool',
+  isa => 'Int',
   metaclass   => 'Getopt',
   documentation =>
     qq{Create per-sample feature statistics (like transition:transversions)?},
-  default => 0,
+  default => 1,
 );
 
+has delete_temp => (
+  is => 'ro',
+  isa => 'Int',
+  documentation =>
+    qq{Delete the temporary directory made during annotation},
+  default => 1,
+);
 
 subtype HashRefJson => as 'HashRef'; #subtype 'HashRefJson', as 'HashRef', where { ref $_ eq 'HASH' };
 coerce HashRefJson => from 'Str' => via { from_json $_ };
@@ -162,48 +159,11 @@ has ignore_unknown_chr => (
     qq{Don't quit if we find a non-reference chromosome (like ChrUn)}
 );
 
-##################Not set in command line######################
-
-#@public, but not passed by commandl ine
-has assembly => (
-  is => 'ro',
-  isa => 'Str',
-  required => 0,
-  init_arg => undef,
-  builder => '_buildAssembly',
-  metaclass => 'NoGetopt',  # do not attempt to capture this param
-);
-
-has logPath => (
-  metaclass => 'NoGetopt',     # do not attempt to capture this param
-  is        => 'rw',
-  isa       => 'Str',
-  required  => 0,
-  init_arg  => undef,
-  builder   => '_buildLogPath',
-);
-
-has _annotator => (
-  is => 'ro',
-  isa => 'Seq',
-  handles => {
-    annotate => 'annotate_snpfile',
-  },
-  init_arg => undef,
-  builder => '_buildAnnotator',
-);
-
-sub _buildLogPath {
+sub annotate {
   my $self = shift;
 
-  my $config_href = LoadFile( $self->configfilePath )
-    || die "ERROR: Cannot read YAML file at " . $self->configfilePath . ": $!\n";
-
-  return join '.', $self->output_path, 'annotation', $self->assembly, 'log';
-}
-
-sub _buildAnnotator {
-  my $self = shift;
+  say "delete temp is";
+  p $self->delete_temp;
 
   my $args = {
     config => $self->configfilePath,
@@ -212,54 +172,17 @@ sub _buildAnnotator {
     debug => $self->debug,
     ignore_unknown_chr => $self->ignore_unknown_chr,
     overwrite => $self->overwrite,
-    logPath => $self->logPath,
     publisher => $self->publisher,
     compress => $self->compress,
     verbose => $self->verbose,
-    run_statistics => $self->run_statistics,
+    run_statistics => !!$self->run_statistics,
+    delete_temp => !!$self->delete_temp,
   };
-  
-  if($self->temp) {
-    $args->{temp_dir} = $self->temp;
-  }
 
-  return Seq->new_with_config($args);
+  my $annotator = Seq->new_with_config($args);
+  $annotator->annotate();
 }
 
-with 'Interface::Validator';
-
-sub BUILD {
-  my $self = shift;
-  my $args = shift;
-
-  say "Building again";
-  #exit if errors found via this Validator.pm method
-  $self->validateState;
-}
-
-#I wish for a neater way; but can't find method in MouseX::GetOpt to return just these arguments
-sub _buildAnnotatorArguments {
-  my $self = shift;
-  my %args;
-  for my $attr ( $self->meta->get_all_attributes ) {
-    my $name = $attr->name;
-    my $value = $attr->get_value($self);
-    next unless $value;
-    $args{$name} = $value;
-  }
-
-  return \%args;
-}
-
-sub _buildAssembly {
-  my $self = shift;
-
-  my $config_href = LoadFile($self->configfilePath) || $self->log('error',
-    sprintf("ERROR: Cannot read YAML file at %s", $self->configfilePath) 
-  );
-  
-  return $config_href->{assembly};
-}
 __PACKAGE__->meta->make_immutable;
 
 1;

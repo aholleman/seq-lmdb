@@ -53,7 +53,7 @@ has gzipPath => (is => 'ro', isa => 'Str', init_arg => undef, lazy => 1,
   default => sub {$gzip});
 
 #if we compress the output, the extension we store it with
-has _compressExtension => (
+has _compressTarballExtension => (
   is      => 'ro',
   lazy    => 1,
   default => '.tar.gz',
@@ -145,44 +145,60 @@ sub getCleanFields {
   return;
 }
 
-sub compressPath {
-  my $self = shift;
+sub makeTarballName {
+  my ($self, $baseName) = @_;
 
-  if(!$tar) { $self->log( 'fatal', 'No tar program found'); }
-  
-  #expect a Path::Tiny object or a valid file path
-  my $fileObjectOrPath = shift;
-  if(!ref $fileObjectOrPath) {
-    $fileObjectOrPath = path($fileObjectOrPath);
+  return $baseName . $self->_compressTarballExtension;
+}
+
+# Assumes if ref's are passed for dir, baseName, or compressedName, they are path tiny
+sub compressDirIntoTarball {
+  my ($self, $dir, $compressedName) = @_;
+
+  if(!$tar) { 
+    $self->log( 'warn', 'No tar program found');
+    return 'No tar program found';
   }
 
-  my $filePath = $fileObjectOrPath->stringify;
+  if(ref $dir) {
+    $dir = $dir->stringify;
+  }
+  
+  say "dir ref is ";
+  p $dir;
+
+  if(!$compressedName) {
+    $self->log('warn', 'must provide baseName or compressedName');
+    return 'Must provide baseName or compressedName';
+  }
+
+  if(ref $compressedName) {
+    $compressedName = $compressedName->stringify;
+  }
 
   $self->log( 'info', 'Compressing all output files' );
 
-  if ( !-e $filePath ) {
-    return $self->log( 'warn', 'No output files to compress' );
+  my @files = glob $dir;
+
+  if ( !@files) {
+    $self->log( 'warn', "Directory is empty" );
+    return 'Directory is empty';
   }
 
-  my $basename = $fileObjectOrPath->basename;
-  my $thing = $fileObjectOrPath->parent->stringify;
-
-  my $compressName = substr($basename, 0, rindex($basename, ".") ) . $self->_compressExtension;
-  
   my $tarCommand = sprintf("cd %s; $tar --exclude '.*' --exclude %s -cf %s * --remove-files",
-    $fileObjectOrPath->parent->stringify,
-    $compressName, #and don't include our new compressed file in our tarball
-    $compressName, # the name of our tarball
+    $dir,
+    $compressedName, #and don't include our new compressed file in our tarball
+    $compressedName, # the name of our tarball
   );
 
   $self->log('debug', "compress command: $tarCommand");
     
   if(system($tarCommand) ) {
-    $self->log( 'warn', "Zipping failed with $?" );
-    return;
+    $self->log( 'warn', "compressDirIntoTarball failed with $?" );
+    return $?;
   }
 
-  return $fileObjectOrPath->parent->child($compressName)->stringify;
+  return;
 }
 
 #http://www.perlmonks.org/?node_id=233023

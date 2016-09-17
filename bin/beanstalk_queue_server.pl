@@ -21,15 +21,13 @@ use lib './lib';
 use Log::Any::Adapter;
 use File::Basename;
 use DDP;
-use Interface;
+
 
 use Beanstalk::Client;
-use 5.10.0;
-use strict;
-use warnings;
-use DDP;
 
 use YAML::XS qw/LoadFile/;
+
+use Seq;
 # use AnyEvent;
 # use AnyEvent::PocketIO::Client;
 #use Sys::Info;
@@ -55,6 +53,7 @@ my $jobKeys = {};
 $jobKeys->{inputFilePath}    = 'inputFilePath';
 $jobKeys->{outputFilePath} = 'outputFilePath';
 $jobKeys->{assembly}       = 'assembly';
+$jobKeys->{options}       = 'options';
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -165,7 +164,7 @@ sub handleJob {
   }
 
   # create the annotator
-  my $annotate_instance = Interface->new($inputHref);
+  my $annotate_instance = Seq->new_with_config($inputHref);
   
   return $annotate_instance->annotate;
 }
@@ -180,6 +179,12 @@ sub coerceInputs {
   my $debug          = $DEBUG;                                        #not, not!
 
   my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
+
+  my $deleteTemp = 1;
+
+  if( $jobDetailsHref->{options}{index} ) {
+    $deleteTemp = 0;
+  }
 
   return {
     snpfile            => $inputFilePath,
@@ -198,6 +203,7 @@ sub coerceInputs {
     compress => 1,
     verbose => $verbose,
     run_statistics => 1,
+    delete_temp => $deleteTemp
   };
 }
 

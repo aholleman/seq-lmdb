@@ -108,13 +108,7 @@ has _convertFileBase => (
   },
 );
 
-sub validateState {
-  my $self = shift;
-
-  $self->_validateInputFile();
-}
-
-sub _validateInputFile {
+sub validateInputFile {
   my $self = shift;
 
   my $fh = $self->get_read_fh($self->snpfile);
@@ -124,28 +118,50 @@ sub _validateInputFile {
 
   my $inputHandler = Seq::InputFile->new();
 
+  # This may be updated
+  my $snpFilePath = $self->snpfilePath;
+
   #last argument to not die, we want to be able to convert
-  if(!@$headerFieldsAref || !$inputHandler->checkInputFileHeader($headerFieldsAref, 1) ) {
+  if(!defined $headerFieldsAref || !$inputHandler->checkInputFileHeader($headerFieldsAref, 1) ) {
     #we assume it's not a snp file
-    if(!$self->convertToPed) {
-      return $self->log('fatal', "Vcf->ped conversion failed");
+    $self->log('info', 'Converting input file to binary plink format');
+
+    my $err = $self->convertToPed;
+
+    if ($err) {
+      $self->log('fatal', "Vcf->ped conversion failed with '$err'");
+
+      return ($err, undef);
     }  
     
-    if(!$self->convertToSnp) {
-      return $self->log('fatal', "Binary plink -> Snp conversion failed");
+    $self->log('info', 'Converting from binary plink to snp format');
+
+    ($err, $snpFilePath) = $self->convertToSnp;
+
+    $self->log('info', 'Successfully converted to snp format');
+
+    if ($err) {
+      $self->log('fatal', "Binary plink -> Snp conversion failed with '$err'");
+
+      return ($err, undef);
     }
   }
-  return 1;
+
+  return (undef, $snpFilePath);
 }
 
 sub convertToPed {
   my ($self, $attempts) = @_;
-
-  $self->log('info', 'Converting input file to binary plink format');
-  my $out = $self->_convertFileBasePath;
-  return if system($self->_vcf2ped . " --vcf " . $self->snpfilePath . " --out $out");
   
-  return 1;
+  my $out = $self->_convertFileBasePath;
+  
+  my $err = system($self->_vcf2ped . " --vcf " . $self->snpfilePath . " --out $out --allow-extra-chr");
+  
+  if($err) {
+    return $!;
+  }
+
+  return 0;
 }
 
 # converts a binary file to snp; expects out path to be a path to folder
@@ -157,7 +173,9 @@ sub convertToSnp {
   my $out = $self->_convertFileBasePath; #assumes the converter appends ".snp"
   my $twobit = $self->_twoBitDir->child($self->assembly . '.2bit')->stringify;
 
-  return unless defined $cFiles;
+  if(! defined $cFiles ) {
+    return ("Missing binary plink files (.bed, .bim, .fam)", undef);
+  }
   
   my @args = ( 
     '-bed ', $cFiles->{bed},
@@ -165,16 +183,18 @@ sub convertToSnp {
     '-fam ', $cFiles->{fam}, 
     '-out ', $out, '-two ', $twobit);
 
-  $self->log('info', 'Converting from binary plink to snp format');
-
   # returns a value only upon error
-  return if system($self->_ped2snp . ' convert ' . join(' ', @args) );
+  my $err = system($self->_ped2snp . ' convert ' . join(' ', @args) );
+
+  if($err) {
+    return ($!, undef);
+  }
 
   #because the linkage2Snp converted auto-appends a .snp file extension
-  $self->setSnpfile($out.'.snp');
+  
+  $out = "$out.snp";
 
-  $self->log('info', 'Successfully converted to snp format');
-  return 1;
+  return (0, $out);
 }
 
 sub _findBinaryPlinkFiles {

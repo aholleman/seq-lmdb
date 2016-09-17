@@ -28,13 +28,17 @@ use Carp qw/croak/;
 
 extends 'Seq::Base';
 
-has snpfile => (is => 'ro', isa => AbsFile, coerce => 1, required => 1,
-  handles  => { inputFilePath => 'stringify' });
 
+has snpfile => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
+  handles  => { inputFilePath => 'stringify' }, writer => 'setSnpFile');
+
+# out_file contains the absolute path to a file base name
+# Ex: /dir/child/BaseName ; BaseName is appended with .annotated.tab , .annotated-log.txt, etc
+# for the various outputs
 has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
   handles => { outputFilePath => 'stringify' });
 
-has temp_dir => ( is => 'rw', isa => AbsDir, coerce => 1,
+has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1,
   handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash
@@ -48,12 +52,29 @@ has run_statistics => (is => 'ro', isa => 'Bool');
 # Do we want to compress?
 has compress => (is => 'ro');
 
+has delete_temp => (is => 'ro', default => 1);
+
+# Constructed at build time from the out_file; this is given to other packages
+# Like the statistics package to make its output paths
+has _outputFileBaseName => (is => 'ro', init_arg => undef);
+#@ params
+# <Object> filePaths @params:
+  # <String> compressed : the path to the compressed folder holding annotation, stats, etc (only if $self->compress)
+  # <String> converted : the name of the converted folder
+  # <String> annnotation : the name of the annotation file
+  # <String> log : the name of the log file
+  # <Object> stats : the { statType => statFileName } object
+# Allows us to use all to to extract just the file we're interested from the compressed tarball
+has outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
+
 # We also add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 state $heterozygoteIdsKey = 'heterozygotes';
 state $compoundIdsKey = 'compoundHeterozygotes';
 state $homozygoteIdsKey = 'homozygotes';
 state $minorAllelesKey = 'minorAlleles';
+
+with 'Seq::Role::Validator';
 
 sub BUILDARGS {
   my ($self, $data) = @_;
@@ -66,21 +87,32 @@ sub BUILDARGS {
 
     $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
   }
+  
+  if( !$data->{logPath} ) {
+    if(!ref $data->{out_file}) {
+      $data->{out_file} = path($data->{out_file});
+    }
 
-  $data->{out_file} .= '.annotated.tab';
-  $data->{logPath} .= '.annotation.log';
+    $data->{logPath} = $data->{out_file}->sibling($data->{out_file}->basename . '.annotation-log.txt');
+  }
 
   return $data;
 };
 
 sub BUILD {
   my $self = shift;
-  # Expects DBManager to have been given a database_dir
+
+  ########### Create DBManager instance, and instantiate track singletons #########
+  # Must come before statistics, which relies on a configured Seq::Tracks
+  #Expects DBManager to have been given a database_dir
   $self->{_db} = Seq::DBManager->new();
   
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
   $self->{_db}->setReadOnly(1);
+
+  say "tracks are";
+  p $self->tracks;
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
@@ -95,6 +127,12 @@ sub BUILD {
     }
   }
 
+  $self->{_outDir} = $self->out_file->parent();
+
+  say "out dir is";
+  p $self->{_outDir};
+  ############################# Handle Temp Dir ################################
+  
   # If we specify temp_dir, user data will be written here first, then moved to the
   # final destination
   # If we're given a temp_dir, then we need to make temporary out paths and log paths
@@ -104,25 +142,52 @@ sub BUILD {
     
     unlink $self->logPath;
 
+    # Updates the log path held by Seq::Role::Message static variable
     $self->setLogPath($logPath);
 
     $self->{_tempOutPath} = $self->temp_dir->child( $self->out_file->basename )->stringify;
   }
 
-  # Creates the output file
-  $self->{outputter} = Seq::Output->new();
+  ############### Set log and annotation output basenames #####################
+  my $outputFileBaseName = $self->out_file->basename;
 
-  # Handles statistics if requested at construction time
+  $self->outputFilesInfo->{log} = path($self->logPath)->basename;
+  $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
+
+  if($self->compress) {
+    $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
+  }
+
+  ########  Handles statistics if requested at construction time #########
   if($self->run_statistics) {
     $self->{_statisticsHandler} = Seq::Statistics->new( { %{$self->statistics}, (
       heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
-      minorAllelesKey => $minorAllelesKey,
+      minorAllelesKey => $minorAllelesKey, outputFileBaseName => $outputFileBaseName,
     ) } );
+
+    $self->outputFilesInfo->{stats} = $self->{_statisticsHandler}->getOutputBaseNames();
   }
+
+  say "past statistics";
+   # debug 
+  say "outPaths are";
+  p $self->outputFilesInfo;
+
+  ################### Creates the output file handler #################
+  $self->{outputter} = Seq::Output->new();  
+
+  #################### Validate the input file ################################
+  # Converts the input file if necessary
+  my ($err, $updatedOrOriginalSnpFilePath) = $self->validateInputFile(
+    $self->temp_dir || $self->{_outDir}, $self->snpfile );
+
+  $self->setSnpFile($updatedOrOriginalSnpFilePath);
 }
 
-sub annotate_snpfile {
-  my $self = shift; $self->log( 'info', 'Beginning annotation' );
+sub annotate {
+  my $self = shift;
+
+  $self->log( 'info', 'Beginning annotation' );
   
   # File size is available to logProgressAndStatistics
   (my $err, undef, my $fh) = $self->get_read_fh($self->inputFilePath);
@@ -144,10 +209,10 @@ sub annotate_snpfile {
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
     @firstLine = split $delimiter, $1;
   } else {
-    $self->_cleanUpFiles();
+    $self->_moveFilesToFinalDestinationAndDeleteTemp();
 
-    $self->_errorWithCleanup("First line of input file has illegal characters");
-    return ("First line of input file has illegal characters", undef);
+    $self->_errorWithCleanup("First line of input file has illegal characters: '$firstLine'");
+    return ("First line of input file has illegal characters: '$firstLine'", undef);
   }
 
   my $inputFileProcessor = Seq::InputFile->new();
@@ -178,8 +243,18 @@ sub annotate_snpfile {
   # Outputter needs to know which fields we're going to pass it
   $self->{outputter}->setOutputDataFieldsWanted( $headers->get() );
 
+  ################## Make the full output path ######################
+  # The output path always respects the $self->out_file attribute path;
+  my $outputPath;
+
+  if($self->temp_dir) {
+    $outputPath = $self->temp_dir->child($self->outputFilesInfo->{annotation} );
+  } else {
+    $outputPath = $self->out_file->parent->child($self->outputFilesInfo->{annotation} );
+  }
+
   # If user specified a temp output path, use that
-  my $outFh = $self->get_write_fh( $self->{_tempOutPath} || $self->outputFilePath );
+  my $outFh = $self->get_write_fh( $outputPath );
 
   # Write the header
   say $outFh $headers->getString();
@@ -292,13 +367,15 @@ sub annotate_snpfile {
 
     $ratiosAndQcHref = $self->{_statisticsHandler}->makeRatios($allStatisticsHref);
 
-    $self->{_statisticsHandler}->printStatistics($ratiosAndQcHref, $self->{_tempOutPath} || $self->outputFilePath);
+    $self->{_statisticsHandler}->printStatistics( $ratiosAndQcHref, $self->temp_dir || $self->{_outDir} );
   }
 
   ################ Compress if wanted ##########
-  $self->_cleanUpFiles();
+  $self->_moveFilesToFinalDestinationAndDeleteTemp();
 
-  return (undef, $ratiosAndQcHref);
+  return (undef, $ratiosAndQcHref, {
+
+  });
 }
 
 sub logProgressAndStatistics {
@@ -518,50 +595,55 @@ sub finishAnnotatingLines {
   return '';
 }
 
-sub _cleanUpFiles {
+sub _moveFilesToFinalDestinationAndDeleteTemp {
   my $self = shift;
 
-  my $source;
+  my $compressErr;
 
   if($self->compress) {
-    $source = $self->compressPath( $self->{_tempOutPath} || $self->out_file);
+    $compressErr = $self->compressDirIntoTarball(
+      $self->temp_dir || $self->{_outDir}, $self->outputFilesInfo->{compressed} );
+
+    if($compressErr) {
+      return $self->_errorWithCleanup("Failed to compress output files because: $compressErr");
+    }
   }
 
-  my $finalDestination;
+  my $finalDestination = $self->{_outDir};
 
   if($self->temp_dir) {
-    $self->log('info', 'Moving output file to final destination on NFS (EFS) or S3');
+    my $mvCommand = $self->delete_temp ? 'mv' : 'cp';
+    
+    $self->log('info', "Putting output file into final destination on EFS or S3 using $mvCommand");
 
     my $result;
 
-    if($source) {
-      my $compressedFileName = path($source)->basename;
-
-      if(-e $source) {
-        $finalDestination = $self->out_file->parent->child($compressedFileName);
-        $result = system("mv $source $finalDestination");
-      }
+    if($self->compress) {
+      my $sourcePath = $self->temp_dir->child( $self->outputFilesInfo->{compressed} )->stringify;
+      $result = system("$mvCommand $sourcePath $finalDestination");
       
     } else {
-      $finalDestination = $self->out_file->parent;
-      if(-e $self->tempPath) {
-        $result = system("mv " . $self->tempPath . "/* $finalDestination");
-      }
+      $result = system("$mvCommand " . $self->tempPath . "/* $finalDestination");
     }
 
-    $self->temp_dir->remove_tree;
-    
+    if($self->delete_temp) {
+      $self->temp_dir->remove_tree;
+    }
+  
     # System returns 0 unless error
     if($result) {
-      return $self->_errorWithCleanup("Failed to move file to final destination");
+      return $self->_errorWithCleanup("Failed to $mvCommand file to final destination");
     }
 
-    $self->log("info", 'Moved outputs into final destination');
+    $self->log("info", "Successfully used $mvCommand to place outputs into final destination");
   }
 
   return '';
 }
 
+sub _getAllPaths {
+  my $self = shift;
+}
 # This function is expected to run within a fork, so itself it doesn't clean up 
 # files
 # TODO: better error handling

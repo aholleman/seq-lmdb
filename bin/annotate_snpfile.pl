@@ -10,6 +10,8 @@ use DDP;
 
 my $app = Interface->new_with_options();
 
+say "app is";
+p $app;
 $app->annotate;
 =head1 NAME
 

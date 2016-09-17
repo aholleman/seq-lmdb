@@ -20,6 +20,8 @@ use DDP;
 use Seq::Output::Delimiters;
 use MCE::Loop;
 
+use Scalar::Util qw/looks_like_number/;
+
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
 has annotated_file_path => (is => 'ro', isa => AbsFile, coerce => 1, required => 1);
@@ -44,6 +46,8 @@ has type_name => (is => 'ro', required => 1);
 has dry_run_insertions => (is => 'ro');
 
 has commit_every => (is => 'ro', default => 5000);
+
+
 
 sub go {
   my $self = shift; $self->log( 'info', 'Beginning indexing' );
@@ -90,15 +94,15 @@ sub go {
     chunk_size => 8192,
   };
 
+  my $es = Search::Elasticsearch->new(nodes => [
+    '172.31.62.32:9200',
+  ]);
+
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
     my @lines;
-
-    my $es = Search::Elasticsearch->new(nodes => [
-      '172.31.62.32:9200',
-    ]);
-
+    
     my $bulk = $es->bulk_helper(
       index       => $self->index_name,
       type        => $self->type_name,
@@ -140,11 +144,22 @@ sub go {
               next;
             }
 
-            if(!defined $uniq{$fieldValue}) {
-              push @array, $fieldValue;
+            # Not worrying about de-deduplication; this makes the index
+            # much less useful; cannot reproduce the exact annotation if we do that
+            # if(!defined $uniq{$fieldValue}) {
+            #   if(looks_like_number($fieldValue) ) {
+            #     $fieldValue += 0;
+            #   }
 
-              $uniq{$fieldValue} = 1;
+            #   push @array, $fieldValue;
+
+            #   $uniq{$fieldValue} = 1;
+            # }
+            if(looks_like_number($fieldValue) ) {
+              $fieldValue += 0;
             }
+
+            push @array, $fieldValue;
           }
 
           # Field may be undef
@@ -161,11 +176,20 @@ sub go {
                 next;
               }
 
-              if(!defined $uniq{$fieldValue}) {
-                push @array, $fieldValue;
+              # if(!defined $uniq{$fieldValue}) {
+              #   if(looks_like_number($fieldValue) ) {
+              #     $fieldValue += 0;
+              #   }
 
-                $uniq{$fieldValue} = 1;
+              #   push @array, $fieldValue;
+
+              #   $uniq{$fieldValue} = 1;
+              # }
+              if(looks_like_number($fieldValue) ) {
+                $fieldValue += 0;
               }
+
+              push @array, $fieldValue;
             }
 
             # This could lead to a nested array where some of the values are undef
@@ -183,13 +207,21 @@ sub go {
           next;
         }
 
-        _populateHashPath(\%rowDocument, [ ref $paths[$colIdx] ? @{ $paths[$colIdx] } : $paths[$colIdx] ], $field);
+        if(looks_like_number($field) ) {
+          $field += 0;
+        }
 
-       push @indexed, \%rowDocument;
+        _populateHashPath(\%rowDocument, [ ref $paths[$colIdx] ? @{ $paths[$colIdx] } : $paths[$colIdx] ], $field);
 
        $colIdx++;
       }
+
+      push @indexed, \%rowDocument;
     }
+
+    say "indexed is";
+    p @indexed;
+
     $bulk->create_docs(@indexed);
     $bulk->flush;
   } $fh;
@@ -226,24 +258,6 @@ sub _populateHashPath {
   
   return;
 }
-
-sub BUILDARGS {
-  my ($self, $data) = @_;
-
-  if($data->{temp_dir} ) {
-    # It's a string, convert to path
-    if(!ref $data->{temp_dir}) {
-      $data->{temp_dir} = path($data->{temp_dir});
-    }
-
-    $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
-  }
-
-  $data->{out_file} .= '.annotated.tab';
-  $data->{logPath} .= '.annotation.log';
-  
-  return $data;
-};
 
 sub BUILD {
   my $self = shift;

@@ -155,7 +155,7 @@ sub BUILD {
   }
 
   # If this is 1st time we execute initialize, must have tracks configuration
-  if(! @{$self->tracks} ) {
+  if(!$self->tracks || !@{$self->tracks} ) {
     $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
   }
 

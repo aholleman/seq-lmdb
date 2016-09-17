@@ -9,6 +9,8 @@ use Sort::XS;
 use Seq::Tracks;
 use DDP;
 use List::Util qw/reduce/;
+use Path::Tiny;
+use Types::Path::Tiny qw/AbsDir/;
 
 with 'Seq::Role::ConfigFromFile', 'Seq::Role::IO';
 
@@ -22,6 +24,8 @@ has snp_track => (is => 'ro', isa => 'Str', required => 1);
 has heterozygoteIdsKey =>  (is => 'ro', isa => 'Str', required => 1);
 has homozygoteIdsKey =>  (is => 'ro', isa => 'Str', required => 1);
 has minorAllelesKey => (is => 'ro', isa => 'Str', required => 1);
+
+has outputFileBaseName => (is => 'ro', isa => 'Str', required => 1);
 
 my %transitionGenos = (AG => 1, GA => 1, CT => 1, TC => 1);
 
@@ -392,22 +396,28 @@ sub makeRatios {
 }
 
 sub printStatistics {
-  my ($self, $statsHref, $outputFilePath) = @_;
+  my ($self, $statsHref, $outDir) = @_;
 
   if(!$statsHref || !%$statsHref) {
     return;
+  }
+
+  if(!ref $outDir) {
+    $outDir = path($outDir);
   }
 
   my $ratiosHref = $statsHref->{ratios};
   my @outputOrder = @{ $statsHref->{ratiosOutputOrder} };
   my $qcHref = $statsHref->{qc};
 
-  my $ratiosExt = '.stats.ratios.tab';
-  my $qcExt = '.stats.qc.tab';
+  my $paths = $self->getOutputBaseNames();
 
   ######################## Print ratios ############################
 
-  my $fh = $self->get_write_fh($outputFilePath . $ratiosExt);
+  say "statistics paths are";
+  p $paths;
+
+  my $fh = $self->get_write_fh( $outDir->child( $paths->{ratios} ) );
 
   # The first cell is blank or call it Sample
   say $fh join("\t", "Sample", @outputOrder);
@@ -419,7 +429,7 @@ sub printStatistics {
   close $fh;
 
   ###################### Print Quality Contorl Information #####################
-  $fh = $self->get_write_fh($outputFilePath . $qcExt);
+  $fh = $self->get_write_fh( $outDir->child( $paths->{qc} ) );
 
   foreach ( keys %{$qcHref->{stats} } ) {
     say $fh "$_\t$qcHref->{stats}{$_}";
@@ -437,6 +447,15 @@ sub printStatistics {
   }
 }
 
+sub getOutputBaseNames {
+  my $self = shift;
+
+  return {
+    ratios => $self->outputFileBaseName . '.stats.ratios.tab',
+    qc => $self->outputFileBaseName . '.stats.qc.tab',
+  }
+}
+
 #https://edwards.sdsu.edu/research/calculating-the-average-and-standard-deviation/
 sub _mean {
   my($self, $data) = @_;
@@ -451,6 +470,7 @@ sub _mean {
   my $average = $total / @$data;
   return $average;
 }
+
 sub _stDev{
   my($self, $data, $average) = @_;
   if(@$data == 1) {
@@ -468,5 +488,6 @@ sub _stDev{
   my $std = ($sqtotal / (@$data-1)) ** 0.5;
   return $std;
 }
+
 __PACKAGE__->meta->make_immutable;
 1;
