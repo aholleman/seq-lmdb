@@ -24,10 +24,8 @@ use Scalar::Util qw/looks_like_number/;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
-has annotated_file_path => (is => 'ro', isa => AbsFile, coerce => 1, required => 1);
-
-has temp_dir => ( is => 'rw', isa => AbsDir, coerce => 1,
-  handles => { tempPath => 'stringify' });
+has annotatedFilePath => (is => 'ro', isa => AbsFile, coerce => 1,
+  writer => '_setAnnotatedFilePath');
 
 has publisher => (is => 'ro');
 
@@ -38,23 +36,39 @@ has debug => (is => 'ro');
 has verbose => (is => 'ro');
 
 # Probably the user id
-has index_name => (is => 'ro', required => 1);
+has indexName => (is => 'ro', required => 1);
 
-# Probably the job id
-has type_name => (is => 'ro', required => 1);
+# The index type; probably the job id
+has type => (is => 'ro', required => 1);
 
-has dry_run_insertions => (is => 'ro');
+has dryRunInsertions => (is => 'ro');
 
-has commit_every => (is => 'ro', default => 5000);
+has commitEvery => (is => 'ro', default => 5000);
 
+# If inputFileNames provided, inputDir is required
+has inputDir => (is => 'ro', isa => AbsDir, coerce => 1);
+
+#@ params
+# <Object> filePaths @params:
+  # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
+  # <String> converted : the name of the converted folder
+  # <String> annnotation : the name of the annotation file
+  # <String> log : the name of the log file
+  # <Object> stats : the { statType => statFileName } object
+# Allows us to use all to to extract just the file we're interested from the compressed tarball
+has inputFileNames => (is => 'ro', isa => 'HashRef');
 
 
 sub go {
   my $self = shift; $self->log( 'info', 'Beginning indexing' );
 
-  (my $err, undef, my $fh) = $self->get_read_fh($self->annotated_file_path);
+  my ($filePath, $annotationFileInCompressed) = $self->_getFilePath();
 
+  (my $err, undef, my $fh) = $self->get_read_fh($filePath,, $annotationFileInCompressed);
+  
   if($err) {
+    #TODO: should we report $err? less informative, but sometimes $! reports bull
+    #i.e inappropriate ioctl when actually no issue
     $self->_errorWithCleanup($!);
     return ($!, undef);
   }
@@ -67,13 +81,14 @@ sub go {
 
   chomp $firstLine;
   
-  my @paths;
+  my @headerFields;
   if ( $firstLine =~ m/$taint_check_regex/xm ) {
-    @paths = split $fieldSeparator, $1;
+    @headerFields = split $fieldSeparator, $1;
   } else {
     return ("First line of input file has illegal characters", undef);
   }
 
+  my @paths = @headerFields;
   for (my $i = 0; $i < @paths; $i++) {
     if( index($paths[$i], '.') > -1 ) {
       $paths[$i] = [ split(/\./, $paths[$i]) ];
@@ -86,8 +101,6 @@ sub go {
 
   # Todo implement tain check; default taint check doesn't work for annotated files
   $taint_check_regex = qr/./;
-
-  my $commitEvery = $self->commit_every;
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
@@ -104,9 +117,9 @@ sub go {
     my @lines;
     
     my $bulk = $es->bulk_helper(
-      index       => $self->index_name,
-      type        => $self->type_name,
-      max_count   => $self->commit_every,
+      index       => $self->indexName,
+      type        => $self->type,
+      max_count   => $self->commitEvery,
       max_size    => 10e6,
       on_error    => sub {
         my ($action,$response,$i) = @_;
@@ -228,8 +241,8 @@ sub go {
 
   # my $result = $bulk->flush;
 
-  say "finished indexing";
   $self->log('info', "finished indexing");
+  return (undef, \@headerFields);
 }
 
 sub _populateHashPath {
@@ -259,6 +272,32 @@ sub _populateHashPath {
   return;
 }
 
+sub _getFilePath {
+  my $self = shift;
+
+  if($self->inputFileNames && $self->inputDir) {
+    # The user wants us to make the annotation_file_path
+    if(defined $self->inputFileNames->{compressed}) {
+      # The user had compressed this file (see Seq.pm)
+      # This is expected to be a tarball, which we will extract, but only
+      # to stream the annotation file within the tarball package
+      my $path = $self->inputDir->child($self->inputFileNames->{compressed});
+
+      return ($path, $self->inputFileNames->{annotation})
+    }
+
+    say "in _getFilePath inputFileNames";
+    p $self->inputFileNames;
+    p $self->inputDir;
+
+    my $path = $self->inputDir->child($self->inputFileNames->{annotation});
+
+    return ($path, undef);
+  }
+
+  return $self->annotatedFilePath;
+}
+
 sub BUILD {
   my $self = shift;
 
@@ -282,11 +321,38 @@ sub BUILD {
   }
 
   #todo: finisih ;for now we have only one level
-  if ( $self->debug) {
+  if ($self->debug) {
     $self->setLogLevel('DEBUG');
   } else {
     $self->setLogLevel('INFO');
   }
+
+  if(defined $self->inputFileNames && !defined $self->inputDir) {
+    $self->log('warn', "If inputFileNames provided, inputDir required");
+    return ("If inputFileNames provided, inputDir required", undef);
+  }
+
+  if(!defined $self->inputFileNames->{compressed}
+  && !defined $self->inputFileNames->{annnotation}  ) {
+    $self->log('warn', "annotation key required in inputFileNames when compressed key has a value");
+    return ("annotation key required in inputFileNames when compressed key has a value", undef);
+  }
+
+  if(!defined $self->inputFileNames && !defined $self->annotatedFilePath) {
+    $self->log('warn', "if inputFileNames not provided, annotatedFilePath must be passed");
+    return ("if inputFileNames not provided, annotatedFilePath must be passed", undef);
+  }
+}
+
+sub _errorWithCleanup {
+  my ($self, $msg) = @_;
+
+  # To send a message to clean up files.
+  # TODO: Need somethign better
+  #MCE->gather(undef, undef, $msg);
+  
+  $self->log('warn', $msg);
+  return $msg;
 }
 
 __PACKAGE__->meta->make_immutable;

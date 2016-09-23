@@ -59,7 +59,7 @@ has delete_temp => (is => 'ro', default => 1);
 has _outputFileBaseName => (is => 'ro', init_arg => undef);
 #@ params
 # <Object> filePaths @params:
-  # <String> compressed : the path to the compressed folder holding annotation, stats, etc (only if $self->compress)
+  # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
   # <String> converted : the name of the converted folder
   # <String> annnotation : the name of the annotation file
   # <String> log : the name of the log file
@@ -111,9 +111,6 @@ sub BUILD {
   # We MUST make sure everything is written to the database by this point
   $self->{_db}->setReadOnly(1);
 
-  say "tracks are";
-  p $self->tracks;
-
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
   # We separate out the reference track getter so that we can check for discordant
@@ -129,8 +126,6 @@ sub BUILD {
 
   $self->{_outDir} = $self->out_file->parent();
 
-  say "out dir is";
-  p $self->{_outDir};
   ############################# Handle Temp Dir ################################
   
   # If we specify temp_dir, user data will be written here first, then moved to the
@@ -168,11 +163,6 @@ sub BUILD {
     $self->outputFilesInfo->{stats} = $self->{_statisticsHandler}->getOutputBaseNames();
   }
 
-  say "past statistics";
-   # debug 
-  say "outPaths are";
-  p $self->outputFilesInfo;
-
   ################### Creates the output file handler #################
   $self->{outputter} = Seq::Output->new();  
 
@@ -184,6 +174,8 @@ sub BUILD {
   $self->setSnpFile($updatedOrOriginalSnpFilePath);
 }
 
+# TODO: maybe clarify interface; do we really want to return stats and outputFilesInfo
+# or just make those public attributes
 sub annotate {
   my $self = shift;
 
@@ -194,7 +186,7 @@ sub annotate {
 
   if($err) {
     $self->_errorWithCleanup($!);
-    return ($!, undef);
+    return ($!, undef, undef);
   }
   
   my $taint_check_regex = $self->taint_check_regex; 
@@ -212,7 +204,7 @@ sub annotate {
     $self->_moveFilesToFinalDestinationAndDeleteTemp();
 
     $self->_errorWithCleanup("First line of input file has illegal characters: '$firstLine'");
-    return ("First line of input file has illegal characters: '$firstLine'", undef);
+    return ("First line of input file has illegal characters: '$firstLine'", undef, undef);
   }
 
   my $inputFileProcessor = Seq::InputFile->new();
@@ -342,7 +334,7 @@ sub annotate {
 
     MCE::Loop::finish;
 
-    return ("aborted by user", undef);
+    return ("aborted by user", undef, undef);
   }
 
   if($loopErr) {
@@ -356,7 +348,7 @@ sub annotate {
     # their data
     #$self->_cleanUpFiles();
     
-    return ($loopErr, undef);
+    return ($loopErr, undef, undef);
   }
 
   ################ Finished writing file. If statistics, print those ##########
@@ -373,9 +365,7 @@ sub annotate {
   ################ Compress if wanted ##########
   $self->_moveFilesToFinalDestinationAndDeleteTemp();
 
-  return (undef, $ratiosAndQcHref, {
-
-  });
+  return (undef, $ratiosAndQcHref, $self->outputFilesInfo);
 }
 
 sub logProgressAndStatistics {

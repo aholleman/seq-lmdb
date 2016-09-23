@@ -61,10 +61,11 @@ has _compressTarballExtension => (
 );
 
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
+#@param {Str} $innerFile : if passed a tarball, we will want to stream a single file within
 #@return file handle
 
 sub get_read_fh {
-  my ( $self, $file) = @_;
+  my ( $self, $file, $innerFile) = @_;
   my $fh;
   
   if(ref $file ne 'Path::Tiny' ) {
@@ -80,22 +81,37 @@ sub get_read_fh {
   #duck type compressed files
   my $compressed = 0;
   my $err;
-  if($filePath =~ /\.gz$/) {
+  if($innerFile) {
+    # We do this because we have not built in error handling from opening streams
+    if($filePath !~ /tar.gz$/) {
+      $err = "If an inner file is passed, the annotation file path should be *.tar.gz";
+    } else {
+      $compressed = 1;
+
+      say "is tar.gz";
+
+      say "opening file using tar command";
+      say "$tar -O -xzf $filePath $innerFile";
+      open ($fh, '-|', "$tar -O -xf $filePath $innerFile");
+    }
+    # If an innerFile is passed, we assume that $file is a path to a tarball
+  } elsif($filePath =~ /\.gz$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    # open ($fh, '-|', "$gzip -d -c $file");
+    open ($fh, '-|', "$gzip -d -c $filePath");
 
-    open($fh, "<:gzip", $filePath);
+    # open($fh, "<:gzip", $filePath);
   } elsif($filePath =~ /\.zip$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    # open ($fh, '-|', "$gzip -d -c $file");
+    open ($fh, '-|', "$gzip -d -c $filePath");
     
-    open($fh, "<:gzip(none)", $filePath);
+    # open($fh, "<:gzip(none)", $filePath);
   } else {
-    open($fh, '<:unix', "$filePath");
+    # open($fh, '<:unix', "$filePath");
+    open ($fh, '-|', "cat $filePath");
   };
 
   if(!$fh) {

@@ -27,15 +27,7 @@ use Beanstalk::Client;
 
 use YAML::XS qw/LoadFile/;
 
-use Seq;
-# use AnyEvent;
-# use AnyEvent::PocketIO::Client;
-#use Sys::Info;
-#use Sys::Info::Constants qw( :device_cpu )
-#for choosing max connections based on available resources
-
-# max of 1 job at a time for now
-my $pm = Parallel::ForkManager->new(1);
+use SeqElastic;
 
 my $DEBUG = 0;
 my $conf = LoadFile('./config/queue.yaml');
@@ -44,16 +36,9 @@ my $conf = LoadFile('./config/queue.yaml');
 my $beanstalkHost  = $conf->{beanstalk_host_1};
 my $beanstalkPort  = $conf->{beanstalk_port_1};
 
-# for jobID specific pings
-# my $annotationStatusChannelBase  = 'annotationStatus:';
-
-# these keys should match the corresponding fields in the web server
-# mongoose schema; TODO: at startup request file from webserver with this config
-my $jobKeys = {};
-$jobKeys->{inputFilePath}    = 'inputFilePath';
-$jobKeys->{outputFilePath} = 'outputBasePath';
-$jobKeys->{assembly}       = 'assembly';
-$jobKeys->{options}       = 'options';
+# Required fields
+# The annotation_file_path is constructed from inputDir, inputFileNames by SeqElastic
+my @requiredJobFields = qw/indexName type inputDir inputFileNames/;
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -62,7 +47,7 @@ my $verbose = $ARGV[0];
 
 my $beanstalk = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-  default_tube => $conf->{beanstalkd}{tubes}{annotation}{submission},
+  default_tube => $conf->{beanstalkd}{tubes}{index}{submission},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
@@ -70,7 +55,7 @@ my $beanstalk = Beanstalk::Client->new({
 
 my $beanstalkEvents = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-  default_tube => $conf->{beanstalkd}{tubes}{annotation}{events},
+  default_tube => $conf->{beanstalkd}{tubes}{index}{events},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
@@ -84,7 +69,7 @@ while(my $job = $beanstalk->reserve) {
   # prevents anything within the try from executing
   
   my $jobDataHref;
-  my ($err, $statistics, $outputFileNamesHashRef);
+  my ($err, $fieldNames);
 
   try {
     $jobDataHref = decode_json( $job->data );
@@ -95,7 +80,7 @@ while(my $job = $beanstalk->reserve) {
       queueId => $job->id,
     }  } );
 
-    ($err, $statistics, $outputFileNamesHashRef) = handleJob($jobDataHref, $job->id);
+    ($err, $fieldNames) = handleJob($jobDataHref, $job->id);
   
   } catch {
     say "job ". $job->id . " failed due to $_";
@@ -124,15 +109,12 @@ while(my $job = $beanstalk->reserve) {
     event => 'completed',
     queueId => $job->id,
     # jobId   => $jobDataHref->{_id},
-    results  => {
-      summary => $statistics,
-      outputFileNames => $outputFileNamesHashRef,
-    }
+    fieldNames => $fieldNames,
   }) } );
   
-  say "completed job with queue id " . $job->id;
-
   $beanstalk->delete($job->id);
+
+  say "completed job with queue id " . $job->id;
 }
  
 sub handleJob {
@@ -144,22 +126,23 @@ sub handleJob {
   say "in handle job, jobData is";
   p $submittedJob;
 
-  my $jobID = $submittedJob->{id};
+  my ($err, $inputHref) = coerceInputs($submittedJob);
 
-  say "jobID is $jobID";
+  if($err) {
+    say STDERR $err;
+    return ($err, undef);
+  }
 
-  my $log_name = join '.', 'annotation', 'jobID', $jobID, 'log';
-  my $log_file = File::Spec->rel2abs( ".", $log_name );
-  
-  say "writing beanstalk queue log file here: $log_file" if $verbose;
-  
-  Log::Any::Adapter->set( 'File', $log_file );
-  
-  my $log = Log::Any->get_logger();
+  say "$inputHref is";
+  p $inputHref;
 
-  my $inputHref;
+  my $log_name = join '.', 'index', 'indexName', $inputHref->{indexName}, 'log';
+  my $logPath = File::Spec->rel2abs( ".", $log_name );
   
-  $inputHref = coerceInputs($submittedJob, $queueId);
+  say "writing beanstalk queue log file here: $logPath" if $verbose;
+    
+  $inputHref->{logPath} = $logPath;
+  $inputHref->{verbose} = $verbose;
 
   if ($verbose) {
     say "The user job data sent to annotator is: ";
@@ -167,47 +150,23 @@ sub handleJob {
   }
 
   # create the annotator
-  my $annotate_instance = Seq->new_with_config($inputHref);
+  my $indexer = SeqElastic->new($inputHref);
   
-  return $annotate_instance->annotate;
+  return $indexer->go;
 }
 
 #Here we may wish to read a json or yaml file containing argument mappings
 sub coerceInputs {
   my $jobDetailsHref = shift;
-  my $queueId = shift;
 
-  my $inputFilePath  = $jobDetailsHref->{ $jobKeys->{inputFilePath} };
-  my $outputFilePath = $jobDetailsHref->{ $jobKeys->{outputFilePath} };
-  my $debug          = $DEBUG;                                        #not, not!
-
-  my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
-
-  my $deleteTemp = 1;
-
-  if( $jobDetailsHref->{options}{index} ) {
-    $deleteTemp = 0;
+  for my $fieldName (@requiredJobFields) {
+    if(!defined $jobDetailsHref->{$fieldName}) {
+      say STDERR "$fieldName required";
+      return ("$fieldName required", undef);
+    }
   }
 
-  return {
-    snpfile            => $inputFilePath,
-    out_file           => $outputFilePath,
-    config             => $configFilePath,
-    ignore_unknown_chr => 1,
-    publisher => {
-      server => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-      queue  => $conf->{beanstalkd}{tubes}{annotation}{events},
-      messageBase => {
-        event => 'progress',
-        queueId => $queueId,
-        data => undef,
-      }
-    },
-    compress => 1,
-    verbose => $verbose,
-    run_statistics => 1,
-    delete_temp => $deleteTemp
-  };
+  return (undef, $jobDetailsHref);
 }
 
 sub getConfigFilePath {
