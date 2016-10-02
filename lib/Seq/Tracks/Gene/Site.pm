@@ -53,29 +53,6 @@ has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
 has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
 has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
 
-state $siteTypeKey = 'siteType';
-state $strandKey = 'strand';
-state $codonNumberKey = 'referenceCodonNumber';
-state $codonPositionKey = 'referenceCodonPosition';
-state $codonSequenceKey = 'referenceCodon';
-
-has siteTypeKey => (is => 'ro', init_arg => undef, lazy => 1, default => $siteTypeKey);
-has strandKey => (is => 'ro', init_arg => undef, lazy => 1, default => $strandKey);
-has codonNumberKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonNumberKey);
-has codonPositionKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonPositionKey);
-has codonSequenceKey => (is => 'ro', init_arg => undef, lazy => 1, default => $codonSequenceKey);
-
-sub allKeys { 
-  return ($siteTypeKey, $strandKey, $codonNumberKey, $codonPositionKey, $codonSequenceKey); 
-}
-
-# Not including the txNumberKey;  this is separate from the annotations, which is 
-# what these keys represent
-state $keysMap = { 0 => $strandKey, 1 => $siteTypeKey, 2 => $codonNumberKey, 
-  3 => $codonPositionKey, 4 => $codonSequenceKey };
-
-has keysMap => ( is => 'ro', init_arg => undef, lazy => 1, default => sub{ $keysMap } );
-
 #pack strands as small integers, save a byte in messagepack
 state $strandMap = { '-' => 0, '+' => 1, };
 

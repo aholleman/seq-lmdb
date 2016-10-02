@@ -20,12 +20,19 @@ has outputDataFields => (
   writer => 'setOutputDataFieldsWanted',
 );
 
+has delimiters => (is => 'ro', isa => 'Seq::Output::Delimiters', default => sub {
+  return Seq::Output::Delimiters->new();
+});
+
 sub BUILD {
   my $self = shift;
   my $delimiters = Seq::Output::Delimiters->new();
 
-  $self->{_primaryDelim} = $delimiters->primaryDelimiter;
-  $self->{_secondaryDelimiter} = $delimiters->secondaryDelimiter;
+  # To try to avoid accessor penalty; 
+  # These may be called hundreds of millions of times
+  $self->{_primaryDelimiter} = $self->delimiters->primaryDelimiter;
+  $self->{_secondaryDelimiter} = $self->delimiters->secondaryDelimiter;
+  $self->{_fieldSeparator} = $self->delimiters->fieldSeparator;
 }
 
 # ABSTRACT: Knows how to make an output string
@@ -43,8 +50,9 @@ sub makeOutputString {
   my $outStr = '';
   my $count = 1;
 
-  my $primaryDelim = $self->{_primaryDelim};
+  my $primaryDelim = $self->{_primaryDelimiter};
   my $secondDelim = $self->{_secondaryDelimiter};
+  my $fieldSeparator = $self->{_fieldSeparator};
 
   for my $href (@$outputDataAref) {
     
@@ -174,7 +182,7 @@ sub makeOutputString {
       push @singleLineOutput, $accum;
     }
 
-    $outStr .= join("\t", @singleLineOutput) . "\n";
+    $outStr .= join($fieldSeparator, @singleLineOutput) . "\n";
   }
   
   return $outStr;

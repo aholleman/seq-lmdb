@@ -232,8 +232,8 @@ sub go {
       push @indexed, \%rowDocument;
     }
 
-    say "indexed is";
-    p @indexed;
+    # say "indexed is";
+    # p @indexed;
 
     $bulk->create_docs(@indexed);
     $bulk->flush;

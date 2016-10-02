@@ -21,14 +21,25 @@ use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
 use Seq::Tracks;
-use Seq::Statistics;
+# use Seq::Statistics;
 use Seq::DBManager;
 use Path::Tiny;
+use File::Which qw/which/;
 use Carp qw/croak/;
+
+use Cpanel::JSON::XS;
 
 extends 'Seq::Base';
 
+# We  add a few of our own annotation attributes
+# These will be re-used in the body of the annotation processor below
+# Users may configure these
+has compoundHetorzygotesIdsKey => (is => 'ro', default => 'compoundHeterozygotes');
+has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
+has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
+has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
 
+# snpfile is the input file
 has snpfile => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
   handles  => { inputFilePath => 'stringify' }, writer => 'setSnpFile');
 
@@ -41,22 +52,30 @@ has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1,
 has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1,
   handles => { tempPath => 'stringify' });
 
-# Tracks configuration hash
+# Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
 has tracks => (is => 'ro', required => 1);
 
 # The statistics package config options
+# This is by default the go program we use to calculate statistics
+has statisticsProgramPath => (is => 'ro', default => 'seqant-statistics');
+
+# The statistics configuration options, usually defined in a YAML config file
 has statistics => (is => 'ro');
 
+# Users may not need statistics
 has run_statistics => (is => 'ro', isa => 'Bool');
 
 # Do we want to compress?
 has compress => (is => 'ro');
 
+# We may not want to delete our temp files
 has delete_temp => (is => 'ro', default => 1);
 
+############################ Private ###################################
 # Constructed at build time from the out_file; this is given to other packages
 # Like the statistics package to make its output paths
 has _outputFileBaseName => (is => 'ro', init_arg => undef);
+
 #@ params
 # <Object> filePaths @params:
   # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
@@ -66,13 +85,6 @@ has _outputFileBaseName => (is => 'ro', init_arg => undef);
   # <Object> stats : the { statType => statFileName } object
 # Allows us to use all to to extract just the file we're interested from the compressed tarball
 has outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
-
-# We also add a few of our own annotation attributes
-# These will be re-used in the body of the annotation processor below
-state $heterozygoteIdsKey = 'heterozygotes';
-state $compoundIdsKey = 'compoundHeterozygotes';
-state $homozygoteIdsKey = 'homozygotes';
-state $minorAllelesKey = 'minorAlleles';
 
 with 'Seq::Role::Validator';
 
@@ -101,6 +113,12 @@ sub BUILDARGS {
 
 sub BUILD {
   my $self = shift;
+
+  # Avoid accessor lookup penalty
+  $self->{_compoundHetorzygotesIdsKey} = $self->compoundHetorzygotesIdsKey;
+  $self->{_heterozygoteIdsKey} = $self->heterozygoteIdsKey;
+  $self->{_homozygoteIdsKey} = $self->homozygoteIdsKey;
+  $self->{_minorAllelesKey} = $self->minorAllelesKey;
 
   ########### Create DBManager instance, and instantiate track singletons #########
   # Must come before statistics, which relies on a configured Seq::Tracks
@@ -143,7 +161,7 @@ sub BUILD {
     $self->{_tempOutPath} = $self->temp_dir->child( $self->out_file->basename )->stringify;
   }
 
-  ############### Set log and annotation output basenames #####################
+  ############### Set log, annotation, statistics output basenames #####################
   my $outputFileBaseName = $self->out_file->basename;
 
   $self->outputFilesInfo->{log} = path($self->logPath)->basename;
@@ -153,18 +171,16 @@ sub BUILD {
     $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
   }
 
-  ########  Handles statistics if requested at construction time #########
   if($self->run_statistics) {
-    $self->{_statisticsHandler} = Seq::Statistics->new( { %{$self->statistics}, (
-      heterozygoteIdsKey => $heterozygoteIdsKey, homozygoteIdsKey => $homozygoteIdsKey,
-      minorAllelesKey => $minorAllelesKey, outputFileBaseName => $outputFileBaseName,
-    ) } );
-
-    $self->outputFilesInfo->{stats} = $self->{_statisticsHandler}->getOutputBaseNames();
+    $self->outputFilesInfo->{statistics} = {
+      json => $outputFileBaseName . '.statistics.json',
+      tab => $outputFileBaseName . '.statistics.tab',
+      qc => $outputFileBaseName . '.statistics.qc.tab',
+    };
   }
 
   ################### Creates the output file handler #################
-  $self->{outputter} = Seq::Output->new();  
+  $self->{_outputter} = Seq::Output->new();  
 
   #################### Validate the input file ################################
   # Converts the input file if necessary
@@ -229,11 +245,11 @@ sub annotate {
 
   # Prepend these fields to the header
   $headers->addFeaturesToHeader( [$self->{_chrKey}, $self->{_positionKey},
-    $self->{_typeKey}, $heterozygoteIdsKey, $homozygoteIdsKey, $compoundIdsKey,
-    $minorAllelesKey ], undef, 1);
+    $self->{_typeKey}, $self->{_heterozygoteIdsKey}, $self->{_homozygoteIdsKey},
+    $self->{_compoundHetorzygotesIdsKey}, $self->{_minorAllelesKey} ], undef, 1);
 
   # Outputter needs to know which fields we're going to pass it
-  $self->{outputter}->setOutputDataFieldsWanted( $headers->get() );
+  $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
 
   ################## Make the full output path ######################
   # The output path always respects the $self->out_file attribute path;
@@ -248,19 +264,34 @@ sub annotate {
   # If user specified a temp output path, use that
   my $outFh = $self->get_write_fh( $outputPath );
 
+  # Stats may or may not be provided
+  my $statsFh;
+
   # Write the header
+  my $outputHeader = $headers->getString();
   say $outFh $headers->getString();
+
+  if($self->run_statistics) {
+    # Output header used to figure out the indices of the fields of interest
+    my ($err, $statsFh) = $self->_openStatsFh($outputHeader);
+
+    if($err) {
+      $self->log('warn', $err);
+      return ($err, undef, undef);
+    }
+
+    say $statsFh $outputHeader;
+  }
 
   ############# Set the sample ids ###############
   $self->{_sampleIDsToIndexesMap} = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
   $self->{_sampleIDaref} =  [ sort keys %{ $self->{_sampleIDsToIndexesMap} } ];
 
-  my $allStatisticsHref = {};
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     chunk_size => 8192,
-    gather => $self->logProgressAndStatistics($allStatisticsHref),
+    gather => $self->logProgress(),
   };
 
   # We need to know the chunk size, and only way to do that 
@@ -269,7 +300,7 @@ sub annotate {
   tie my $loopErr, 'MCE::Shared', '';
 
   my $aborted;
-  # For now doesn't seem to work properly; won't allow respawn
+  # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
   # local $SIG{INT} = sub {
   #   my $message = shift;
   #   $aborted = 1;
@@ -308,10 +339,8 @@ sub annotate {
     close  $MEM_FH;
 
     if(@lines) { 
-      # Annotate lines, write the data, and MCE->Gather any statistics
-
       #TODO: implement better error handling
-      my $err = $self->annotateLines(\@lines, $outFh);
+      my $err = $self->annotateLines(\@lines, $outFh, $statsFh);
 
       if($err ne '') {
         $m1->synchronize( sub { $loopErr = $err });
@@ -320,7 +349,7 @@ sub annotate {
     }
     
     # Write progress
-    MCE->gather(undef, $lineCount);
+    MCE->gather($lineCount);
   } $fh;
 
   # abortion code needs to happen here, because otherwise LMDB won't get a chance
@@ -352,25 +381,36 @@ sub annotate {
   }
 
   ################ Finished writing file. If statistics, print those ##########
-  my $ratiosAndQcHref;
+  my $statsHref;
+  if($self->run_statistics) {
+    # Force the stats program to write its outputs
+    close($statsFh);
 
-  if($self->{_statisticsHandler}) {
-    $self->log('info', "Gathering and printing statistics");
+    $self->log('info', "Gathering statistics");
 
-    $ratiosAndQcHref = $self->{_statisticsHandler}->makeRatios($allStatisticsHref);
+    my $jsonFh;
+    if( open($jsonFh, "<", $self->outputFilesInfo->{statistics}{json}) ) {
+      # $! will hold the error if there is a return value
 
-    $self->{_statisticsHandler}->printStatistics( $ratiosAndQcHref, $self->temp_dir || $self->{_outDir} );
+      # Don't kill the job, they won't get the statistics, but at least
+      # users can get their output data
+      $self->log('warn', $!);
+    } else {
+      # Should be a single, unterminated line, valid json
+      my $jsonStr = <$jsonFh>;
+
+      $statsHref = decode_json($jsonStr);
+    }
   }
 
   ################ Compress if wanted ##########
   $self->_moveFilesToFinalDestinationAndDeleteTemp();
 
-  return (undef, $ratiosAndQcHref, $self->outputFilesInfo);
+  return (undef, $statsHref, $self->outputFilesInfo);
 }
 
-sub logProgressAndStatistics {
+sub logProgress {
   my $self = shift;
-  my $allStatsHref = shift;
 
   #my ($total, $progress, $error) = (0, 0, '');
   # my $error = '';
@@ -379,40 +419,25 @@ sub logProgressAndStatistics {
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
-    #my ($statistics, $progress, $error) = @_;
-    ##    $_[0]         $_[1]      $_[2]
-    #We have two gather calls, one for progress, one for statistics
-    #If for statistics, $_[0] will have a value
+    #my ($progress) = @_;
+    ##    $_[0] 
 
-    # if(defined $_[2]) {
-    #   $self->_cleanUpFiles();
-    #   $self->{_db}->cleanUp();
-    #   MCE->abort;
-      
-    #   #$self->log('fatal', $_[2]);
-    # }
-
-    if(defined $_[1]) {
+    if(defined $_[0]) {
       if(!$hasPublisher) {
         return;
       }
 
-      $total += $_[1];
+      $total += $_[0];
 
       $self->publishProgress($total);
       return;
-    }
-
-    ## Handle statistics accumulation
-    if($self->{_statisticsHandler}) {
-      $self->{_statisticsHandler}->accumulateValues($allStatsHref, $_[0]);
     }
   }
 }
 
 # Accumulates data from the database, and writes an output string
 sub annotateLines {
-  my ($self, $linesAref, $outFh) = @_;
+  my ($self, $linesAref, $outFh, $statsFh) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -436,16 +461,11 @@ sub annotateLines {
         if($err ne '') {
           return $err;
         }
-        
-        # Accumulate statistics from this @output
-        if($self->{_statisticsHandler}) {
-          MCE->gather( $self->{_statisticsHandler}->countTransitionsAndTransversions(\@output) );
-        }
 
         # Accumulate the output
-        $outputString .= $self->{outputter}->makeOutputString(\@output);
+        $outputString .= $self->{_outputter}->makeOutputString(\@output);
 
-        # $self->{outputter}->indexOutput(\@output);
+        # $self->{_outputter}->indexOutput(\@output);
 
         undef @positions; undef @output; undef @inputData;
       }
@@ -481,14 +501,17 @@ sub annotateLines {
     undef @positions; undef @inputData;
   }
 
-  if($self->{_statisticsHandler}) {
-    MCE->gather( $self->{_statisticsHandler}->countTransitionsAndTransversions(\@output) );
-  }
-
   # write everything for this part
   # This should come last, makeOutputString may mutate @output
-  MCE->print($outFh, $outputString . $self->{outputter}->makeOutputString(\@output) );
-  # $self->{outputter}->indexOutput(\@output);
+  $outputString .= $self->{_outputter}->makeOutputString(\@output);
+
+  MCE->print($outFh, $outputString );
+
+  if($statsFh) {
+    MCE->print($statsFh, $outputString);
+  }
+  
+  # $self->{_outputter}->indexOutput(\@output);
   undef @output;
 
   # 0 indicates success
@@ -546,14 +569,14 @@ sub finishAnnotatingLines {
     $outAref->[$i]{$self->{_positionKey}} = $inputAref->[$i][$self->{_positionFieldIdx}];
     $outAref->[$i]{$self->{_typeKey}} = $inputAref->[$i][$self->{_typeFieldIdx}];
 
-    $outAref->[$i]{$minorAllelesKey} = $cached->{$givenRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    $outAref->[$i]{ $self->{_minorAllelesKey} } = $cached->{$givenRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
  
     ############### Gather all track data (besides reference) #################
     foreach(@{ $self->{_trackGettersExceptReference} }) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
       $outAref->[$i]{$_->name} = $_->get(
         $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}}, $outAref->[$i]{$refTrackName},
-        $outAref->[$i]{$minorAllelesKey} );
+        $outAref->[$i]{ $self->{_minorAllelesKey} } );
     };
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
@@ -568,13 +591,13 @@ sub finishAnnotatingLines {
       }
 
       if ( exists $hets{$geno} ) {
-        push @{$outAref->[$i]{$heterozygoteIdsKey} }, $id;
+        push @{$outAref->[$i]{ $self->{_heterozygoteIdsKey} } }, $id;
 
         if( index($iupac{$geno}, $inputAref->[$i][$self->{_referenceFieldIdx}] ) == -1 ) {
-          push @{ $outAref->[$i]{$compoundIdsKey} }, $id;
+          push @{ $outAref->[$i]{ $self->{_compoundHetorzygotesIdsKey} } }, $id;
         }
       } elsif( exists $homs{$geno} ) {
-        push @{ $outAref->[$i]{$homozygoteIdsKey} }, $id;
+        push @{ $outAref->[$i]{ $self->{_homozygoteIdsKey} } }, $id;
       } else {
         $self->log( 'warn', "$geno wasn't homozygous or heterozygous for sample $id" );
       }
@@ -631,9 +654,6 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
   return '';
 }
 
-sub _getAllPaths {
-  my $self = shift;
-}
 # This function is expected to run within a fork, so itself it doesn't clean up 
 # files
 # TODO: better error handling
@@ -646,6 +666,61 @@ sub _errorWithCleanup {
   
   $self->log('warn', $msg);
   return $msg;
+}
+
+sub _openStatsFh {
+  my $self = shift;
+  my $statsProg = which($self->statisticsProgramPath);
+
+  my $assembly = $self->assembly;
+
+  my $primaryDelimiter = $self->{_outputter}->delimiters->primaryDelimiter;
+  my $secondaryDelimiter = $self->{_outputter}->delimiters->secondaryDelimiter;
+  my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
+
+  my $numberHeaderLines = 1;
+
+  my $refColumnName = $self->{_refTrackGetter}->name;
+  my $alleleColumnName = $self->{_minorAllelesKey};
+  my $siteTypeColumnName = $self->statistics->{site_type_column_name};
+
+  my $homozygotesColumnName = $self->{_homozygoteIdsKey};
+  my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
+
+  my $jsonOutPath = $self->outputFilesInfo->{statistics}{json};
+  my $tabOutPath = $self->outputFilesInfo->{statistics}{tab};
+  my $qcOutPath = $self->outputFilesInfo->{statistics}{qc};
+
+  # These two are optional
+  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name} || "";
+  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name} || "";
+
+  if (! ($refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
+    && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines != 1) ) {
+    return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
+      . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
+      . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
+      . "numberHeaderLines must equal 1 for statistics", undef);
+  }
+
+  if ($statsProg == undef) {
+    return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
+  }
+
+  my $fh;
+  if( open($fh, "|-", "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
+    . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
+    . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
+    . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
+    . "-dbSNPnameColumnName $snpNameColumnName "
+    . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
+    . "-primaryDelimiter $primaryDelimiter -fieldSeparator $fieldSeparator "
+    . "-secondaryDelimiter $secondaryDelimiter -fieldSeparator $fieldSeparator") ) {
+
+    return ($!, $fh);
+  }
+
+  return (undef, $fh);
 }
 __PACKAGE__->meta->make_immutable;
 

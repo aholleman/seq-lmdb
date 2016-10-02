@@ -41,11 +41,23 @@ state $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
 state $codonMap = Seq::Tracks::Gene::Site::CodonMap->new();
 
 ### Additional "features" that we will add to our output ###
-state $refAminoAcidKey = 'referenceAminoAcid';
-state $newCodonKey = 'alleleCodon';
-state $newAminoAcidKey = 'alleleAminoAcid';
-state $txEffectsKey = 'codonEffect';
+### Users may configure these ####
 
+# These are features defined by Gene::Site, but we name them in Seq::Tracks::Gene
+# Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
+has siteTypeKey => (is => 'ro', default => 'siteType');
+has strandKey => (is => 'ro', default => 'strand');
+has codonNumberKey => (is => 'ro', default => 'codonNumber');
+has codonPositionKey => (is => 'ro', default => 'codonPosition');
+has codonSequenceKey => (is => 'ro', default => 'referenceCodon');
+
+has refAminoAcidKey => (is => 'ro', default => 'referenceAminoAcid');
+has newCodonKey => (is => 'ro', default => 'alleleCodon');
+has newAminoAcidKey => (is => 'ro', default => 'alleleAminoAcid');
+has exonicAlleleFunctionKey => (is => 'ro', default => 'exonicAlleleFunction');
+
+################################ Private ######################################
+########## The names of various features. These cannot be configured ##########
 ### Positions that aren't covered by a refSeq record are intergenic ###
 state $intergenic = 'intergenic';
 
@@ -59,13 +71,13 @@ state $stopLoss = 'stopLoss';
 state $stopGain = 'stopGain';
 state $truncated = 'truncatedCodon';
 
-state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
-state $codonSequenceKey = $siteUnpacker->codonSequenceKey;
 state $strandIdx = $siteUnpacker->strandIdx;
 state $siteTypeIdx = $siteUnpacker->siteTypeIdx;
 state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
 state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
 state $codonNumberIdx = $siteUnpacker->codonNumberIdx;
+
+state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 
 ### Set the features that we get from the Gene track region database ###
 has '+features' => (
@@ -74,9 +86,6 @@ has '+features' => (
     return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; 
   },
 );
-
-########################### Public attribute exports ###########################
-has txEffectsKey => ( is => 'ro', init_arg => undef, lazy => 1, default => sub {$txEffectsKey} );
 
 #### Add our other "features", everything we find for this site ####
 sub BUILD {
@@ -88,12 +97,27 @@ sub BUILD {
   $self->{_allJoinFieldNames} = {};
   $self->{_geneTrackRegionHref} = {};
 
+  # Avoid accessor penalties by aliasing to the $self hash
+  $self->{_siteTypeKey} = $self->siteTypeKey;
+  $self->{_refAminoAcidKey} = $self->refAminoAcidKey;
+  $self->{_newCodonKey} = $self->newCodonKey;
+  $self->{_newAminoAcidKey} = $self->newAminoAcidKey;
+  $self->{_exonicAlleleFunctionKey} = $self->exonicAlleleFunctionKey;
+  $self->{_codonSequenceKey} = $self->codonSequenceKey;
+
+  # Not including the txNumberKey;  this is separate from the annotations, which is 
+  # what these keys represent
+  
+  $self->{_keysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
+      $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
+      $codonSequenceIdx => $self->codonSequenceKey };
+
   $self->{_db} = Seq::DBManager->new();
 
   # 1 to prepend
-  $self->addFeaturesToHeader([$siteUnpacker->siteTypeKey, $txEffectsKey, $siteUnpacker->codonSequenceKey,
-    $newCodonKey, $refAminoAcidKey, $newAminoAcidKey, $siteUnpacker->codonPositionKey,
-    $siteUnpacker->codonNumberKey, $siteUnpacker->strandKey], $self->name, 1);
+  $self->addFeaturesToHeader([$self->siteTypeKey, $self->{_exonicAlleleFunctionKey}, $self->codonSequenceKey,
+    $self->{_newCodonKey}, $self->{_refAminoAcidKey}, $self->{_newAminoAcidKey}, $self->codonPositionKey,
+    $self->codonNumberKey, $self->strandKey], $self->name, 1);
 
   if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
@@ -184,10 +208,8 @@ sub get {
     }
   }
 
-  state $siteTypeKey = $siteUnpacker->siteTypeKey;
-
   if( !$txNumbers ) {
-    $out{$siteTypeKey} = $intergenic;
+    $out{$self->{_siteTypeKey}} = $intergenic;
     return \%out;
   }
 
@@ -201,16 +223,16 @@ sub get {
     for (my $i = 0; $i < @$site; $i++) {
       if($i == $codonPositionIdx){
         # We store codon position as 0-based, but people probably expect 1-based
-        push @{ $out{$siteUnpacker->keysMap->{$i} } }, $site->[$i] + 1;
+        push @{ $out{$self->{_keysMap}->{$i} } }, $site->[$i] + 1;
       } else {
-        push @{ $out{$siteUnpacker->keysMap->{$i} } }, $site->[$i];
+        push @{ $out{$self->{_keysMap}->{$i} } }, $site->[$i];
       }
     }
 
     #### Populate refAminoAcidKey; note that for a single site
     ###    we can have only one codon sequence, so not need to set array of them ###
     if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
-      push @{ $out{$refAminoAcidKey} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
+      push @{ $out{$self->{_refAminoAcidKey}} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
       $hasCodon = 1;
     }
   }
@@ -227,7 +249,7 @@ sub get {
     return \%out;
   }
 
-  # ################# Populate $transcriptEffectsKey, $newAminoAcidKey #####################
+  # ################# Populate $transcriptEffectsKey, $self->{_newAminoAcidKey} #####################
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
   
@@ -252,16 +274,16 @@ sub get {
     SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
       if(!defined $site->[ $codonPositionIdx ]){
         push @accum, undef;
-        push @{ $out{$newAminoAcidKey} }, undef;
+        push @{ $out{$self->{_newAminoAcidKey}} }, undef;
 
         next SNP_LOOP;
       }
 
-      my $refCodonSequence = $out{$codonSequenceKey}[$i];
+      my $refCodonSequence = $out{ $self->{_codonSequenceKey} }[$i];
 
       if(length($refCodonSequence) != 3) {
         push @accum, $truncated;
-        push @{ $out{$newAminoAcidKey} }, undef;
+        push @{ $out{$self->{_newAminoAcidKey}} }, undef;
         
         next SNP_LOOP;
       }
@@ -276,18 +298,18 @@ sub get {
 
       substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
 
-      push @{ $out{$newCodonKey} }, $alleleCodonSequence;
-      push @{ $out{$newAminoAcidKey} }, $codonMap->codon2aa($alleleCodonSequence);
+      push @{ $out{$self->{_newCodonKey}} }, $alleleCodonSequence;
+      push @{ $out{$self->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
 
-      if(!defined $out{$newAminoAcidKey}->[$i]) {
+      if(!defined $out{$self->{_newAminoAcidKey}}->[$i]) {
         $i++;
         next;
       }
 
       # If reference codon is same as the allele-substititued version, it's a Silent site
-      if( $codonMap->codon2aa($refCodonSequence) eq $out{$newAminoAcidKey}->[$i] ) {
+      if( $codonMap->codon2aa($refCodonSequence) eq $out{$self->{_newAminoAcidKey}}->[$i] ) {
         push @accum, $silent;
-      } elsif($out{$newAminoAcidKey}->[$i] eq '*') {
+      } elsif($out{$self->{_newAminoAcidKey}}->[$i] eq '*') {
         push @accum, $stopGain;
       } else {
         push @accum, $replacement;
@@ -297,7 +319,7 @@ sub get {
     }
 
     if(@accum) {
-      push @{ $out{$txEffectsKey} }, @accum > 1 ? \@accum : $accum[0];
+      push @{ $out{ $self->{_exonicAlleleFunctionKey} } }, @accum > 1 ? \@accum : $accum[0];
     }
   }
 

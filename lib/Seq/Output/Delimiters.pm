@@ -9,5 +9,7 @@ has primaryDelimiter => (is => 'ro', default => ';');
 
 has secondaryDelimiter => (is => 'ro', default => '|');
 
+has fieldSeparator => (is => 'ro', default => "\t");
+
 __PACKAGE__->meta->make_immutable();
 return 1;
