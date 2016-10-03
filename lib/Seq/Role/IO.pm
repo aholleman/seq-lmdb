@@ -180,9 +180,6 @@ sub compressDirIntoTarball {
     $dir = $dir->stringify;
   }
   
-  say "dir ref is ";
-  p $dir;
-
   if(!$compressedName) {
     $self->log('warn', 'must provide baseName or compressedName');
     return 'Must provide baseName or compressedName';

@@ -15,7 +15,7 @@ use namespace::autoclean;
 use DDP;
 
 use MCE::Loop;
-use MCE::Shared;
+# use MCE::Shared;
 
 use Seq::InputFile;
 use Seq::Output;
@@ -273,12 +273,14 @@ sub annotate {
 
   if($self->run_statistics) {
     # Output header used to figure out the indices of the fields of interest
-    my ($err, $statsFh) = $self->_openStatsFh($outputHeader);
+    my ($err, $statsArgs) = $self->_prepareStatsArguments();
 
     if($err) {
       $self->log('warn', $err);
       return ($err, undef, undef);
     }
+
+    open($statsFh, "|-", $statsArgs);
 
     say $statsFh $outputHeader;
   }
@@ -287,17 +289,19 @@ sub annotate {
   $self->{_sampleIDsToIndexesMap} = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
   $self->{_sampleIDaref} =  [ sort keys %{ $self->{_sampleIDsToIndexesMap} } ];
 
+  # close $statsFh;
 
+  my $loopErr = "";
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     chunk_size => 8192,
-    gather => $self->logProgress(),
+    gather => $self->logProgress(\$loopErr),
   };
 
   # We need to know the chunk size, and only way to do that 
   # Is to get it from within one worker, unless we use MCE::Core interface
-  my $m1 = MCE::Mutex->new;
-  tie my $loopErr, 'MCE::Shared', '';
+  # my $m1 = MCE::Mutex->new;
+  # tie my $loopErr, 'MCE::Shared', '';
 
   my $aborted;
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
@@ -338,35 +342,39 @@ sub annotate {
 
     close  $MEM_FH;
 
-    if(@lines) { 
+    if(@lines) {
       #TODO: implement better error handling
-      my $err = $self->annotateLines(\@lines, $outFh, $statsFh);
+      my ($err, $outputString) = $self->annotateLines(\@lines);
 
       if($err ne '') {
-        $m1->synchronize( sub { $loopErr = $err });
+        MCE->gather(undef, undef, $err);
         $mce->abort();
       }
+
+      MCE->say($outFh, $outputString);
+      MCE->say($statsFh, $outputString);
     }
     
     # Write progress
-    MCE->gather($lineCount);
+    MCE->gather(undef, $lineCount);
   } $fh;
 
+  # Not needed
   # abortion code needs to happen here, because otherwise LMDB won't get a chance
   # to close properly
-  if($aborted) {
-    say "got to aborted";
+  # if($aborted) {
+  #   say "got to aborted";
 
-    $self->temp_dir->remove_tree;
+  #   $self->temp_dir->remove_tree;
 
-    $self->{_db}->cleanUp();
+  #   $self->{_db}->cleanUp();
 
-    MCE::Loop::finish;
+  #   MCE::Loop::finish;
 
-    return ("aborted by user", undef, undef);
-  }
+  #   return ("aborted by user", undef, undef);
+  # }
 
-  if($loopErr) {
+  if($loopErr ne "") {
     $self->log('info', "error detected, removing temporary files");
 
     $self->temp_dir->remove_tree;
@@ -380,25 +388,24 @@ sub annotate {
     return ($loopErr, undef, undef);
   }
 
+  MCE::Loop::finish;
+
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
   if($self->run_statistics) {
     # Force the stats program to write its outputs
-    close($statsFh);
+    close $statsFh;
 
     $self->log('info', "Gathering statistics");
 
-    my $jsonFh;
-    if( open($jsonFh, "<", $self->outputFilesInfo->{statistics}{json}) ) {
-      # $! will hold the error if there is a return value
+    (my $status, undef, my $jsonFh) = $self->get_read_fh(
+      $self->out_file->parent->child($self->outputFilesInfo->{statistics}{json})
+    );
 
-      # Don't kill the job, they won't get the statistics, but at least
-      # users can get their output data
+    if($status) {
       $self->log('warn', $!);
     } else {
-      # Should be a single, unterminated line, valid json
       my $jsonStr = <$jsonFh>;
-
       $statsHref = decode_json($jsonStr);
     }
   }
@@ -410,7 +417,7 @@ sub annotate {
 }
 
 sub logProgress {
-  my $self = shift;
+  my ($self, $errorRef) = @_;
 
   #my ($total, $progress, $error) = (0, 0, '');
   # my $error = '';
@@ -419,25 +426,30 @@ sub logProgress {
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
-    #my ($progress) = @_;
-    ##    $_[0] 
+    #my ($outputString, $progress, $error) = @_;
+    ##    $_[0] ,       $_[1],      $_[2]
 
-    if(defined $_[0]) {
+    if(defined $_[1]) {
       if(!$hasPublisher) {
         return;
       }
 
-      $total += $_[0];
+      $total += $_[1];
 
       $self->publishProgress($total);
       return;
+    }
+
+    if(defined $_[2]) {
+      # Error, put the err back
+      $$errorRef = $_[2];
     }
   }
 }
 
 # Accumulates data from the database, and writes an output string
 sub annotateLines {
-  my ($self, $linesAref, $outFh, $statsFh) = @_;
+  my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -459,7 +471,7 @@ sub annotateLines {
         my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
-          return $err;
+          return ($err, "");
         }
 
         # Accumulate the output
@@ -495,7 +507,7 @@ sub annotateLines {
     my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
-      return $err;
+      return ($err, "");
     }
     
     undef @positions; undef @inputData;
@@ -505,18 +517,12 @@ sub annotateLines {
   # This should come last, makeOutputString may mutate @output
   $outputString .= $self->{_outputter}->makeOutputString(\@output);
 
-  MCE->print($outFh, $outputString );
-
-  if($statsFh) {
-    MCE->print($statsFh, $outputString);
-  }
-  
   # $self->{_outputter}->indexOutput(\@output);
   undef @output;
 
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return '';
+  return ("", $outputString);
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -668,9 +674,13 @@ sub _errorWithCleanup {
   return $msg;
 }
 
-sub _openStatsFh {
+sub _prepareStatsArguments {
   my $self = shift;
   my $statsProg = which($self->statisticsProgramPath);
+
+  if (!$statsProg) {
+    return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
+  }
 
   my $assembly = $self->assembly;
 
@@ -687,40 +697,30 @@ sub _openStatsFh {
   my $homozygotesColumnName = $self->{_homozygoteIdsKey};
   my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
 
-  my $jsonOutPath = $self->outputFilesInfo->{statistics}{json};
-  my $tabOutPath = $self->outputFilesInfo->{statistics}{tab};
-  my $qcOutPath = $self->outputFilesInfo->{statistics}{qc};
+  my $jsonOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{json});
+  my $tabOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{tab});
+  my $qcOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{qc});
 
   # These two are optional
   my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name} || "";
   my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name} || "";
 
   if (! ($refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-    && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines != 1) ) {
+    && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1) ) {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
       . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef);
   }
 
-  if ($statsProg == undef) {
-    return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
-  }
-
-  my $fh;
-  if( open($fh, "|-", "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
+  return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
     . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
     . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
     . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
     . "-dbSNPnameColumnName $snpNameColumnName "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter $primaryDelimiter -fieldSeparator $fieldSeparator "
-    . "-secondaryDelimiter $secondaryDelimiter -fieldSeparator $fieldSeparator") ) {
-
-    return ($!, $fh);
-  }
-
-  return (undef, $fh);
+    . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
+    . "-numberInputHeaderLines $numberHeaderLines" );
 }
 __PACKAGE__->meta->make_immutable;
 

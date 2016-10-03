@@ -96,15 +96,16 @@ while(my $job = $beanstalk->reserve) {
     }  } );
 
     ($err, $statistics, $outputFileNamesHashRef) = handleJob($jobDataHref, $job->id);
-  
   } catch {
     say "job ". $job->id . " failed due to $_";
       
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
-
   if ($err) { 
+
+    say "Got error";
+
     say "job ". $job->id . " failed due to found error, which is $err";
     
     $beanstalkEvents->put( { priority => 0, data => encode_json({

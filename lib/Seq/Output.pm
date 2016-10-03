@@ -175,7 +175,7 @@ sub makeOutputString {
           next ACCUM;
         }
 
-        $accum .= "$_$primaryDelim";
+        $accum .= $_ . $primaryDelim;
       }
 
       chop $accum;
@@ -184,7 +184,7 @@ sub makeOutputString {
 
     $outStr .= join($fieldSeparator, @singleLineOutput) . "\n";
   }
-  
+  chomp $outStr;
   return $outStr;
 }
 
