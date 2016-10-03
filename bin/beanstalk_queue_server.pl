@@ -184,12 +184,6 @@ sub coerceInputs {
 
   my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
 
-  my $deleteTemp = 1;
-
-  if( $jobDetailsHref->{options}{index} ) {
-    $deleteTemp = 0;
-  }
-
   return {
     snpfile            => $inputFilePath,
     out_file           => $outputFilePath,
@@ -207,7 +201,6 @@ sub coerceInputs {
     compress => 1,
     verbose => $verbose,
     run_statistics => 1,
-    delete_temp => $deleteTemp
   };
 }
 

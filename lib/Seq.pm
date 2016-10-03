@@ -344,15 +344,12 @@ sub annotate {
 
     if(@lines) {
       #TODO: implement better error handling
-      my ($err, $outputString) = $self->annotateLines(\@lines);
+      my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
 
       if($err ne '') {
         MCE->gather(undef, undef, $err);
         $mce->abort();
       }
-
-      MCE->say($outFh, $outputString);
-      MCE->say($statsFh, $outputString);
     }
     
     # Write progress
@@ -448,8 +445,8 @@ sub logProgress {
 }
 
 # Accumulates data from the database, and writes an output string
-sub annotateLines {
-  my ($self, $linesAref) = @_;
+sub annotateLinesAndPrint {
+  my ($self, $linesAref, $outFh, $statsFh) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -471,7 +468,7 @@ sub annotateLines {
         my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
-          return ($err, "");
+          return $err;
         }
 
         # Accumulate the output
@@ -517,12 +514,18 @@ sub annotateLines {
   # This should come last, makeOutputString may mutate @output
   $outputString .= $self->{_outputter}->makeOutputString(\@output);
 
+  # Needs to be say I believe
+  # I seem to have more issues with closing the statsFh with print ; buffering?
+  # Could have been placebo
+  MCE->say($outFh, $outputString);
+  MCE->say($statsFh, $outputString);
+
   # $self->{_outputter}->indexOutput(\@output);
   undef @output;
 
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return ("", $outputString);
+  return "";
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -697,9 +700,10 @@ sub _prepareStatsArguments {
   my $homozygotesColumnName = $self->{_homozygoteIdsKey};
   my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
 
-  my $jsonOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{json});
-  my $tabOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{tab});
-  my $qcOutPath = $self->out_file->parent->child($self->outputFilesInfo->{statistics}{qc});
+  my $dir = $self->out_file->parent;
+  my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
+  my $tabOutPath = $dir->parent->child($self->outputFilesInfo->{statistics}{tab});
+  my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
 
   # These two are optional
   my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name} || "";
