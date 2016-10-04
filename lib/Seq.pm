@@ -482,9 +482,9 @@ sub annotateLinesAndPrint {
       $wantedChr = $fieldsAref->[$self->{_chrFieldIdx}];
     }
 
-    if( $fieldsAref->[$self->{_referenceFieldIdx}] eq $fieldsAref->[$self->{_alleleFieldIdx}] ) {
-      next;
-    }
+    # if($fieldsAref->[$self->{_referenceFieldIdx}] eq $fieldsAref->[$self->{_alleleFieldIdx}]) {
+    #   next;
+    # }
   
     #push the 1-based poisition in the input file into our accumulator
     #store the position of 0-based, because our database is 0-based
@@ -542,8 +542,11 @@ sub finishAnnotatingLines {
   my $refTrackName = $self->{_refTrackGetter}->name;
 
   # Cache $alleles; even in long running process this is desirable
-  state $cached;
-  
+  if(!defined $self->{_cached}) {
+    $self->{_cached} = {};
+  }
+
+  # my $discordant = 0;
   for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] not found. Wrong assembly?");
@@ -552,63 +555,81 @@ sub finishAnnotatingLines {
     $outAref->[$i]{$refTrackName} = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]);
 
     # The reference base we found on this line in the input file
-    my $givenRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
+    # Avoiding the assignment cost, commented out
+    # my $givenRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
 
     # May not match the reference assembly
     # TODO: What should we do with discordant sites?
-    if( $outAref->[$i]{$refTrackName} ne $givenRef) {
-      next;
-      #$self->log('warn', "Reference discordant @ $inputAref->[$i][$self->{_chrFieldIdx}]\:$inputAref->[$i][$self->{_positionFieldIdx}]");
-    }
+    # if( $outAref->[$i]{$refTrackName} ne $inputAref->[$i][$self->{_referenceFieldIdx}]) {
+    #   next;
+    #   #$self->log('warn', "Reference discordant @ $inputAref->[$i][$self->{_chrFieldIdx}]\:$inputAref->[$i][$self->{_positionFieldIdx}]");
+    # }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
-    if(!defined $cached->{$givenRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] } ) {
+    # Use the reference assembly we have, ignore the oen provided by the input #
+    if(!defined $self->{_cached}{$outAref->[$i]{$refTrackName}}{$inputAref->[$i][$self->{_alleleFieldIdx}]}) {
       my @alleles;
-      for my $allele ( split(',', $inputAref->[$i][$self->{_alleleFieldIdx}] ) ) {
-        if($allele ne $givenRef) { push @alleles, $allele; }
+      for my $allele (split(',', $inputAref->[$i][$self->{_alleleFieldIdx}])) {
+        if($allele ne $outAref->[$i]{$refTrackName}) {
+          push @alleles, $allele;
+        }
       }
 
-      # If have only one allele, pass on only one allele
-      $cached->{$givenRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = @alleles == 1 ? $alleles[0] : \@alleles;
+      if(@alleles == 1) {
+        $self->{_cached}{$outAref->[$i]{$refTrackName}}
+         ->{$inputAref->[$i][$self->{_alleleFieldIdx}]} = $alleles[0];
+      } else {
+        $self->{_cached}{$outAref->[$i]{$refTrackName}}
+         ->{$inputAref->[$i][$self->{_alleleFieldIdx}]} = \@alleles;
+      }
     }
 
     ############# Store chr, position, alleles, type, and minor alleles ###############
-
     $outAref->[$i]{$self->{_chrKey}} = $inputAref->[$i][$self->{_chrFieldIdx}];
     $outAref->[$i]{$self->{_positionKey}} = $inputAref->[$i][$self->{_positionFieldIdx}];
     $outAref->[$i]{$self->{_typeKey}} = $inputAref->[$i][$self->{_typeFieldIdx}];
-
-    $outAref->[$i]{ $self->{_minorAllelesKey} } = $cached->{$givenRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    $outAref->[$i]{$self->{_minorAllelesKey}} = $self->{_cached}{$outAref->[$i]{$refTrackName}}
+                                                ->{$inputAref->[$i][$self->{_alleleFieldIdx}]};
  
     ############### Gather all track data (besides reference) #################
     foreach(@{ $self->{_trackGettersExceptReference} }) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
       $outAref->[$i]{$_->name} = $_->get(
-        $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}}, $outAref->[$i]{$refTrackName},
-        $outAref->[$i]{ $self->{_minorAllelesKey} } );
+        #all of the database , chr , position
+        $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}},
+        # Ref base (our assembly)    , minor alleles (based on our assembly)
+        $outAref->[$i]{$refTrackName}, $outAref->[$i]{$self->{_minorAllelesKey}}
+      );
     };
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
 
     # We call those matching the reference that we have hets or homos, 
     # not the reference given in the input file
-    SAMPLE_LOOP: for my $id ( @{ $self->{_sampleIDaref} } ) {
-      my $geno = $inputAref->[$i][ $self->{_sampleIDsToIndexesMap}->{$id} ];
+    SAMPLE_LOOP: for my $id (@{ $self->{_sampleIDaref}}) {
+      # Saving the call, to avoid performance deficit with large sample sizes
+      #my $geno = $inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}];
 
-      if( $geno eq 'N' || $geno eq $outAref->[$i]{$refTrackName} ) {
+      #Does the sample genotype equal "N" or our assembly's reference?
+      if($inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}] eq 'N'
+      || $inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}] eq $outAref->[$i]{$refTrackName}) {
         next SAMPLE_LOOP;
       }
 
-      if ( exists $hets{$geno} ) {
-        push @{$outAref->[$i]{ $self->{_heterozygoteIdsKey} } }, $id;
+      #Is the sample a het?
+      if (exists $hets{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
+        push @{$outAref->[$i]{$self->{_heterozygoteIdsKey}}}, $id;
 
-        if( index($iupac{$geno}, $inputAref->[$i][$self->{_referenceFieldIdx}] ) == -1 ) {
-          push @{ $outAref->[$i]{ $self->{_compoundHetorzygotesIdsKey} } }, $id;
+        # Check if the sample genotype (disambiguiated) contains the reference
+        if(index($iupac{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]},
+        $inputAref->[$i][$self->{_referenceFieldIdx}]) == -1 ) {
+          push @{$outAref->[$i]{$self->{_compoundHetorzygotesIdsKey}}}, $id;
         }
-      } elsif( exists $homs{$geno} ) {
-        push @{ $outAref->[$i]{ $self->{_homozygoteIdsKey} } }, $id;
+        # Check if the sample looks like a homozygote
+      } elsif(exists $homs{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
+        push @{$outAref->[$i]{$self->{_homozygoteIdsKey}}}, $id;
       } else {
-        $self->log( 'warn', "$geno wasn't homozygous or heterozygous for sample $id" );
+        $self->log( 'warn', "$id wasn't homozygous or heterozygote" );
       }
     }
   }
