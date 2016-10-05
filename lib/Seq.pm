@@ -14,6 +14,9 @@ use namespace::autoclean;
 
 use DDP;
 
+# IO::FDPass recommended for MCE::Shared
+# https://github.com/marioroy/mce-perl/issues/5
+use IO::FDPass;
 use MCE::Loop;
 use MCE::Shared;
 

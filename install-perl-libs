@@ -25,3 +25,4 @@ cpan install MouseX::ConfigFromFile
 cpan install MouseX::Getopt
 cpan install Archive::Extract
 cpan install DBI
+cpan install IO/FDPass.pm
