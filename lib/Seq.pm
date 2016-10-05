@@ -15,7 +15,7 @@ use namespace::autoclean;
 use DDP;
 
 use MCE::Loop;
-# use MCE::Shared;
+use MCE::Shared;
 
 use Seq::InputFile;
 use Seq::Output;
@@ -291,19 +291,17 @@ sub annotate {
 
   # close $statsFh;
 
-  my $loopErr = "";
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     chunk_size => 8192,
-    gather => $self->logProgress(\$loopErr),
+    gather => $self->makeLogProgress(),
   };
 
-  # We need to know the chunk size, and only way to do that 
-  # Is to get it from within one worker, unless we use MCE::Core interface
-  # my $m1 = MCE::Mutex->new;
-  # tie my $loopErr, 'MCE::Shared', '';
+  # We want to check whether the program has any errors. An easy way is to
+  # Return any error within the mce_loop_f
+  my $m1 = MCE::Mutex->new;
+  tie my $abortErr, 'MCE::Shared', '';
 
-  my $aborted;
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
   # local $SIG{INT} = sub {
   #   my $message = shift;
@@ -312,6 +310,11 @@ sub annotate {
   #   MCE->abort();
   # };
 
+  # Store a reference; Moose/Mouse accessors aren't terribly fast
+  # And this is used millions of times
+  my $chromosomesHref = $self->{_refTrackGetter}->chromosomes;
+  # Avoid hash lookups when possible, those are slow too
+  my $typeFieldIdx = $self->{_typeFieldIdx};
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
@@ -327,12 +330,12 @@ sub annotate {
         chomp $line;
         my @fields = split $delimiter, $line;
 
-        if ( !defined $self->{_refTrackGetter}->chromosomes->{ $fields[0] } ) {
+        if ( !defined $chromosomesHref->{ $fields[0] } ) {
           next;
         }
 
         # Don't annotate unreliable sites, no need to notify user, standard behavior
-        if($fields[$self->{_typeFieldIdx}] eq "LOW" || $fields[$self->{_typeFieldIdx}] eq "MESS") {
+        if($fields[$typeFieldIdx] eq "LOW" || $fields[$typeFieldIdx] eq "MESS") {
           next;
         }
 
@@ -347,45 +350,30 @@ sub annotate {
       my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
 
       if($err ne '') {
-        MCE->gather(undef, undef, $err);
+        $m1->synchronize(sub{ $abortErr = $err; });
         $mce->abort();
       }
     }
     
     # Write progress
-    MCE->gather(undef, $lineCount);
+    MCE->gather($lineCount);
   } $fh;
 
-  # Not needed
-  # abortion code needs to happen here, because otherwise LMDB won't get a chance
-  # to close properly
-  # if($aborted) {
-  #   say "got to aborted";
-
-  #   $self->temp_dir->remove_tree;
-
-  #   $self->{_db}->cleanUp();
-
-  #   MCE::Loop::finish;
-
-  #   return ("aborted by user", undef, undef);
-  # }
-
-  if($loopErr ne "") {
-    $self->log('info', "error detected, removing temporary files");
-
+  MCE::Loop::finish();
+  
+  if($abortErr) {
     $self->temp_dir->remove_tree;
 
     $self->{_db}->cleanUp();
-    # We could also move people's output files to storage,
-    # but most people probably don't want that, and it costs us money to store
-    # their data
-    #$self->_cleanUpFiles();
-    
-    return ($loopErr, undef, undef);
+
+    $self->log('warn', $abortErr);
+
+    return ($abortErr, undef, undef);
   }
 
-  MCE::Loop::finish;
+  # This removes the content of $abortErr
+  # https://metacpan.org/pod/MCE::Shared
+  MCE::Shared::stop();
 
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
@@ -413,33 +401,28 @@ sub annotate {
   return (undef, $statsHref, $self->outputFilesInfo);
 }
 
-sub logProgress {
-  my ($self, $errorRef) = @_;
+sub makeLogProgress {
+  my $self = shift;
 
-  #my ($total, $progress, $error) = (0, 0, '');
-  # my $error = '';
   my $total = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
+  if(!$hasPublisher) {
+    # noop
+    return sub{};
+  }
+
   return sub {
-    #my ($outputString, $progress, $error) = @_;
-    ##    $_[0] ,       $_[1],      $_[2]
+    #my $progress = shift;
+    ##    $_[0] 
 
-    if(defined $_[1]) {
-      if(!$hasPublisher) {
-        return;
-      }
+    if(defined $_[0]) {
 
-      $total += $_[1];
+      $total += $_[0];
 
       $self->publishProgress($total);
       return;
-    }
-
-    if(defined $_[2]) {
-      # Error, put the err back
-      $$errorRef = $_[2];
     }
   }
 }
@@ -482,10 +465,6 @@ sub annotateLinesAndPrint {
       $wantedChr = $fieldsAref->[$self->{_chrFieldIdx}];
     }
 
-    # if($fieldsAref->[$self->{_referenceFieldIdx}] eq $fieldsAref->[$self->{_alleleFieldIdx}]) {
-    #   next;
-    # }
-  
     #push the 1-based poisition in the input file into our accumulator
     #store the position of 0-based, because our database is 0-based
     #will be given to the dbRead function to bulk-get database records
@@ -592,9 +571,9 @@ sub finishAnnotatingLines {
                                                 ->{$inputAref->[$i][$self->{_alleleFieldIdx}]};
  
     ############### Gather all track data (besides reference) #################
-    foreach(@{ $self->{_trackGettersExceptReference} }) {
+    for my $track (@{ $self->{_trackGettersExceptReference} }) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
-      $outAref->[$i]{$_->name} = $_->get(
+      $outAref->[$i]{$_->name} = $track->get(
         #all of the database , chr , position
         $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}},
         # Ref base (our assembly)    , minor alleles (based on our assembly)
