@@ -63,7 +63,6 @@ has _compressTarballExtension => (
 #@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
 #@param {Str} $innerFile : if passed a tarball, we will want to stream a single file within
 #@return file handle
-
 sub get_read_fh {
   my ( $self, $file, $innerFile) = @_;
   my $fh;

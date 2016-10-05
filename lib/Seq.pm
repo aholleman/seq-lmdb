@@ -196,9 +196,9 @@ sub annotate {
   my $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
-  
+    
   # File size is available to logProgressAndStatistics
-  (my $err, undef, my $fh) = $self->get_read_fh($self->inputFilePath);
+  (my $err, my $inputFileCompressed, my $fh) = $self->get_read_fh($self->inputFilePath);
 
   if($err) {
     $self->_errorWithCleanup($!);
@@ -293,14 +293,11 @@ sub annotate {
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    # auto may be faster for small files, bigger ones seem to incure
+    # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
     gather => $self->makeLogProgress(),
   };
-
-  # We want to check whether the program has any errors. An easy way is to
-  # Return any error within the mce_loop_f
-  my $m1 = MCE::Mutex->new;
-  tie my $abortErr, 'MCE::Shared', '';
 
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
   # local $SIG{INT} = sub {
@@ -315,12 +312,44 @@ sub annotate {
   my $chromosomesHref = $self->{_refTrackGetter}->chromosomes;
   # Avoid hash lookups when possible, those are slow too
   my $typeFieldIdx = $self->{_typeFieldIdx};
+
+  # If the file isn't compressed, MCE::Loop is faster when given a string
+  # instead of a file handle
+  # https://github.com/marioroy/mce-perl/issues/5
+  if(!$inputFileCompressed) {
+    close $fh;
+    $fh = $self->inputFilePath;
+  }
+
+  # MCE::Mutex must come after any close operations on piped file handdles
+  # or MCE::Shared::stop() must be called before they are closed
+  # https://github.com/marioroy/mce-perl/issues/5
+  # We want to check whether the program has any errors. An easy way is to
+  # Return any error within the mce_loop_f
+
+  my $m1 = MCE::Mutex->new;
+  tie my $abortErr, 'MCE::Shared', '';
+  tie my $readFirstLine, 'MCE::Shared', 0;
+
   mce_loop_f {
-    my ($mce, $slurp_ref, $chunk_id) = @_;
+    # For performance do not copy these
+    #my ($mce, $slurp_ref, $chunk_id) = @_;
+    #    $_[0], $_[1],     $_[2]
 
     my @lines;
 
-    open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
+    # Reads: open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
+    open my $MEM_FH, '<', $_[1]; binmode $MEM_FH, ':raw';
+
+    # If the file isn't compressed, we pass the file path to 
+    # MCE, because it is faster that way...
+    # Howver, when we do that, we need to skip the header
+    # Reads:                && chunk_id == 1 && $readFirstLine == 0) {
+    if(!$inputFileCompressed && $readFirstLine == 0 && $_[2] == 1) {
+      #skip first line
+      my $firstLine = <$MEM_FH>;
+      $m1->synchronize(sub{ $readFirstLine = 1 });
+    }
 
     my $lineCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
@@ -351,7 +380,9 @@ sub annotate {
 
       if($err ne '') {
         $m1->synchronize(sub{ $abortErr = $err; });
-        $mce->abort();
+        #Reads:
+        #$mce->abort()
+        $_[0]->abort();
       }
     }
     
@@ -573,7 +604,7 @@ sub finishAnnotatingLines {
     ############### Gather all track data (besides reference) #################
     for my $track (@{ $self->{_trackGettersExceptReference} }) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
-      $outAref->[$i]{$_->name} = $track->get(
+      $outAref->[$i]{$track->name} = $track->get(
         #all of the database , chr , position
         $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}},
         # Ref base (our assembly)    , minor alleles (based on our assembly)
@@ -702,7 +733,7 @@ sub _prepareStatsArguments {
 
   my $dir = $self->out_file->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
-  my $tabOutPath = $dir->parent->child($self->outputFilesInfo->{statistics}{tab});
+  my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
 
   # These two are optional

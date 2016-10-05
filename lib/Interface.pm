@@ -161,10 +161,7 @@ has ignore_unknown_chr => (
 
 sub annotate {
   my $self = shift;
-
-  say "delete temp is";
-  p $self->delete_temp;
-
+  
   my $args = {
     config => $self->configfilePath,
     snpfile => $self->snpfilePath,

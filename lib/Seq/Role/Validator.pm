@@ -111,9 +111,6 @@ sub validateInputFile {
     $inputFileAbsPath = path($inputFileAbsPath);
   }
 
-  say "input file name is";
-  p $inputFileAbsPath;
-
   my $convertDir = $self->_getConvertDir($outDir);
 
   my $fh = $self->get_read_fh($inputFileAbsPath);
@@ -215,9 +212,6 @@ sub convertToSnp {
     return ('convertToSnp failed to make snp file', undef);
   }
 
-  say "converted file name is";
-  p $snpPath;
-
   #because the linkage2Snp converted auto-appends a .snp file extension
   return (0, $snpPath);
 }
@@ -230,9 +224,6 @@ sub _findBinaryPlinkFiles {
   }
 
   my $bed = $convertBasePath . '.bed';
-
-  say "bed is";
-  p $bed;
 
   my $bim = $convertBasePath . '.bim'; 
   my $fam = $convertBasePath . '.fam';
