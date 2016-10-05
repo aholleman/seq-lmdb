@@ -92,7 +92,7 @@ while(my $job = $beanstalk->reserve) {
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => 'started',
       # jobId   => $jobDataHref->{_id},
-      queueId => $job->id,
+      queueID => $job->id,
     }  } );
 
     ($err, $statistics, $outputFileNamesHashRef) = handleJob($jobDataHref, $job->id);
@@ -111,7 +111,7 @@ while(my $job = $beanstalk->reserve) {
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => 'failed',
       reason => $err,
-      queueId => $job->id,
+      queueID => $job->id,
     }) } );
 
     $job->bury; 
@@ -123,7 +123,7 @@ while(my $job = $beanstalk->reserve) {
   # To be conservative; since after delete message is lost
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => 'completed',
-    queueId => $job->id,
+    queueID => $job->id,
     # jobId   => $jobDataHref->{_id},
     results  => {
       summary => $statistics,
@@ -194,7 +194,7 @@ sub coerceInputs {
       queue  => $conf->{beanstalkd}{tubes}{annotation}{events},
       messageBase => {
         event => 'progress',
-        queueId => $queueId,
+        queueID => $queueId,
         data => undef,
       }
     },
