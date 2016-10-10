@@ -75,6 +75,8 @@ my $beanstalkEvents = Beanstalk::Client->new({
   decoder => sub { @{decode_json(shift)} },
 });
 
+my $events = $conf->{beanstalkd}{events};
+
 while(my $job = $beanstalk->reserve) {
   # Parallel ForkManager used only to throttle number of jobs run in parallel
   # cannot use run_on_finish with blocking reserves, use try catch instead
@@ -89,7 +91,7 @@ while(my $job = $beanstalk->reserve) {
     $jobDataHref = decode_json( $job->data );
   
     $beanstalkEvents->put({ priority => 0, data => encode_json{
-      event => 'started',
+      event => $events->{started},
       # jobId   => $jobDataHref->{_id},
       queueID => $job->id,
     }  } );
@@ -108,7 +110,7 @@ while(my $job = $beanstalk->reserve) {
     say "job ". $job->id . " failed due to found error, which is $err";
     
     $beanstalkEvents->put( { priority => 0, data => encode_json({
-      event => 'failed',
+      event => $events->{failed},
       reason => $err,
       queueID => $job->id,
     }) } );
@@ -121,7 +123,7 @@ while(my $job = $beanstalk->reserve) {
   # Signal completion before completion actually occurs via delete
   # To be conservative; since after delete message is lost
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
-    event => 'completed',
+    event => $events->{completed},
     queueID => $job->id,
     # jobId   => $jobDataHref->{_id},
     results  => {
