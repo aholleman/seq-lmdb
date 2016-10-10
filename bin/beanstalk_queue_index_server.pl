@@ -145,6 +145,15 @@ sub handleJob {
     
   $inputHref->{logPath} = $logPath;
   $inputHref->{verbose} = $verbose;
+  $inputHref->{publisher} = {
+    server => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
+    queue  => $conf->{beanstalkd}{tubes}{index}{events},
+    messageBase => {
+      event => $events->{progress},
+      queueID => $queueId,
+      data => undef,
+    }
+  };
 
   if ($verbose) {
     say "The user job data sent to annotator is: ";

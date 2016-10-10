@@ -184,7 +184,7 @@ sub coerceInputs {
       server => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
       queue  => $conf->{beanstalkd}{tubes}{annotation}{events},
       messageBase => {
-        event => 'progress',
+        event => $events->{progress},
         queueID => $queueId,
         data => undef,
       }

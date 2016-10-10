@@ -15,3 +15,4 @@ beanstalkd:
     started : started
     completed : completed
     failed : failed
+    progress : progress

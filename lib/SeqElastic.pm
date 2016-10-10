@@ -19,11 +19,13 @@ use DDP;
 
 use Seq::Output::Delimiters;
 use MCE::Loop;
+use MCE::Shared;
 
 use Scalar::Util qw/looks_like_number/;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
+# An archive, containing an "annotation" file
 has annotatedFilePath => (is => 'ro', isa => AbsFile, coerce => 1,
   writer => '_setAnnotatedFilePath');
 
@@ -48,6 +50,17 @@ has commitEvery => (is => 'ro', default => 5000);
 # If inputFileNames provided, inputDir is required
 has inputDir => (is => 'ro', isa => AbsDir, coerce => 1);
 
+# The user may have given some header fields already
+# If so, this is a re-indexing job, and we will want to append the header fields
+has headerFields => (is => 'ro', isa => 'ArrayRef');
+
+# The user may have given some additional files
+# We accept only an array of bed file here
+# TODO: implement
+has addedFiles => (is => 'ro', isa => 'ArrayRef');
+
+# IF the user gives us an annotated file path, we will first index from
+# The annotation file wihin that archive
 #@ params
 # <Object> filePaths @params:
   # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
@@ -105,11 +118,15 @@ sub go {
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     chunk_size => 8192,
+    gather => $self->makeLogProgress(),
   };
 
   my $es = Search::Elasticsearch->new(nodes => [
     '172.31.62.32:9200',
   ]);
+
+  my $m1 = MCE::Mutex->new;
+  tie my $abortErr, 'MCE::Shared', '';
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
@@ -123,11 +140,14 @@ sub go {
       max_size    => 10e6,
       on_error    => sub {
         my ($action,$response,$i) = @_;
-        $self->log('error', "Couldn't index: $action ; $response ; $i");
+        $self->log('warn', "Couldn't index: $action ; $response ; $i");
+
+        $m1->synchronize(sub{ $abortErr = $err; });
+        $mce->abort();
       },           # optional
       on_conflict => sub {
         my ($action,$response,$i,$version) = @_;
-        $self->log('error', "Index conflict: $action ; $response ; $i ; $version");
+        $self->log('warn', "Index conflict: $action ; $response ; $i ; $version");
       },           # optional
     );
 
@@ -237,12 +257,52 @@ sub go {
 
     $bulk->create_docs(@indexed);
     $bulk->flush;
+
+    MCE->gather(scalar @indexed);
   } $fh;
 
-  # my $result = $bulk->flush;
+  MCE::Loop::finish();
+  
+  if($abortErr) {
+    $self->log('warn', $abortErr);
 
+    return ($abortErr, undef, undef);
+  }
+
+  # Needed to close some kinds of file handles
+  # Doing here for consistency, and the eventuality that we will 
+  # modify this with something unexpected
+
+  MCE::Shared::stop();
   $self->log('info', "finished indexing");
+
   return (undef, \@headerFields);
+}
+
+sub makeLogProgress {
+  my $self = shift;
+
+  my $total = 0;
+
+  my $hasPublisher = $self->hasPublisher;
+
+  if(!$hasPublisher) {
+    # noop
+    return sub{};
+  }
+
+  return sub {
+    #my $progress = shift;
+    ##    $_[0] 
+
+    if(defined $_[0]) {
+
+      $total += $_[0];
+
+      $self->publishProgress($total);
+      return;
+    }
+  }
 }
 
 sub _populateHashPath {
