@@ -42,15 +42,14 @@ has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
 has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
 has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
 
-# snpfile is the input file
-has snpfile => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
-  handles  => { inputFilePath => 'stringify' }, writer => 'setSnpFile');
+has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
+  handles  => { inputFilePath => 'stringify' }, writer => 'setInputFile');
 
-# out_file contains the absolute path to a file base name
+# output_file_base contains the absolute path to a file base name
 # Ex: /dir/child/BaseName ; BaseName is appended with .annotated.tab , .annotated-log.txt, etc
 # for the various outputs
-has out_file => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
-  handles => { outputFilePath => 'stringify' });
+has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
+  handles => { outputFileBasePath => 'stringify' });
 
 has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1,
   handles => { tempPath => 'stringify' });
@@ -104,11 +103,12 @@ sub BUILDARGS {
   }
   
   if( !$data->{logPath} ) {
-    if(!ref $data->{out_file}) {
-      $data->{out_file} = path($data->{out_file});
+    if(!ref $data->{output_file_base}) {
+      $data->{output_file_base} = path($data->{output_file_base});
     }
 
-    $data->{logPath} = $data->{out_file}->sibling($data->{out_file}->basename . '.annotation-log.txt');
+    $data->{logPath} = $data->{output_file_base}->sibling(
+      $data->{output_file_base}->basename . '.annotation-log.txt');
   }
 
   return $data;
@@ -145,7 +145,7 @@ sub BUILD {
     }
   }
 
-  $self->{_outDir} = $self->out_file->parent();
+  $self->{_outDir} = $self->output_file_base->parent();
 
   ############################# Handle Temp Dir ################################
   
@@ -161,11 +161,11 @@ sub BUILD {
     # Updates the log path held by Seq::Role::Message static variable
     $self->setLogPath($logPath);
 
-    $self->{_tempOutPath} = $self->temp_dir->child( $self->out_file->basename )->stringify;
+    $self->{_tempOutPath} = $self->temp_dir->child( $self->output_file_base->basename )->stringify;
   }
 
   ############### Set log, annotation, statistics output basenames #####################
-  my $outputFileBaseName = $self->out_file->basename;
+  my $outputFileBaseName = $self->output_file_base->basename;
 
   $self->outputFilesInfo->{log} = path($self->logPath)->basename;
   $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
@@ -187,10 +187,10 @@ sub BUILD {
 
   #################### Validate the input file ################################
   # Converts the input file if necessary
-  my ($err, $updatedOrOriginalSnpFilePath) = $self->validateInputFile(
-    $self->temp_dir || $self->{_outDir}, $self->snpfile );
+  my ($err, $updatedOrOriginalInputFilePath) = $self->validateInputFile(
+    $self->temp_dir || $self->{_outDir}, $self->input_file );
 
-  $self->setSnpFile($updatedOrOriginalSnpFilePath);
+  $self->setInputFile($updatedOrOriginalInputFilePath);
 }
 
 # TODO: maybe clarify interface; do we really want to return stats and outputFilesInfo
@@ -255,13 +255,13 @@ sub annotate {
   $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
 
   ################## Make the full output path ######################
-  # The output path always respects the $self->out_file attribute path;
+  # The output path always respects the $self->output_file_base attribute path;
   my $outputPath;
 
   if($self->temp_dir) {
     $outputPath = $self->temp_dir->child($self->outputFilesInfo->{annotation} );
   } else {
-    $outputPath = $self->out_file->parent->child($self->outputFilesInfo->{annotation} );
+    $outputPath = $self->output_file_base->parent->child($self->outputFilesInfo->{annotation} );
   }
 
   # If user specified a temp output path, use that
@@ -418,7 +418,7 @@ sub annotate {
     $self->log('info', "Gathering statistics");
 
     (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $self->out_file->parent->child($self->outputFilesInfo->{statistics}{json})
+      $self->output_file_base->parent->child($self->outputFilesInfo->{statistics}{json})
     );
 
     if($status) {
@@ -734,7 +734,7 @@ sub _prepareStatsArguments {
   my $homozygotesColumnName = $self->{_homozygoteIdsKey};
   my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
 
-  my $dir = $self->out_file->parent;
+  my $dir = $self->output_file_base->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
   my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});

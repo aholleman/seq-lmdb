@@ -39,7 +39,7 @@ has verbose => (is => 'ro');
 has indexName => (is => 'ro', required => 1);
 
 # The index type; probably the job id
-has type => (is => 'ro', required => 1);
+has indexType => (is => 'ro', required => 1);
 
 has dryRunInsertions => (is => 'ro');
 
@@ -118,7 +118,7 @@ sub go {
     
     my $bulk = $es->bulk_helper(
       index       => $self->indexName,
-      type        => $self->type,
+      type        => $self->indexType,
       max_count   => $self->commitEvery,
       max_size    => 10e6,
       on_error    => sub {

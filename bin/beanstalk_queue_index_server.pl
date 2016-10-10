@@ -38,7 +38,7 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 
 # Required fields
 # The annotation_file_path is constructed from inputDir, inputFileNames by SeqElastic
-my @requiredJobFields = qw/indexName type inputDir inputFileNames/;
+my @requiredJobFields = qw/indexName indexType inputDir inputFileNames/;
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -52,6 +52,8 @@ my $beanstalk = Beanstalk::Client->new({
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
 });
+
+say "Events tube is: " .$conf->{beanstalkd}{tubes}{index}{events};
 
 my $beanstalkEvents = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},

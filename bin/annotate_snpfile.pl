@@ -13,11 +13,11 @@ my $app = Interface->new_with_options();
 $app->annotate;
 =head1 NAME
 
-snpfile_annotate_mongo_command_line.pl
+input_file_annotate_mongo_command_line.pl
 
 =head1 DESCRIPTION
 
-This program annotates a snpfile using a binary index of a genome and annotation stored in a mongodb instance. The binary index of the genome is created by `create_mongo_genome.pl`, which creates the indexed genome and stores the annotation in a mongo database.
+This program annotates a input_file using a binary index of a genome and annotation stored in a mongodb instance. The binary index of the genome is created by `create_mongo_genome.pl`, which creates the indexed genome and stores the annotation in a mongo database.
 
 =head1 VALID_FILES
 
@@ -33,14 +33,14 @@ This program annotates a snpfile using a binary index of a genome and annotation
 
 =head1 EXAMPLES
 
-  snpfile_annotate_mongo_command_line.pl [-v] [-j] -f my_snpfile -a hg38 
+  input_file_annotate_mongo_command_line.pl [-v] [-j] -f my_input_file -a hg38 
 
 Example output files (non-prokaryotic):
 
-  1. my_snpfile.annotaiton.txt          => line-by-line annotation of sites 
-  2. my_snpfile.annotation.json         => JSON data structure of annotations
-  3. my_snpfile.annotation.summary.txt  => summary stats for ids in snpfile
-  4. my_snpfile.annotation.summary.json => json of summary stats for ids
+  1. my_input_file.annotaiton.txt          => line-by-line annotation of sites 
+  2. my_input_file.annotation.json         => JSON data structure of annotations
+  3. my_input_file.annotation.summary.txt  => summary stats for ids in input_file
+  4. my_input_file.annotation.summary.json => json of summary stats for ids
 
 Example output files (non-prokaryotic):
   N/A : Prints annotation to screen
@@ -96,7 +96,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 # use Seq;
 
 # my (
-#   $snpfile,     $yaml_config, $verbose,
+#   $input_file,     $yaml_config, $verbose,
 #   $help,        $out_file,    $overwrite,
 #   $no_skip_chr, $debug,       $snp_file_version
 # );
@@ -108,7 +108,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 # # usage
 # GetOptions(
 #   'c|config=s'  => \$yaml_config,
-#   's|snpfile=s' => \$snpfile,
+#   's|input_file=s' => \$input_file,
 #   'v|verbose'   => \$verbose,
 #   'h|help'      => \$help,
 #   'o|out=s'     => \$out_file,
@@ -124,7 +124,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 # }
 
 # unless ( $yaml_config
-#   and $snpfile
+#   and $input_file
 #   and $out_file
 #   and $snp_file_version )
 # {
@@ -150,7 +150,7 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #   }
 
 #   # get absolute path
-#   $snpfile     = File::Spec->rel2abs($snpfile);
+#   $input_file     = File::Spec->rel2abs($input_file);
 #   $out_file    = File::Spec->rel2abs($out_file);
 #   $yaml_config = File::Spec->rel2abs($yaml_config);
 #   say "writing annotation data here: $out_file" if $verbose;
@@ -176,11 +176,11 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 #       overwrite          => $overwrite,
 #       ignore_unknown_chr => ( !$no_skip_chr ),
 #       out_file           => $out_file,
-#       snpfile            => $snpfile,
+#       input_file            => $input_file,
 #     }
 #   );
 
-#   my $href = $annotate_instance->annotate_snpfile;
+#   my $href = $annotate_instance->annotate_input_file;
 #   my $fh = IO::File->new( "$out_file.stats.txt", 'w' ) || die "$!";
 #   print {$fh} Dump($href);
 # }
@@ -191,17 +191,17 @@ __END__
 
 =head1 NAME
 
-annotate_snpfile - annotates a snpfile using a given genome assembly specified
+annotate_input_file - annotates a input_file using a given genome assembly specified
 in a configuration file
 
 =head1 SYNOPSIS
 
-annotate_snpfile.pl --config <assembly config> --snp <snpfile> --out <file_ext> --type <snp_1, snp_2>
+annotate_input_file.pl --config <assembly config> --snp <input_file> --out <file_ext> --type <snp_1, snp_2>
 
 =head1 DESCRIPTION
 
-C<annotate_snpfile.pl> takes a yaml configuration file and snpfile and gives
-the annotations for the sites in the snpfile.
+C<annotate_input_file.pl> takes a yaml configuration file and input_file and gives
+the annotations for the sites in the input_file.
 
 =head1 OPTIONS
 
@@ -209,11 +209,11 @@ the annotations for the sites in the snpfile.
 
 =item B<-s>, B<--snp>
 
-Snp: snpfile
+Snp: input_file
 
 =item B<-r>, B<--type>
 
-Type: version of snpfile: snp_1 or snp_2
+Type: version of input_file: snp_1 or snp_2
 
 =item B<-c>, B<--config>
 
@@ -231,7 +231,7 @@ Overwrite: Overwrite the annotation file if it exists.
 
 =item B<--no_skip_chr>
 
-No_Skip_Chr: Try to annotate all chromosomes in the snpfile and die if unable
+No_Skip_Chr: Try to annotate all chromosomes in the input_file and die if unable
 to do so.
 
 

@@ -35,7 +35,6 @@ use Seq;
 #for choosing max connections based on available resources
 
 # max of 1 job at a time for now
-my $pm = Parallel::ForkManager->new(1);
 
 my $DEBUG = 0;
 my $conf = LoadFile('./config/queue.yaml');
@@ -104,7 +103,7 @@ while(my $job = $beanstalk->reserve) {
   };
   if ($err) { 
 
-    say "Got error";
+    say "Got error, failing the job with queueID " . $job->id;
 
     say "job ". $job->id . " failed due to found error, which is $err";
     
@@ -145,23 +144,12 @@ sub handleJob {
   say "in handle job, jobData is";
   p $submittedJob;
 
-  my $jobID = $submittedJob->{id};
-
-  say "jobID is $jobID";
-
-  my $log_name = join '.', 'annotation', 'jobID', $jobID, 'log';
-  my $log_file = File::Spec->rel2abs( ".", $log_name );
-  
-  say "writing beanstalk queue log file here: $log_file" if $verbose;
-  
-  Log::Any::Adapter->set( 'File', $log_file );
-  
-  my $log = Log::Any->get_logger();
-
   my $inputHref;
   
   $inputHref = coerceInputs($submittedJob, $queueId);
 
+  p $inputHref;
+  
   if ($verbose) {
     say "The user job data sent to annotator is: ";
     p $inputHref;
@@ -184,9 +172,10 @@ sub coerceInputs {
 
   my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
 
+  #TODO: allow users to set options, merge with config
   return {
-    snpfile            => $inputFilePath,
-    out_file           => $outputFilePath,
+    input_file            => $inputFilePath,
+    output_file_base           => $outputFilePath,
     config             => $configFilePath,
     ignore_unknown_chr => 1,
     publisher => {
