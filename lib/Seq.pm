@@ -292,14 +292,13 @@ sub annotate {
   $self->{_sampleIDsToIndexesMap} = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
   $self->{_sampleIDaref} =  [ sort keys %{ $self->{_sampleIDsToIndexesMap} } ];
 
-  # close $statsFh;
-
+  my $abortErr;  
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
-    gather => $self->makeLogProgress(),
+    gather => $self->makeLogProgress(\$abortErr),
   };
 
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
@@ -329,9 +328,11 @@ sub annotate {
   # https://github.com/marioroy/mce-perl/issues/5
   # We want to check whether the program has any errors. An easy way is to
   # Return any error within the mce_loop_f
+  # Doesn't work nicely if you need to return a scalard value (no export)
+  # and need to call MCE::Shared::stop() to exit 
 
   my $m1 = MCE::Mutex->new;
-  tie my $abortErr, 'MCE::Shared', '';
+  # tie my $abortErr, 'MCE::Shared', '';
   tie my $readFirstLine, 'MCE::Shared', 0;
 
   mce_loop_f {
@@ -382,9 +383,7 @@ sub annotate {
       my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
 
       if($err ne '') {
-        $m1->synchronize(sub{ $abortErr = $err; });
-        #Reads:
-        #$mce->abort()
+        MCE->gather(undef, $err);
         $_[0]->abort();
       }
     }
@@ -394,20 +393,25 @@ sub annotate {
   } $fh;
 
   MCE::Loop::finish();
-  
+
+  # This removes the content of $abortErr
+  # https://metacpan.org/pod/MCE::Shared
+  # Needed to exit, and close piped file handles
+  MCE::Shared::stop();
+
+  # Unfortunately, MCE::Shared::stop() removes the value of $abortErr
+  # according to documentation, and I did not see mention of a way
+  # to copy the data from a scalar, and don't want to use a hash for this alone
+  # So, using a scalar ref to abortErr in the gather function.
   if($abortErr) {
+    say "found abort $abortErr";
+
     $self->temp_dir->remove_tree;
 
     $self->{_db}->cleanUp();
 
-    $self->log('warn', $abortErr);
-
     return ($abortErr, undef, undef);
   }
-
-  # This removes the content of $abortErr
-  # https://metacpan.org/pod/MCE::Shared
-  MCE::Shared::stop();
 
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
@@ -436,7 +440,7 @@ sub annotate {
 }
 
 sub makeLogProgress {
-  my $self = shift;
+  my ($self, $abortErrRef) = @_;
 
   my $total = 0;
 
@@ -448,8 +452,8 @@ sub makeLogProgress {
   }
 
   return sub {
-    #my $progress = shift;
-    ##    $_[0] 
+    #my $progress, $err = @_;
+    ##    $_[0], $_[1]
 
     if(defined $_[0]) {
 
@@ -457,6 +461,10 @@ sub makeLogProgress {
 
       $self->publishProgress($total);
       return;
+    }
+
+    if(defined $_[1]) {
+      $$abortErrRef = $_[1];
     }
   }
 }
@@ -517,7 +525,7 @@ sub annotateLinesAndPrint {
     my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
-      return ($err, "");
+      return $err;
     }
     
     undef @positions; undef @inputData;
@@ -750,6 +758,16 @@ sub _prepareStatsArguments {
       . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef);
   }
+
+  # say "stats args are";
+  # p "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
+  #   . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
+  #   . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
+  #   . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
+  #   . "-dbSNPnameColumnName $snpNameColumnName "
+  #   . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
+  #   . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
+  #   . "-numberInputHeaderLines $numberHeaderLines";
 
   return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
     . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
