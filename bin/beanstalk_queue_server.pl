@@ -95,6 +95,21 @@ while(my $job = $beanstalk->reserve) {
   
     my $configData = LoadFile($inputHref->{config});
 
+    # Hide the server paths in the config we send back;
+    # Those represent a security concern
+    $configData->{files_dir} = 'hidden';
+
+    if($configData->{temp_dir}) {
+      $configData->{temp_dir} = 'hidden';
+    }
+
+    $configData->{temp_dir} = 'hidden';
+
+    for my $track (@{$configData->{tracks}}) {
+      # Finish stripping local_files of their absPaths;
+      # Use Path::Tiny basename;
+    }
+
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       jobConfig => $configData,

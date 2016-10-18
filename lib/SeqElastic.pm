@@ -128,28 +128,31 @@ sub go {
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';
 
+  my $bulk = $es->bulk_helper(
+    index       => $self->indexName,
+    type        => $self->indexType,
+    max_count   => $self->commitEvery,
+    max_size    => 10e6,
+    on_error    => sub {
+      my ($action,$response,$i) = @_;
+      $self->log('warn', "Index error: $action ; $response ; $i");
+
+      $m1->synchronize(sub{ $abortErr = $err; });
+    },           # optional
+    on_conflict => sub {
+      my ($action,$response,$i,$version) = @_;
+      $self->log('warn', "Index conflict: $action ; $response ; $i ; $version");
+    },           # optional
+  );
+
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
     my @lines;
     
-    my $bulk = $es->bulk_helper(
-      index       => $self->indexName,
-      type        => $self->indexType,
-      max_count   => $self->commitEvery,
-      max_size    => 10e6,
-      on_error    => sub {
-        my ($action,$response,$i) = @_;
-        $self->log('warn', "Couldn't index: $action ; $response ; $i");
-
-        $m1->synchronize(sub{ $abortErr = $err; });
-        $mce->abort();
-      },           # optional
-      on_conflict => sub {
-        my ($action,$response,$i,$version) = @_;
-        $self->log('warn', "Index conflict: $action ; $response ; $i ; $version");
-      },           # optional
-    );
+    if($abortErr) {
+      $mce->abort();
+    }
 
     open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
@@ -164,30 +167,24 @@ sub go {
 
       my %rowDocument;
       my $colIdx = 0;
-      for my $field (@fields) {
+
+      OUTER: for my $field (@fields) {
+        # Don't reference the array, because it will modify it in place
+        my $path = ref $paths[$colIdx] ? [ @{$paths[$colIdx]} ] : $paths[$colIdx];
+        #Do this before everything else, to make sure we track the column index
+        #correctly, even if we skip this field
+        $colIdx++;
+        
         if( index($field, $secondaryDelimiter) > -1 ) {
-          
-          my %uniq;
           my @array;
 
-          # | literally is an error; truncates the entire pattern
+          # char | is literally is an error; truncates the entire pattern
           # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
-          for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
+          INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
             if ($fieldValue eq 'NA') {
-              next;
+              next INNER;
             }
 
-            # Not worrying about de-deduplication; this makes the index
-            # much less useful; cannot reproduce the exact annotation if we do that
-            # if(!defined $uniq{$fieldValue}) {
-            #   if(looks_like_number($fieldValue) ) {
-            #     $fieldValue += 0;
-            #   }
-
-            #   push @array, $fieldValue;
-
-            #   $uniq{$fieldValue} = 1;
-            # }
             if(looks_like_number($fieldValue) ) {
               $fieldValue += 0;
             }
@@ -196,28 +193,33 @@ sub go {
           }
 
           # Field may be undef
-          $field = @array > 1 ? \@array : $array[0];
+          # Modify the field, to be an array, or a scalar
+          if(@array > 1) {
+            $field = \@array;
+          } elsif(@array == 1) {
+            $field = $array[0];
+          } else {
+            say "Skipping this field because secondary delimiter, and empty array:";
+            p $field;
+
+            # Skip because the outer fields are both empty, nothing to see for this field
+            next OUTER;
+          }
         }
 
-        foreach (ref $field ? @$field : $field) {
-          if( index($_, $primaryDelimiter) > -1 ) {
-            my %uniq;
+        # The value of $totalField may be the one we got in this
+        # cell, or a different value, including by modifications below
+        # and the ones made above
+        my @totalFieldsAccum;
+        for my $innerField (ref $field ? @$field : $field) {
+          if( index($innerField, $primaryDelimiter) > -1 ) {
             my @array;
 
-            for my $fieldValue ( split("\\$primaryDelimiter", $_) ) {
+            PRIM_INNER: for my $fieldValue ( split("\\$primaryDelimiter", $innerField) ) {
               if ($fieldValue eq 'NA') {
-                next;
+                next PRIM_INNER;
               }
 
-              # if(!defined $uniq{$fieldValue}) {
-              #   if(looks_like_number($fieldValue) ) {
-              #     $fieldValue += 0;
-              #   }
-
-              #   push @array, $fieldValue;
-
-              #   $uniq{$fieldValue} = 1;
-              # }
               if(looks_like_number($fieldValue) ) {
                 $fieldValue += 0;
               }
@@ -227,33 +229,51 @@ sub go {
 
             # This could lead to a nested array where some of the values are undef
             # I don't consider it big enough a deal to worry about
-            $_ = @array > 1 ? \@array : $array[0];
+            if(@array > 1) {
+              push @totalFieldsAccum, \@array;
+            } elsif(@array == 1) {
+              push @totalFieldsAccum, $array[0];
+            }
+            # Do nothing if @array is empty
+          } else {
+            if($field ne 'NA') {
+              push @totalFieldsAccum, $field;
+            }
           }
         }
 
-        my $pathAref = $paths[$colIdx];
-
-        if(!defined $field || $field eq 'NA') {
-          # Don't waste index space on NA's; missing data is implied by lack of
-          # data in the document
-          $colIdx++;
-          next;
+        my $totalFields;
+        if(@totalFieldsAccum > 1) {
+          $totalFields = \@totalFieldsAccum;
+        } elsif(@totalFieldsAccum == 1) {
+          $totalFields = $totalFieldsAccum[0];
+        } else {
+          next OUTER;
         }
 
-        if(looks_like_number($field) ) {
-          $field += 0;
+        # We could have had a single, scalar value in the cell
+        if(looks_like_number($totalFields) ) {
+          $totalFields += 0;
         }
 
-        _populateHashPath(\%rowDocument, [ ref $paths[$colIdx] ? @{ $paths[$colIdx] } : $paths[$colIdx] ], $field);
+        if($totalFields eq 'NA') {
+          say "totalFields is somehow NA";
+          p $totalFields;
+          p $field;
+        }
 
-       $colIdx++;
+        # Don't waste index space on NA's; missing data is implied by lack of
+        # data in the document
+        if(defined $totalFields && $totalFields ne 'NA') {
+          _populateHashPath(\%rowDocument, $path, $totalFields);
+        }
       }
 
       push @indexed, \%rowDocument;
     }
 
-    # say "indexed is";
-    # p @indexed;
+    say "indexed is";
+    p @indexed;
 
     $bulk->create_docs(@indexed);
     $bulk->flush;
@@ -316,7 +336,12 @@ sub _populateHashPath {
   }
 
   my $pathPart = shift @{ $_[1] };
-
+  
+  if(!$pathPart) {
+    say "no path part found";
+    p @_;
+  }
+  
   if(@{ $_[1] }) {
     if(!defined $_[0]->{$pathPart}) {
       $_[0]->{$pathPart} = {};
@@ -387,18 +412,18 @@ sub BUILD {
     $self->setLogLevel('INFO');
   }
 
-  if(defined $self->inputFileNames && !defined $self->inputDir) {
-    $self->log('warn', "If inputFileNames provided, inputDir required");
-    return ("If inputFileNames provided, inputDir required", undef);
-  }
+  if(defined $self->inputFileNames) {
+    if(!defined $self->inputDir) {
+      $self->log('warn', "If inputFileNames provided, inputDir required");
+      return ("If inputFileNames provided, inputDir required", undef);
+    }
 
-  if(!defined $self->inputFileNames->{compressed}
-  && !defined $self->inputFileNames->{annnotation}  ) {
-    $self->log('warn', "annotation key required in inputFileNames when compressed key has a value");
-    return ("annotation key required in inputFileNames when compressed key has a value", undef);
-  }
-
-  if(!defined $self->inputFileNames && !defined $self->annotatedFilePath) {
+    if(!defined $self->inputFileNames->{compressed}
+    && !defined $self->inputFileNames->{annnotation}  ) {
+      $self->log('warn', "annotation key required in inputFileNames when compressed key has a value");
+      return ("annotation key required in inputFileNames when compressed key has a value", undef);
+    }
+  } elsif(!defined $self->annotatedFilePath) {
     $self->log('warn', "if inputFileNames not provided, annotatedFilePath must be passed");
     return ("if inputFileNames not provided, annotatedFilePath must be passed", undef);
   }
