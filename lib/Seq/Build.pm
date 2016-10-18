@@ -57,17 +57,17 @@ sub BUILD {
   if($self->meta_only) {
     return;
   }
-
+  
   my @builders;
   if($self->wantedType) {
     @builders = @{ $tracks->getTrackBuildersByType($self->wantedType) };
   } elsif($self->wantedName) {
-    if(! defined(first { $_->name eq $self->wantedName } $tracks->allTrackBulders ) ) {
+    if(! defined(first { $_->name eq $self->wantedName } $tracks->allTrackBuilders ) ) {
       $self->log('fatal', "Track name not recognized")
     }
     @builders = ( $tracks->getTrackBuilderByName($self->wantedName) );
   } else {
-    @builders = $tracks->allTrackBulders;
+    @builders = $tracks->allTrackBuilders;
 
     #If we're building all tracks, reference should be first
     if($builders[0]->name ne $tracks->getRefTrackBuilder()->name) {

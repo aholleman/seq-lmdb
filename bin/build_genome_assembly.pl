@@ -67,7 +67,7 @@ my $log_name = join '.', 'build', $config_href->{assembly}, $wantedType ||
 $wantedName || 'allTracks', $wantedChr || 'allChr',
 "$mday\_$mon\_$year\_$hour\:$min\:$sec", 'log';
 
-my $logPath = path($logDir || "/mnt/annotator_databases/logs/")->child($log_name)->absolute->stringify;
+my $logPath = path($logDir || "./")->child($log_name)->absolute->stringify;
 
 my $builder_options_href = {
   config   => $yaml_config,
