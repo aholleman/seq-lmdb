@@ -70,7 +70,7 @@ has tracks => (
 # @param <ArrayRef> trackBuilders : ordered track builders
 state $orderedTrackBuildersAref = [];
 has trackBuilders => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
-  traits => ['Array'], handles => { allTrackBulders => 'elements' }, 
+  traits => ['Array'], handles => { allTrackBuilders => 'elements' }, 
   default => sub { $orderedTrackBuildersAref } );
 
 state $trackBuildersByName = {};
@@ -171,7 +171,7 @@ sub BUILD {
     return;
   }
 
-  $self->_buildTrackGetters($tracks);
+  $self->_buildTrackBuilders($tracks);
 }
 
 ################### Private builders #####################
@@ -264,7 +264,7 @@ sub _buildTrackBuilders {
     #TODO: make this go away by automating track name conversion/storing in db
     $trackBuildersByName->{$track->{name} } = $track;
 
-    push @$orderedTrackBuildersAref, $track;
+    push @{$orderedTrackBuildersAref}, $track;
 
     push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
   }
