@@ -113,7 +113,7 @@ while(my $job = $beanstalk->reserve) {
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       jobConfig => $configData,
-      # jobId   => $jobDataHref->{_id},
+      submissionID   => $jobDataHref->{submissionID},
       queueID => $job->id,
     }  } );
 
@@ -137,6 +137,7 @@ while(my $job = $beanstalk->reserve) {
       event => $events->{failed},
       reason => $err,
       queueID => $job->id,
+      submissionID   => $jobDataHref->{submissionID},
     }) } );
 
     $job->bury; 
@@ -149,7 +150,7 @@ while(my $job = $beanstalk->reserve) {
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => $events->{completed},
     queueID => $job->id,
-    # jobId   => $jobDataHref->{_id},
+    submissionID   => $jobDataHref->{submissionID},
     results  => {
       summary => $statistics,
       outputFileNames => $outputFileNamesHashRef,

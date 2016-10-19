@@ -38,7 +38,7 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 
 # Required fields
 # The annotation_file_path is constructed from inputDir, inputFileNames by SeqElastic
-my @requiredJobFields = qw/indexName indexType inputDir inputFileNames/;
+my @requiredJobFields = qw/indexName indexType inputDir inputFileNames assembly/;
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -177,6 +177,11 @@ sub coerceInputs {
       return ("$fieldName required", undef);
     }
   }
+
+  $jobDetailsHref->{config} = $configPathBaseDir . $jobDetailsHref->{assembly} . '.mapping.yml';
+
+  say "jobDetailsHref is";
+  p $jobDetailsHref;
 
   return (undef, $jobDetailsHref);
 }

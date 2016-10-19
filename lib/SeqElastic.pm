@@ -20,14 +20,17 @@ use DDP;
 use Seq::Output::Delimiters;
 use MCE::Loop;
 use MCE::Shared;
-
-use Scalar::Util qw/looks_like_number/;
+use YAML::XS qw/LoadFile/;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
 # An archive, containing an "annotation" file
 has annotatedFilePath => (is => 'ro', isa => AbsFile, coerce => 1,
   writer => '_setAnnotatedFilePath');
+
+has config => (is => 'ro', isa=> AbsFile, coerce => 1, required => 1, handles => {
+  configPath => 'stringify',
+});
 
 has publisher => (is => 'ro');
 
@@ -79,6 +82,11 @@ sub go {
 
   (my $err, undef, my $fh) = $self->get_read_fh($filePath,, $annotationFileInCompressed);
   
+  my $mapping = LoadFile($self->configPath);
+
+  say "mapping is";
+  p $mapping;
+
   if($err) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
     #i.e inappropriate ioctl when actually no issue
@@ -101,6 +109,8 @@ sub go {
     return ("First line of input file has illegal characters", undef);
   }
 
+  p @headerFields;
+  
   my @paths = @headerFields;
   for (my $i = 0; $i < @paths; $i++) {
     if( index($paths[$i], '.') > -1 ) {
@@ -111,6 +121,8 @@ sub go {
   my $delimiters = Seq::Output::Delimiters->new();
   my $primaryDelimiter = $delimiters->primaryDelimiter;
   my $secondaryDelimiter = $delimiters->secondaryDelimiter;
+
+  say "secondaryDelimiter is $secondaryDelimiter";
 
   # Todo implement tain check; default taint check doesn't work for annotated files
   $taint_check_regex = qr/./;
@@ -125,6 +137,16 @@ sub go {
     '172.31.62.32:9200',
   ]);
 
+  if(!$es->indices->exists(index => $self->indexName) ) {
+    $es->indices->create(index => $self->indexName);
+  };  
+
+  $es->indices->put_mapping(
+    index => $self->indexName,
+    type => $self->indexType,
+    body => $mapping,
+  );
+
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';
 
@@ -136,8 +158,8 @@ sub go {
     on_error    => sub {
       my ($action,$response,$i) = @_;
       $self->log('warn', "Index error: $action ; $response ; $i");
-
-      $m1->synchronize(sub{ $abortErr = $err; });
+      p $response;
+      $m1->synchronize(sub{ $abortErr = "Index error: $action ; $response ; $i"; });
     },           # optional
     on_conflict => sub {
       my ($action,$response,$i,$version) = @_;
@@ -151,13 +173,16 @@ sub go {
     my @lines;
     
     if($abortErr) {
+      say "abort error found";
       $mce->abort();
     }
 
     open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
+    my $lineCount;
     my @indexed;
     while ( my $line = $MEM_FH->getline() ) {
+      $lineCount++;
       if (! $line =~ /$taint_check_regex/) {
         next;
       }
@@ -167,17 +192,33 @@ sub go {
 
       my %rowDocument;
       my $colIdx = 0;
-
+      my $foundWeird = 0;
       OUTER: for my $field (@fields) {
         # Don't reference the array, because it will modify it in place
         my $path = ref $paths[$colIdx] ? [ @{$paths[$colIdx]} ] : $paths[$colIdx];
         #Do this before everything else, to make sure we track the column index
         #correctly, even if we skip this field
         $colIdx++;
-        
+
+        # if($field eq "0.111422;0.888578|1.000000") {
+        #   say "found the weird field";
+        #   p $field;
+        #   p $colIdx;
+        #   p $line;
+        #   $foundWeird = 1;
+        # }
+
+        my $hasSecondary = 0;
         if( index($field, $secondaryDelimiter) > -1 ) {
           my @array;
+          $hasSecondary = 1;
 
+          # if($colIdx == 42 && $field eq "0.111422;0.888578|1.000000") {
+          #    say "has secondary";
+          #    p $field;
+
+          # }
+         
           # char | is literally is an error; truncates the entire pattern
           # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
           INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
@@ -185,10 +226,8 @@ sub go {
               next INNER;
             }
 
-            if(looks_like_number($fieldValue) ) {
-              $fieldValue += 0;
-            }
-
+            
+            
             push @array, $fieldValue;
           }
 
@@ -199,13 +238,17 @@ sub go {
           } elsif(@array == 1) {
             $field = $array[0];
           } else {
-            say "Skipping this field because secondary delimiter, and empty array:";
-            p $field;
+            # say "Skipping this field because secondary delimiter, and empty array:";
+            # p $field;
 
             # Skip because the outer fields are both empty, nothing to see for this field
             next OUTER;
           }
-        }
+          # if($colIdx == 42) {
+          #   say "field Value";
+          #   p $field;
+          # }
+        } 
 
         # The value of $totalField may be the one we got in this
         # cell, or a different value, including by modifications below
@@ -213,31 +256,35 @@ sub go {
         my @totalFieldsAccum;
         for my $innerField (ref $field ? @$field : $field) {
           if( index($innerField, $primaryDelimiter) > -1 ) {
-            my @array;
+            # if($foundWeird) {
+            #     say "outer innerField is $innerField";
+            #   }
 
-            PRIM_INNER: for my $fieldValue ( split("\\$primaryDelimiter", $innerField) ) {
-              if ($fieldValue eq 'NA') {
-                next PRIM_INNER;
-              }
+            my @splitField = grep { $_ ne 'NA' } split("\\$primaryDelimiter", $innerField);
 
-              if(looks_like_number($fieldValue) ) {
-                $fieldValue += 0;
-              }
-
-              push @array, $fieldValue;
+            # if($colIdx == 42 && $foundWeird) {
+            #   say "inner innerField is";
+            #   p @splitField;
+            # }
+            
+            if(@splitField > 1) {
+              push @totalFieldsAccum, \@splitField;
+            } elsif(@splitField == 1) {
+              push @totalFieldsAccum, $splitField[0];
+            } else {
+              push @totalFieldsAccum, undef;
             }
 
-            # This could lead to a nested array where some of the values are undef
-            # I don't consider it big enough a deal to worry about
-            if(@array > 1) {
-              push @totalFieldsAccum, \@array;
-            } elsif(@array == 1) {
-              push @totalFieldsAccum, $array[0];
-            }
+            # if($colIdx == 42 && $foundWeird) {
+            #   say "after inner innerField is";
+            #   p @totalFieldsAccum;
+            # }
             # Do nothing if @array is empty
           } else {
             if($field ne 'NA') {
               push @totalFieldsAccum, $field;
+            } else {
+              push @totalFieldsAccum, undef;
             }
           }
         }
@@ -251,16 +298,16 @@ sub go {
           next OUTER;
         }
 
-        # We could have had a single, scalar value in the cell
-        if(looks_like_number($totalFields) ) {
-          $totalFields += 0;
-        }
+        # if($totalFields eq 'NA') {
+        #   say "totalFields is somehow NA";
+        #   p $totalFields;
+        #   p $field;
+        # }
 
-        if($totalFields eq 'NA') {
-          say "totalFields is somehow NA";
-          p $totalFields;
-          p $field;
-        }
+        # if($colIdx == 42) {
+        #   say 'after secondary and primary, field is';
+        #   p $totalFields;
+        # }
 
         # Don't waste index space on NA's; missing data is implied by lack of
         # data in the document
@@ -272,8 +319,8 @@ sub go {
       push @indexed, \%rowDocument;
     }
 
-    say "indexed is";
-    p @indexed;
+    # say "indexed is";
+    # p @indexed;
 
     $bulk->create_docs(@indexed);
     $bulk->flush;
@@ -283,17 +330,17 @@ sub go {
 
   MCE::Loop::finish();
   
-  if($abortErr) {
-    $self->log('warn', $abortErr);
-
-    return ($abortErr, undef, undef);
-  }
+  # Disabled for now, we have many abort errors 
+  # if($abortErr) {
+  #   MCE::Shared::stop();
+  #   say "Error creating index";
+  #   return ("Error creating index, check log", undef, undef);
+  # }
 
   # Needed to close some kinds of file handles
   # Doing here for consistency, and the eventuality that we will 
   # modify this with something unexpected
 
-  MCE::Shared::stop();
   $self->log('info', "finished indexing");
 
   return (undef, \@headerFields);
@@ -329,6 +376,10 @@ sub _populateHashPath {
   #my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
   #     $_[0]  , $_[1]    , $_[2]
 
+  # if(!$_[1]) {
+  #   say "no 1";
+  #   p @_;
+  # }
   # If $pathAref isn't an Aref, we're done after the first iteration
   if(!ref $_[1]) {
     $_[0]->{$_[1]} = $_[2];
@@ -351,6 +402,10 @@ sub _populateHashPath {
     # We have sutff left, so recurse another layer
     goto &_populateHashPath;
   }
+
+  # if(!defined $_[0]->{$pathPart}) {
+  #   $_[0]->{$pathPart} = {};
+  # }
 
   $_[0]->{$pathPart} = $_[2];
   
