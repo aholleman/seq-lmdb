@@ -21,6 +21,7 @@ use Seq::Output::Delimiters;
 use MCE::Loop;
 use MCE::Shared;
 use YAML::XS qw/LoadFile/;
+use Try::Tiny;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
@@ -141,11 +142,16 @@ sub go {
     $es->indices->create(index => $self->indexName);
   };  
 
-  $es->indices->put_mapping(
-    index => $self->indexName,
-    type => $self->indexType,
-    body => $mapping,
-  );
+  try {
+    $es->indices->put_mapping(
+      index => $self->indexName,
+      type => $self->indexType,
+      body => $mapping,
+    );
+    } catch {
+      return ("Couldn't index job", undef);
+    }
+  
 
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';
