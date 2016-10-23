@@ -141,7 +141,8 @@ sub go {
   if(!$es->indices->exists(index => $self->indexName) ) {
     $es->indices->create(index => $self->indexName);
   };
-  
+    
+  # Update index settings to the latest
   try {
     $es->indices->put_mapping(
       index => $self->indexName,

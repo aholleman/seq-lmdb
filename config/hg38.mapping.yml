@@ -24,20 +24,32 @@ mapping:
             type: string
         heterozygotes:
             type: string
+            analyzer:  autocomplete
+            search_analyzer": standard
         homozygotes:
             type: string
+            analyzer:  autocomplete
+            search_analyzer": standard
         compoundHeterozygotes:
             type: string
+            analyzer:  autocomplete
+            search_analyzer": standard
         minorAlleles:
             type: string
+            analyzer:  autocomplete
+            search_analyzer": standard
         hg38:
             type: string
         refSeq:
             properties:
                 siteType:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 exonicAlleleFunction:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 referenceCodon:
                     type: string
                 alleleAminoAcid:
@@ -50,34 +62,62 @@ mapping:
                     type: string
                 kgID:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 mRNA:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 spID:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 spDisplayID:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 geneSymbol:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 refseq:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 protAcc:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 description:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 rfamAcc:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 name:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 nearest:
                     properties:
                         name:
                             type: string
+                            analyzer:  autocomplete
+                            search_analyzer": standard
                         geneSymbol:
                             type: string
+                            analyzer:  autocomplete
+                            search_analyzer": standard
                         PhenotypeIDs:
                             type: string
+                            analyzer:  autocomplete
+                            search_analyzer": standard
                         OtherIDs:
                             type: string
+                            analyzer:  autocomplete
+                            search_analyzer": standard
         phastCons:
             type: float
         phyloP:
@@ -88,16 +128,26 @@ mapping:
             properties:
                 name:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 strand:
                     type: string
                 observed:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 class:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 func:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 alleles:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 alleleNs:
                     type: integer
                 alleleFreqs:
@@ -106,17 +156,31 @@ mapping:
             properties:
                 ClinicalSignificance:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 Type:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 Origin:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 ReviewStatus:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 OtherIDs:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 ReferenceAllele:
                     type: string
                 AlternateAllele:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
                 PhenotypeIDs:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer": standard
