@@ -85,9 +85,6 @@ sub go {
   
   my $searchConfig = LoadFile($self->configPath);
 
-  say "mapping is";
-  p $searchConfig;
-
   if($err) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
     #i.e inappropriate ioctl when actually no issue
@@ -143,8 +140,16 @@ sub go {
 
   if(!$es->indices->exists(index => $self->indexName) ) {
     $es->indices->create(index => $self->indexName, body => {settings => $searchConfig->{settings}});
-    say "created";
-  };
+  } else {
+    $es->indices->close(index => $self->indexName);
+
+    $es->indices->put_settings(
+      index => $self->indexName,
+      body => $searchConfig->{settings},
+    );
+
+    $es->indices->open(index => $self->indexName);
+  }
 
   # $es->indices->put_settings(
   #   index => $self->indexName,
@@ -183,10 +188,10 @@ sub go {
     max_count   => $self->commitEvery,
     max_size    => 10e6,
     on_error    => sub {
-      my ($action,$response,$i) = @_;
+      my ($action, $response, $i) = @_;
       $self->log('warn', "Index error: $action ; $response ; $i");
       p $response;
-      $m1->synchronize(sub{ $abortErr = "Index error: $action ; $response ; $i"; });
+      $m1->synchronize(sub{ $abortErr = $response} );
     },           # optional
     on_conflict => sub {
       my ($action,$response,$i,$version) = @_;

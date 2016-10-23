@@ -86,9 +86,7 @@ while(my $job = $beanstalk->reserve) {
 
     ($err, $fieldNames) = handleJob($jobDataHref, $job->id);
   
-  } catch {
-    say "job ". $job->id . " failed due to $_";
-      
+  } catch {      
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
@@ -96,10 +94,18 @@ while(my $job = $beanstalk->reserve) {
   if ($err) { 
     say "job ". $job->id . " failed due to found error, which is $err";
     
+    my $message;
+
+    if(ref $err && $err->{vars}{body}{error}{reason}) {
+      $message = $err->{vars}{body}{error}{reason};
+    } else {
+      $message = $err;
+    }
+
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => $events->{failed},
       submissionID => $jobDataHref->{submissionID},
-      reason => $err,
+      reason => $message,
       queueID => $job->id,
     }) } );
 
