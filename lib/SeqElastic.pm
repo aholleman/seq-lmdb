@@ -83,10 +83,10 @@ sub go {
 
   (my $err, undef, my $fh) = $self->get_read_fh($filePath,, $annotationFileInCompressed);
   
-  my $mapping = LoadFile($self->configPath);
+  my $searchConfig = LoadFile($self->configPath);
 
   say "mapping is";
-  p $mapping;
+  p $searchConfig;
 
   if($err) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
@@ -140,18 +140,22 @@ sub go {
 
   if(!$es->indices->exists(index => $self->indexName) ) {
     $es->indices->create(index => $self->indexName);
-  };  
-
+  };
+  
   try {
     $es->indices->put_mapping(
       index => $self->indexName,
+      body => $searchConfig->{settings},
+    );
+
+    $es->indices->put_setting(
+      index => $self->indexName,
       type => $self->indexType,
-      body => $mapping,
+      body => $searchConfig->{mapping},
     );
   } catch {
     return ("Couldn't index job", undef);
   };
-  
 
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';

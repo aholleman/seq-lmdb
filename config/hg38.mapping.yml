@@ -1,0 +1,122 @@
+settings:
+    analysis:
+        filter: 
+            autocomplete_filter:
+                type: edge_ngram
+                min_gram: 1,
+                max_gram: 20
+            
+        
+        analyzer:
+            autocomplete:
+                type: custom
+                tokenizer: standard
+                filter:
+                    - lowercase
+                    - autocomplete_filter
+mapping:
+    properties:
+        Fragment:
+            type: string
+        Position:
+            type: integer
+        Type:
+            type: string
+        heterozygotes:
+            type: string
+        homozygotes:
+            type: string
+        compoundHeterozygotes:
+            type: string
+        minorAlleles:
+            type: string
+        hg38:
+            type: string
+        refSeq:
+            properties:
+                siteType:
+                    type: string
+                exonicAlleleFunction:
+                    type: string
+                referenceCodon:
+                    type: string
+                alleleAminoAcid:
+                    type: string
+                codonPosition:
+                    type: short
+                codonNumber:
+                    type: integer
+                strand:
+                    type: string
+                kgID:
+                    type: string
+                mRNA:
+                    type: string
+                spID:
+                    type: string
+                spDisplayID:
+                    type: string
+                geneSymbol:
+                    type: string
+                refseq:
+                    type: string
+                protAcc:
+                    type: string
+                description:
+                    type: string
+                rfamAcc:
+                    type: string
+                name:
+                    type: string
+                nearest:
+                    properties:
+                        name:
+                            type: string
+                        geneSymbol:
+                            type: string
+                        PhenotypeIDs:
+                            type: string
+                        OtherIDs:
+                            type: string
+        phastCons:
+            type: float
+        phyloP:
+            type: float
+        cadd:
+            type: float
+        dbSNP146:
+            properties:
+                name:
+                    type: string
+                strand:
+                    type: string
+                observed:
+                    type: string
+                class:
+                    type: string
+                func:
+                    type: string
+                alleles:
+                    type: string
+                alleleNs:
+                    type: integer
+                alleleFreqs:
+                    type: float
+        clinvar:
+            properties:
+                ClinicalSignificance:
+                    type: string
+                Type:
+                    type: string
+                Origin:
+                    type: string
+                ReviewStatus:
+                    type: string
+                OtherIDs:
+                    type: string
+                ReferenceAllele:
+                    type: string
+                AlternateAllele:
+                    type: string
+                PhenotypeIDs:
+                    type: string
