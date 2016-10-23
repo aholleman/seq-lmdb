@@ -138,25 +138,41 @@ sub go {
     '172.31.62.32:9200',
   ]);
 
-  if(!$es->indices->exists(index => $self->indexName) ) {
-    $es->indices->create(index => $self->indexName);
-  };
-    
-  # Update index settings to the latest
-  try {
-    $es->indices->put_mapping(
-      index => $self->indexName,
-      body => $searchConfig->{settings},
-    );
+  say "mapping ";
+  p $searchConfig;
 
-    $es->indices->put_setting(
-      index => $self->indexName,
-      type => $self->indexType,
-      body => $searchConfig->{mapping},
-    );
-  } catch {
-    return ("Couldn't index job", undef);
+  if(!$es->indices->exists(index => $self->indexName) ) {
+    $es->indices->create(index => $self->indexName, body => {settings => $searchConfig->{settings}});
+    say "created";
   };
+
+  # $es->indices->put_settings(
+  #   index => $self->indexName,
+  #   body => $searchConfig->{settings},
+  # );
+
+  $es->indices->put_mapping(
+    index => $self->indexName,
+    type => $self->indexType,
+    body => {properties => $searchConfig->{mappings}},
+  );
+
+  # $es->indices->open(index => $self->indexName);
+  # Update index settings to the latest
+  # try {
+  #   $es->indices->put_mapping(
+  #     index => $self->indexName,
+  #     body => $searchConfig->{settings},
+  #   );
+
+  #   $es->indices->put_setting(
+  #     index => $self->indexName,
+  #     type => $self->indexType,
+  #     body => $searchConfig->{mapping},
+  #   );
+  # } catch {
+  #   return ("Couldn't index job", undef);
+  # };
 
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';

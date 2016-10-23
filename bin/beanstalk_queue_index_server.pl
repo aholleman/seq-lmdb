@@ -79,6 +79,7 @@ while(my $job = $beanstalk->reserve) {
     say "sending started event to " . $events->{started};
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
+      submissionID => $jobDataHref->{submissionID},
       # jobId   => $jobDataHref->{_id},
       queueID => $job->id,
     }  } );
@@ -97,6 +98,7 @@ while(my $job = $beanstalk->reserve) {
     
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => $events->{failed},
+      submissionID => $jobDataHref->{submissionID},
       reason => $err,
       queueID => $job->id,
     }) } );
@@ -110,6 +112,7 @@ while(my $job = $beanstalk->reserve) {
   # To be conservative; since after delete message is lost
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => $events->{completed},
+    submissionID => $jobDataHref->{submissionID},
     queueID => $job->id,
     # jobId   => $jobDataHref->{_id},
     fieldNames => $fieldNames,
@@ -151,6 +154,7 @@ sub handleJob {
     queue  => $conf->{beanstalkd}{tubes}{index}{events},
     messageBase => {
       event => $events->{progress},
+      submissionID => $submittedJob->{submissionID},
       queueID => $queueID,
       data => undef,
     }
