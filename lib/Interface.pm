@@ -57,7 +57,7 @@ has snpfile => (
   documentation => qq{Input file path.},
 );
 
-has out_file => (
+has output_file_base => (
   is          => 'ro',
   isa         => 'AbsPath',
   coerce      => 1,
@@ -164,8 +164,8 @@ sub annotate {
   
   my $args = {
     config => $self->configfilePath,
-    snpfile => $self->snpfilePath,
-    out_file => $self->output_path,
+    input_file => $self->snpfilePath,
+    output_file_base => $self->output_path,
     debug => $self->debug,
     ignore_unknown_chr => $self->ignore_unknown_chr,
     overwrite => $self->overwrite,

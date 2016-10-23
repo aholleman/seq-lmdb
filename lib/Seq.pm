@@ -298,7 +298,7 @@ sub annotate {
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
-    gather => $self->makeLogProgress(\$abortErr),
+    gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
@@ -378,18 +378,21 @@ sub annotate {
 
     close  $MEM_FH;
 
+    my $err = '';
+    my $outString;
+    
     if(@lines) {
       #TODO: implement better error handling
-      my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
-
-      if($err ne '') {
-        MCE->gather(undef, $err);
-        $_[0]->abort();
-      }
+      ($err, $outString) = $self->annotateLinesAndPrint(\@lines);
     }
     
     # Write progress
-    MCE->gather($lineCount);
+    MCE->gather($lineCount, $err, $outString);
+
+    if($err) {
+      $_[0]->abort();
+    }
+
   } $fh;
 
   MCE::Loop::finish();
@@ -439,20 +442,15 @@ sub annotate {
   return (undef, $statsHref, $self->outputFilesInfo);
 }
 
-sub makeLogProgress {
-  my ($self, $abortErrRef) = @_;
+sub makeLogProgressAndPrint {
+  my ($self, $abortErrRef, $outFh, $statsFh) = @_;
 
   my $total = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
-  if(!$hasPublisher) {
-    # noop
-    return sub{};
-  }
-
   return sub {
-    #my $progress, $err = @_;
+    #my $progress, $err, $outputLines = @_;
     ##    $_[0], $_[1]
 
     if(defined $_[0]) {
@@ -460,18 +458,22 @@ sub makeLogProgress {
       $total += $_[0];
 
       $self->publishProgress($total);
-      return;
     }
 
-    if(defined $_[1]) {
+    if($hasPublisher && defined $_[1]) {
       $$abortErrRef = $_[1];
+    }
+
+    if(defined $_[2]) {
+      print $statsFh $_[2];
+      print $outFh $_[2];
     }
   }
 }
 
 # Accumulates data from the database, and writes an output string
 sub annotateLinesAndPrint {
-  my ($self, $linesAref, $outFh, $statsFh) = @_;
+  my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -493,7 +495,7 @@ sub annotateLinesAndPrint {
         my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
-          return $err;
+          return ($err, undef);
         }
 
         # Accumulate the output
@@ -525,28 +527,15 @@ sub annotateLinesAndPrint {
     my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
-      return $err;
+      return ($err, undef);
     }
     
     undef @positions; undef @inputData;
   }
 
-  # write everything for this part
-  # This should come last, makeOutputString may mutate @output
-  $outputString .= $self->{_outputter}->makeOutputString(\@output);
-
-  # Needs to be say I believe
-  # I seem to have more issues with closing the statsFh with print ; buffering?
-  # Could have been placebo
-  MCE->say($outFh, $outputString);
-  MCE->say($statsFh, $outputString);
-
-  # $self->{_outputter}->indexOutput(\@output);
-  undef @output;
-
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return "";
+  return (undef, $outputString . $self->{_outputter}->makeOutputString(\@output));
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###

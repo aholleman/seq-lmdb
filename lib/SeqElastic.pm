@@ -148,9 +148,9 @@ sub go {
       type => $self->indexType,
       body => $mapping,
     );
-    } catch {
-      return ("Couldn't index job", undef);
-    }
+  } catch {
+    return ("Couldn't index job", undef);
+  };
   
 
   my $m1 = MCE::Mutex->new;
@@ -199,32 +199,17 @@ sub go {
       my %rowDocument;
       my $colIdx = 0;
       my $foundWeird = 0;
-      OUTER: for my $field (@fields) {
-        # Don't reference the array, because it will modify it in place
-        my $path = ref $paths[$colIdx] ? [ @{$paths[$colIdx]} ] : $paths[$colIdx];
-        #Do this before everything else, to make sure we track the column index
-        #correctly, even if we skip this field
-        $colIdx++;
 
-        # if($field eq "0.111422;0.888578|1.000000") {
-        #   say "found the weird field";
-        #   p $field;
-        #   p $colIdx;
-        #   p $line;
-        #   $foundWeird = 1;
-        # }
+      # We use Perl's in-place modification / reference of looped-over variables
+      # http://ideone.com/HNgMf7
+      OUTER: for (my $i = 0; $i < @fields; $i++) {
+        my $field = $fields[$i];
 
         my $hasSecondary = 0;
         if( index($field, $secondaryDelimiter) > -1 ) {
           my @array;
           $hasSecondary = 1;
 
-          # if($colIdx == 42 && $field eq "0.111422;0.888578|1.000000") {
-          #    say "has secondary";
-          #    p $field;
-
-          # }
-         
           # char | is literally is an error; truncates the entire pattern
           # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
           INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
@@ -232,93 +217,45 @@ sub go {
               next INNER;
             }
 
-            
-            
             push @array, $fieldValue;
           }
 
+          my @splitField = grep { $_ ne 'NA' } split("\\$secondaryDelimiter", $field);
+
           # Field may be undef
           # Modify the field, to be an array, or a scalar
-          if(@array > 1) {
-            $field = \@array;
-          } elsif(@array == 1) {
-            $field = $array[0];
+          if(@splitField > 1) {
+            $field = \@splitField;
+          } elsif(@splitField == 1) {
+            $field = $splitField[0];
           } else {
-            # say "Skipping this field because secondary delimiter, and empty array:";
-            # p $field;
-
-            # Skip because the outer fields are both empty, nothing to see for this field
-            next OUTER;
+            $field = undef;
           }
-          # if($colIdx == 42) {
-          #   say "field Value";
-          #   p $field;
-          # }
-        } 
+        }
 
-        # The value of $totalField may be the one we got in this
-        # cell, or a different value, including by modifications below
-        # and the ones made above
-        my @totalFieldsAccum;
         for my $innerField (ref $field ? @$field : $field) {
           if( index($innerField, $primaryDelimiter) > -1 ) {
-            # if($foundWeird) {
-            #     say "outer innerField is $innerField";
-            #   }
 
             my @splitField = grep { $_ ne 'NA' } split("\\$primaryDelimiter", $innerField);
 
-            # if($colIdx == 42 && $foundWeird) {
-            #   say "inner innerField is";
-            #   p @splitField;
-            # }
-            
             if(@splitField > 1) {
-              push @totalFieldsAccum, \@splitField;
+              $innerField = \@splitField;
             } elsif(@splitField == 1) {
-              push @totalFieldsAccum, $splitField[0];
+              $innerField = $splitField[0];
             } else {
-              push @totalFieldsAccum, undef;
+              $innerField = undef;
             }
 
-            # if($colIdx == 42 && $foundWeird) {
-            #   say "after inner innerField is";
-            #   p @totalFieldsAccum;
-            # }
             # Do nothing if @array is empty
-          } else {
-            if($field ne 'NA') {
-              push @totalFieldsAccum, $field;
-            } else {
-              push @totalFieldsAccum, undef;
-            }
+          } elsif($innerField eq 'NA') {
+            $innerField = undef;
           }
+
+          # Else don't modify the field
         }
 
-        my $totalFields;
-        if(@totalFieldsAccum > 1) {
-          $totalFields = \@totalFieldsAccum;
-        } elsif(@totalFieldsAccum == 1) {
-          $totalFields = $totalFieldsAccum[0];
-        } else {
-          next OUTER;
-        }
-
-        # if($totalFields eq 'NA') {
-        #   say "totalFields is somehow NA";
-        #   p $totalFields;
-        #   p $field;
-        # }
-
-        # if($colIdx == 42) {
-        #   say 'after secondary and primary, field is';
-        #   p $totalFields;
-        # }
-
-        # Don't waste index space on NA's; missing data is implied by lack of
-        # data in the document
-        if(defined $totalFields && $totalFields ne 'NA') {
-          _populateHashPath(\%rowDocument, $path, $totalFields);
+        if(defined $field && $field ne 'NA') {
+          _populateHashPath(\%rowDocument, $paths[$i], $field);
         }
       }
 
@@ -379,43 +316,28 @@ sub makeLogProgress {
 }
 
 sub _populateHashPath {
-  #my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
+  my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
   #     $_[0]  , $_[1]    , $_[2]
 
-  # if(!$_[1]) {
-  #   say "no 1";
-  #   p @_;
-  # }
-  # If $pathAref isn't an Aref, we're done after the first iteration
-  if(!ref $_[1]) {
-    $_[0]->{$_[1]} = $_[2];
-    return;
+  if(!ref $pathAref) {
+    $hashRef->{$pathAref} = $dataForEndOfPath;
+    return $hashRef;
   }
 
-  my $pathPart = shift @{ $_[1] };
-  
-  if(!$pathPart) {
-    say "no path part found";
-    p @_;
-  }
-  
-  if(@{ $_[1] }) {
-    if(!defined $_[0]->{$pathPart}) {
-      $_[0]->{$pathPart} = {};
+  my $href = $hashRef;
+  for (my $i = 0; $i < @$pathAref; $i++) {
+    if($i + 1 == @$pathAref) {
+      $href->{$pathAref->[$i]} = $dataForEndOfPath;
+    } else {
+      if(!defined  $href->{$pathAref->[$i]} ) {
+        $href->{$pathAref->[$i]} = {};
+      }
+      
+      $href = $href->{$pathAref->[$i]};
     }
-
-    $_[0] = $_[0]->{$pathPart};
-    # We have sutff left, so recurse another layer
-    goto &_populateHashPath;
   }
 
-  # if(!defined $_[0]->{$pathPart}) {
-  #   $_[0]->{$pathPart} = {};
-  # }
-
-  $_[0]->{$pathPart} = $_[2];
-  
-  return;
+  return $href;
 }
 
 sub _getFilePath {
