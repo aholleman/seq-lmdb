@@ -355,11 +355,12 @@ sub annotate {
       $m1->synchronize(sub{ $readFirstLine = 1 });
     }
 
-    my $lineCount = 0;
+    my $annotatedCount = 0;
+    my $skipCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
-      $lineCount++;
-
       if ($line =~ /$taint_check_regex/) {
+        $annotatedCount++;
+        
         chomp $line;
         my @fields = split $delimiter, $line;
 
@@ -373,6 +374,8 @@ sub annotate {
         }
 
         push @lines, \@fields;
+      } else {
+        $skipCount++;
       }
     }
 
@@ -387,7 +390,7 @@ sub annotate {
     }
     
     # Write progress
-    MCE->gather($lineCount, $err, $outString);
+    MCE->gather($annotatedCount, $skipCount, $err, $outString);
 
     if($err) {
       $_[0]->abort();
@@ -445,28 +448,30 @@ sub annotate {
 sub makeLogProgressAndPrint {
   my ($self, $abortErrRef, $outFh, $statsFh) = @_;
 
-  my $total = 0;
+  my $totalAnnotated = 0;
+  my $totalSkipped = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
-    #my $progress, $err, $outputLines = @_;
-    ##    $_[0], $_[1]
+    #my $annotatedCount, $skipCount, $err, $outputLines = @_;
+    ##    $_[0],          $_[1],     $_[2], $_[3]
 
-    if(defined $_[0]) {
+    if($hasPublisher && defined $_[0] && defined $_[1]) {
 
-      $total += $_[0];
+      $totalAnnotated += $_[0];
+      $totalSkipped += $_[1];
 
-      $self->publishProgress($total);
-    }
-
-    if($hasPublisher && defined $_[1]) {
-      $$abortErrRef = $_[1];
+      $self->publishProgress($totalAnnotated, $totalSkipped);
     }
 
     if(defined $_[2]) {
-      print $statsFh $_[2];
-      print $outFh $_[2];
+      $$abortErrRef = $_[2];
+    }
+
+    if(defined $_[3]) {
+      print $statsFh $_[3];
+      print $outFh $_[3];
     }
   }
 }

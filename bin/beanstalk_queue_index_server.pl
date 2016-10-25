@@ -80,7 +80,6 @@ while(my $job = $beanstalk->reserve) {
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       submissionID => $jobDataHref->{submissionID},
-      # jobId   => $jobDataHref->{_id},
       queueID => $job->id,
     }  } );
 
@@ -120,7 +119,6 @@ while(my $job = $beanstalk->reserve) {
     event => $events->{completed},
     submissionID => $jobDataHref->{submissionID},
     queueID => $job->id,
-    # jobId   => $jobDataHref->{_id},
     fieldNames => $fieldNames,
   }) } );
   

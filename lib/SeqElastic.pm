@@ -135,9 +135,6 @@ sub go {
     '172.31.62.32:9200',
   ]);
 
-  say "mapping ";
-  p $searchConfig;
-
   if(!$es->indices->exists(index => $self->indexName) ) {
     $es->indices->create(index => $self->indexName, body => {settings => $searchConfig->{settings}});
   } else {
@@ -159,7 +156,7 @@ sub go {
   $es->indices->put_mapping(
     index => $self->indexName,
     type => $self->indexType,
-    body => {properties => $searchConfig->{mappings}},
+    body => $searchConfig->{mappings},
   );
 
   # $es->indices->open(index => $self->indexName);

@@ -127,13 +127,13 @@ sub publishMessage {
 }
 
 sub publishProgress {
-  # my ( $self, $msg ) = @_;
-  # to save on perf, $_[0] == $self, $_[1] == $msg;
+  # my ( $self, $annotatedCount, $skippedCount ) = @_;
+  #     $_[0],  $_[1],           $_[2]
 
   # because predicates don't trigger builders, need to check hasPublisherAddress
   return unless $publisher;
 
-  $messageBase->{data} = { progress => $_[1] };
+  $messageBase->{data} = { progress => $_[1], skipped => $_[2] };
 
   $publisher->put({
     priority => 0,
