@@ -34,24 +34,37 @@ mappings:
             type: string
         minorAlleles:
             type: string
+            include_in_all: false
         hg19:
             type: string
+            include_in_all: false
         refSeq:
             properties:
                 siteType:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
                 exonicAlleleFunction:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
                 referenceCodon:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
                 alleleAminoAcid:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
                 codonPosition:
                     type: short
+                    include_in_all: false
                 codonNumber:
                     type: integer
+                    include_in_all: false
                 strand:
                     type: string
+                    include_in_all: false
                 kgID:
                     type: string
                     analyzer:  autocomplete
@@ -102,6 +115,8 @@ mappings:
                             type: string
                             analyzer:  autocomplete
                             search_analyzer: standard
+                clinvar:
+                    properties:
                         PhenotypeIDs:
                             type: string
                             analyzer:  autocomplete
@@ -112,10 +127,13 @@ mappings:
                             search_analyzer: standard
         phastCons:
             type: float
+            include_in_all: false
         phyloP:
             type: float
+            include_in_all: false
         cadd:
             type: float
+            include_in_all: false
         dbSNP146:
             properties:
                 name:
@@ -126,6 +144,7 @@ mappings:
                     type: string
                 observed:
                     type: string
+                    include_in_all: false
                 class:
                     type: string
                     analyzer:  autocomplete
@@ -136,10 +155,13 @@ mappings:
                     search_analyzer: standard
                 alleles:
                     type: string
+                    include_in_all: false
                 alleleNs:
                     type: integer
+                    include_in_all: false
                 alleleFreqs:
                     type: float
+                    include_in_all: false
         clinvar:
             properties:
                 ClinicalSignificance:
@@ -164,8 +186,10 @@ mappings:
                     search_analyzer: standard
                 ReferenceAllele:
                     type: string
+                    include_in_all: false
                 AlternateAllele:
                     type: string
+                    include_in_all: false
                 PhenotypeIDs:
                     type: string
                     analyzer:  autocomplete
