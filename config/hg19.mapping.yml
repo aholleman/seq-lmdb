@@ -7,6 +7,8 @@ settings:
             search_synonym_filter:
                 type: synonym
                 synonyms_path : "analysis/search-synonyms.txt"
+                # synonyms:
+                #     - variant,variants => variant,variants,allele,alleles
             type_synonym_filter:
                 type: synonym
                 synonyms_path : "analysis/type-synonyms.txt"
@@ -32,9 +34,9 @@ settings:
             search_standard:
                 tokenizer: standard
                 filter:
+                    - search_synonym_filter
                     - standard
                     - lowercase
-                    - search_synonym_filter
             indel_expansion_standard:
                 tokenizer: standard
                 filter:
@@ -42,11 +44,25 @@ settings:
                     - lowercase
                     - indel_expansion_filter
             type_synonym_standard:
-                tokenizer: standard
+                tokenizer: whitespace
                 filter:
                     - standard
                     - lowercase
                     - type_synonym_filter
+            keyword_noop:
+                tokenizer: keyword
+            whitespace_standard:
+                tokenizer: whitespace
+                filter:
+                    - standard
+                    - lowercase
+            # Doesn't work well:
+            # in-del becomes unresponsive to searches...
+            # whitespace_autocomplete:
+            #     tokenizer: whitespace
+            #     filter:
+            #         - lowercase
+            #         - autocomplete_filter
             # type_autocomplete:
             #     type: custom
             #     tokenizer: standard
@@ -63,11 +79,12 @@ mappings:
     properties:
         Fragment:
             type: string
+            analyzer: whitespace_standard
         Position:
             type: integer
         Type:
             type: string
-            analyzer: standard
+            analyzer: whitespace_standard
             # Will make _all field respond well to insertion, deletion terms
             search_analyzer: type_synonym_standard
             # Simply too big when doing this; index inflates many fold
@@ -76,16 +93,21 @@ mappings:
             # search_analyzer: search_standard
         heterozygotes:
             type: string
+            analyzer: whitespace_standard
         homozygotes:
             type: string
+            analyzer: whitespace_standard
         compoundHeterozygotes:
             type: string
+            analyzer: whitespace_standard
         minorAlleles:
             type: string
             include_in_all: false
+            analyzer: whitespace_standard
         hg19:
             type: string
             include_in_all: false
+            analyzer: whitespace_standard
         refSeq:
             properties:
                 siteType:
@@ -112,6 +134,7 @@ mappings:
                     include_in_all: false
                 strand:
                     type: string
+                    analyzer: keyword_noop
                     include_in_all: false
                 kgID:
                     type: string
@@ -190,8 +213,10 @@ mappings:
                     search_analyzer: search_standard
                 strand:
                     type: string
+                    analyzer: keyword
                 observed:
                     type: string
+                    analyzer: whitespace_standard
                     include_in_all: false
                 class:
                     type: string
@@ -203,6 +228,7 @@ mappings:
                     search_analyzer: search_standard
                 alleles:
                     type: string
+                    analyzer: whitespace_standard
                     include_in_all: false
                 alleleNs:
                     type: integer
@@ -234,9 +260,11 @@ mappings:
                     search_analyzer: search_standard
                 ReferenceAllele:
                     type: string
+                    analyzer: whitespace_standard
                     include_in_all: false
                 AlternateAllele:
                     type: string
+                    analyzer: whitespace_standard
                     include_in_all: false
                 PhenotypeIDs:
                     type: string
