@@ -297,7 +297,7 @@ sub annotate {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
-    # chunk_size => 8192,
+    chunk_size => 8192,
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -451,6 +451,7 @@ sub makeLogProgressAndPrint {
   my $totalAnnotated = 0;
   my $totalSkipped = 0;
 
+  my $totalChange = 0;
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
@@ -458,7 +459,6 @@ sub makeLogProgressAndPrint {
     ##    $_[0],          $_[1],     $_[2], $_[3]
 
     if($hasPublisher && defined $_[0] && defined $_[1]) {
-
       $totalAnnotated += $_[0];
       $totalSkipped += $_[1];
 
