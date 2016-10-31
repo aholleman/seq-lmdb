@@ -29,7 +29,7 @@ GetOptions(
   'c|config=s'   => \$yaml_config,
   't|type=s'     => \$wantedType,
   'n|name=s'     => \$wantedName,
-  'v|verbose'    => \$verbose,
+  'v|verbose=i'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
@@ -82,7 +82,7 @@ my $builder_options_href = {
   skip_completion_check => !!$skipCompletionCheck,
   dry_run_insertions => !!$dryRunInsertions,
   meta_only => !!$metaOnly,
-  verbose => !!$verbose,
+  verbose => $verbose,
 };
 
 if(defined $maxThreads) {

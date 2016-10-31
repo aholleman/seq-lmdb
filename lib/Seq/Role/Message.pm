@@ -42,6 +42,14 @@ $Seq::Role::Message::mapLevels = {
   NOTICE => 'NOTICE',
 };
 
+my %mapSeverity = (
+  debug => 0,
+  info => 0,
+  warn => 1,
+  fatal => 2,
+  error => 2
+);
+
 # Static variables; these need to be cleared by the consuming class
 state $debug = 0;
 state $verbose = 0;
@@ -80,7 +88,15 @@ sub setLogLevel {
 sub setVerbosity {
   my ($self, $verboseLevel) = @_;
   
-  $verbose = !!$verboseLevel;
+  say "verbose level is $verboseLevel";
+  if($verboseLevel != 0 && $verboseLevel != 1 && $verboseLevel != 2) {
+    # Should log this
+    say "Verbose level must be 1, 2, or 3, setting to 0";
+    $verbose = 0;
+    return;
+  }
+
+  $verbose = $verboseLevel;
 }
 
 has hasPublisher => (is => 'ro', init_arg => undef, writer => '_setPublisher', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
@@ -175,9 +191,13 @@ sub log {
     $_[0]->publishMessage( "[FATAL] $_[2]" );
 
     croak("[FATAL] $_[2]");
+  } else {
+    return;
   }
 
-  if($verbose) {
+  # So if verbosity is set to 1, only err, warn, and fatal messages
+  # will be printed to sdout
+  if($verbose <= $mapSeverity{$_[1]}) {
     say $_[2];
   }
 

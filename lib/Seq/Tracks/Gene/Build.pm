@@ -85,8 +85,15 @@ sub buildTrack {
       my $fh = $self->get_read_fh($file);
 
       my $firstLine = <$fh>;
+
+      # Fatal/exit will only affect that process, won't affect others
+      if(!defined $firstLine) {
+        $pm->finish(1, \"First line empty, so $file is empty");
+        return;
+      }
+
       chomp $firstLine;
-   
+
       # Store all features we can find, for Seq::Build::Gene::TX. Avoid autocracy,
       # don't need to know what Gene::TX requires.
       my $fieldIdx = 0;
@@ -98,7 +105,7 @@ sub buildTrack {
       # Except w.r.t the chromosome field, txStart, txEnd, txNumber definitely need these
       if(!defined $allIdx{$self->chrom_field_name} || !defined $allIdx{$self->txStart_field_name}
       || !defined $allIdx{$self->txEnd_field_name} ) {
-        $self->log('fatal', 'must provide chrom, txStart, txEnd fields');
+        $pm->finish(1, \'Must provide chrom, txStart, txEnd fields');
       }
 
       # Region database features; as defined by user in the YAML config, or our default
@@ -108,7 +115,7 @@ sub buildTrack {
           next REGION_FEATS;
         }
 
-        $self->log('fatal', 'Required $field missing in $file header');
+        $pm->finish(1, \"Required $field missing in $file header: $firstLine");
       }
 
       # Every row (besides header) describes a transcript
@@ -177,15 +184,21 @@ sub buildTrack {
         my $txStart = $allDataHref->{$self->txStart_field_name};
         
         if(!$txStart) {
-          $self->log('fatal', 'Missing transcript start ( we expected a value @ ' .
-            $self->txStart_field_name . ')');
+          my $statement = 'Missing transcript start ( we expected a value @ ' .
+            $self->txStart_field_name . ')';
+
+          $pm->finish(1, \$statement);
+          return;
         }
 
         my $txEnd = $allDataHref->{$self->txEnd_field_name};
         
         if(!$txEnd) {
-          $self->log('fatal', 'Missing transcript start ( we expected a value @ ' .
-            $self->txEnd_field_name . ')');
+          my $statement = 'Missing transcript start ( we expected a value @ ' .
+            $self->txEnd_field_name . ')';
+
+          $pm->finish(1, \$statement);
+          return;
         }
 
         if(defined $txStartData{$wantedChr}{$txStart} ) {
@@ -321,7 +334,8 @@ sub buildTrack {
         my ($pid, $exitCode, $chr) = @_;
         if(!defined $exitCode || $exitCode != 0) {
           # Exit early, meaning parent doesn't $pm->finish(0), to reduce corruption
-          return $self->log('fatal', "Failed to build transcripts for $chr");
+          $pm->finish(1, \"Failed to build transcripts for $chr");
+          return;
         }
         
         $self->log('info', "Finished buidling transcripts for $chr, with exit code $exitCode");
@@ -335,11 +349,17 @@ sub buildTrack {
   # Done with all chromosomes. Tell caller whether we exited due to failure
   my @failed;
   $pm->run_on_finish( sub {
-    my ($pid, $exitCode, $fileName) = @_;
+    my ($pid, $exitCode, $fileName, $exit_signal, $core_dump, $statementRef) = @_;
 
-    $self->log('debug', "Got exitCode $exitCode for $fileName");
-
-    if($exitCode != 0) { push @failed, "Got exitCode $exitCode for $fileName"; }
+    if($exitCode != 0) {
+      my $statement = defined $statementRef ? ${$statementRef} : "";
+      
+      push @failed, "Got exitCode $exitCode for $fileName, due to: $statement";
+      
+      $self->log('warn', "Got exitCode $exitCode for $fileName: $statement");
+    } else {
+      $self->log('info', "Got exitCode $exitCode for $fileName");
+    }
   });
 
   $pm->wait_all_children;
