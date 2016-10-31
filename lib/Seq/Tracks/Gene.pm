@@ -291,6 +291,8 @@ sub get {
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
   
+  # WARNING: DO NOT MODIFY $_[5] in the loop. IT WILL MODIFY BY REFERENCE EVEN
+  # WHEN SCALAR!!!
   # Looping over string, int, or ref: https://ideone.com/4APtzt
   #Reads:                          ref $allelesAref ? @$allelesAref : $allelesAref
   TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
@@ -331,15 +333,15 @@ sub get {
         next SNP_LOOP;
       }
 
-      # If codon is on the opposite strand, invert the allele
-      if( $site->[$strandIdx] eq '-' ) {
-        $allele = $negativeStrandTranslation->{$allele};
-      }
-
       #make a codon where the reference base is swapped for the allele
       my $alleleCodonSequence = $refCodonSequence;
 
-      substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
+      # If codon is on the opposite strand, invert the allele
+      if( $site->[$strandIdx] eq '-' ) {
+        substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $negativeStrandTranslation->{$allele};
+      } else {
+        substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
+      }
 
       #Reads: $out{$self->{_newCodonKey}} }, $alleleCodonSequence;
       push @{ $out{$_[0]->{_newCodonKey}} }, $alleleCodonSequence;

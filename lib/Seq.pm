@@ -451,6 +451,7 @@ sub makeLogProgressAndPrint {
   my $totalAnnotated = 0;
   my $totalSkipped = 0;
 
+  my $totalChange = 0;
   my $hasPublisher = $self->hasPublisher;
 
   return sub {
@@ -458,7 +459,6 @@ sub makeLogProgressAndPrint {
     ##    $_[0],          $_[1],     $_[2], $_[3]
 
     if($hasPublisher && defined $_[0] && defined $_[1]) {
-
       $totalAnnotated += $_[0];
       $totalSkipped += $_[1];
 
@@ -556,10 +556,12 @@ sub finishAnnotatingLines {
 
   my $refTrackName = $self->{_refTrackGetter}->name;
 
-  # Cache $alleles; even in long running process this is desirable
-  if(!defined $self->{_cached}) {
-    $self->{_cached} = {};
-  }
+  # Cache $alleles; for large jobs, or long-running environments
+  # This will save us millions of split's and assignments
+  # Careful, this could be a place for a subtle bug in a multi-process
+  # long-running environment
+  # ONLY WORKS IF WE CHOOSE 
+  state $cached = {};
 
   # my $discordant = 0;
   for (my $i = 0; $i < @$inputAref; $i++) {
@@ -581,31 +583,46 @@ sub finishAnnotatingLines {
     # }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
-    # Use the reference assembly we have, ignore the oen provided by the input #
-    if(!defined $self->{_cached}{$outAref->[$i]{$refTrackName}}{$inputAref->[$i][$self->{_alleleFieldIdx}]}) {
+    # Calculate the minor alleles from the user's reference
+    # It's kind of hard to know exactly what to do in discordant cases
+    if( !defined $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }{ $inputAref->[$i][$self->{_alleleFieldIdx}] } ) {
       my @alleles;
-      for my $allele (split(',', $inputAref->[$i][$self->{_alleleFieldIdx}])) {
-        if($allele ne $outAref->[$i]{$refTrackName}) {
+      for my $allele ( split(',', $inputAref->[$i][$self->{_alleleFieldIdx}]) ) {
+        if( $allele ne $inputAref->[$i][$self->{_referenceFieldIdx}] ) {
           push @alleles, $allele;
         }
       }
 
       if(@alleles == 1) {
-        $self->{_cached}{$outAref->[$i]{$refTrackName}}
-         ->{$inputAref->[$i][$self->{_alleleFieldIdx}]} = $alleles[0];
+        $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }
+        ->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = $alleles[0];
       } else {
-        $self->{_cached}{$outAref->[$i]{$refTrackName}}
-         ->{$inputAref->[$i][$self->{_alleleFieldIdx}]} = \@alleles;
+        $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }
+        ->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = \@alleles;
       }
     }
+
+    # If we want to not go the caching route
+    # my @alleles;
+    # for my $allele (split(',', $inputAref->[$i][$self->{_alleleFieldIdx}])) {
+    #   if($allele ne $outAref->[$i]{$refTrackName}) {
+    #     push @alleles, $allele;
+    #   }
+    # }
+
+    # $outAref->[$i]{$self->{_minorAllelesKey}} = @alleles > 1 ? \@alleles : $alleles[0];
 
     ############# Store chr, position, alleles, type, and minor alleles ###############
     $outAref->[$i]{$self->{_chrKey}} = $inputAref->[$i][$self->{_chrFieldIdx}];
     $outAref->[$i]{$self->{_positionKey}} = $inputAref->[$i][$self->{_positionFieldIdx}];
     $outAref->[$i]{$self->{_typeKey}} = $inputAref->[$i][$self->{_typeFieldIdx}];
-    $outAref->[$i]{$self->{_minorAllelesKey}} = $self->{_cached}{$outAref->[$i]{$refTrackName}}
-                                                ->{$inputAref->[$i][$self->{_alleleFieldIdx}]};
- 
+    $outAref->[$i]{$self->{_minorAllelesKey}} = $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }
+                                                ->{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    
+    #say "for position:  $outAref->[$i]{$self->{_positionKey}}, allele is $outAref->[$i]{$self->{_minorAllelesKey}}";
+
+    my $copy = $outAref->[$i]{$self->{_minorAllelesKey}};
+
     ############### Gather all track data (besides reference) #################
     for my $track (@{ $self->{_trackGettersExceptReference} }) {
       # Pass: dataFromDatabase, chromosome, position, real reference, alleles
@@ -613,7 +630,7 @@ sub finishAnnotatingLines {
         #all of the database , chr , position
         $dataFromDbAref->[$i], $chr, $outAref->[$i]{$self->{_positionKey}},
         # Ref base (our assembly)    , minor alleles (based on our assembly)
-        $outAref->[$i]{$refTrackName}, $outAref->[$i]{$self->{_minorAllelesKey}}
+        $outAref->[$i]{$refTrackName}, $copy,
       );
     };
 

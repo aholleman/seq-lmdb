@@ -1,172 +1,272 @@
 settings:
     analysis:
-        filter: 
+        filter:
+            synonym_filter:
+                type: synonym
+                synonyms_path : "analysis/synonyms.txt"
+            search_synonym_filter:
+                type: synonym
+                synonyms_path : "analysis/search-synonyms.txt"
+                # synonyms:
+                #     - variant,variants => variant,variants,allele,alleles
+            type_synonym_filter:
+                type: synonym
+                synonyms_path : "analysis/type-synonyms.txt"
+            indel_expansion_filter:
+                type: synonym
+                synonyms:
+                    - ins,insertion
+                    - del,deletion
             autocomplete_filter:
                 type: edge_ngram
                 min_gram: 1
                 max_gram: 20
-            
         
         analyzer:
             autocomplete:
                 type: custom
                 tokenizer: standard
                 filter:
+                    - standard
                     - lowercase
+                    - synonym_filter
                     - autocomplete_filter
+            search_standard:
+                tokenizer: standard
+                filter:
+                    - search_synonym_filter
+                    - standard
+                    - lowercase
+            indel_expansion_standard:
+                tokenizer: standard
+                filter:
+                    - standard
+                    - lowercase
+                    - indel_expansion_filter
+            type_synonym_standard:
+                tokenizer: whitespace
+                filter:
+                    - standard
+                    - lowercase
+                    - type_synonym_filter
+            keyword_noop:
+                tokenizer: keyword
+            whitespace_standard:
+                tokenizer: whitespace
+                filter:
+                    - standard
+                    - lowercase
+            # Doesn't work well:
+            # in-del becomes unresponsive to searches...
+            # whitespace_autocomplete:
+            #     tokenizer: whitespace
+            #     filter:
+            #         - lowercase
+            #         - autocomplete_filter
+            # type_autocomplete:
+            #     type: custom
+            #     tokenizer: standard
+            #     filter:
+            #         - standard
+            #         - lowercase
+            #         - type_synonym_filter
+            #         - autocomplete_filter
 mappings:
     _all:
         type: string
         analyzer: autocomplete
-        search_analyzer: standard
+        search_analyzer: search_standard
     properties:
         Fragment:
             type: string
+            analyzer: whitespace_standard
         Position:
             type: integer
         Type:
             type: string
+            analyzer: whitespace_standard
+            # Will make _all field respond well to insertion, deletion terms
+            search_analyzer: type_synonym_standard
+            # Simply too big when doing this; index inflates many fold
+            # from this alone
+            # analyzer: type_autocomplete
+            # search_analyzer: search_standard
         heterozygotes:
             type: string
+            analyzer: whitespace_standard
         homozygotes:
             type: string
+            analyzer: whitespace_standard
         compoundHeterozygotes:
             type: string
+            analyzer: whitespace_standard
         minorAlleles:
             type: string
+            include_in_all: false
+            analyzer: whitespace_standard
         hg38:
             type: string
+            include_in_all: false
+            analyzer: whitespace_standard
         refSeq:
             properties:
                 siteType:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: search_standard
                 exonicAlleleFunction:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: search_standard
                 referenceCodon:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: search_standard
                 alleleAminoAcid:
                     type: string
+                    analyzer:  autocomplete
+                    search_analyzer: search_standard
                 codonPosition:
                     type: short
+                    include_in_all: false
                 codonNumber:
                     type: integer
+                    include_in_all: false
                 strand:
                     type: string
+                    analyzer: keyword_noop
+                    include_in_all: false
                 kgID:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 mRNA:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 spID:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 spDisplayID:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 geneSymbol:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 refseq:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 protAcc:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 description:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 rfamAcc:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 name:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 nearest:
                     properties:
                         name:
                             type: string
                             analyzer:  autocomplete
-                            search_analyzer: standard
+                            search_analyzer: search_standard
                         geneSymbol:
                             type: string
                             analyzer:  autocomplete
-                            search_analyzer: standard
+                            search_analyzer: search_standard
+                clinvar:
+                    properties:
                         PhenotypeIDs:
                             type: string
                             analyzer:  autocomplete
-                            search_analyzer: standard
+                            search_analyzer: search_standard
                         OtherIDs:
                             type: string
                             analyzer:  autocomplete
-                            search_analyzer: standard
+                            search_analyzer: search_standard
         phastCons:
             type: float
+            include_in_all: false
         phyloP:
             type: float
+            include_in_all: false
         cadd:
             type: float
+            include_in_all: false
         dbSNP146:
             properties:
                 name:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 strand:
                     type: string
+                    analyzer: keyword
                 observed:
                     type: string
+                    analyzer: whitespace_standard
+                    include_in_all: false
                 class:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 func:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 alleles:
                     type: string
+                    analyzer: whitespace_standard
+                    include_in_all: false
                 alleleNs:
                     type: integer
+                    include_in_all: false
                 alleleFreqs:
                     type: float
+                    include_in_all: false
         clinvar:
             properties:
                 ClinicalSignificance:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 Type:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 Origin:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 ReviewStatus:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 OtherIDs:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
                 ReferenceAllele:
                     type: string
+                    analyzer: whitespace_standard
+                    include_in_all: false
                 AlternateAllele:
                     type: string
+                    analyzer: whitespace_standard
+                    include_in_all: false
                 PhenotypeIDs:
                     type: string
                     analyzer:  autocomplete
-                    search_analyzer: standard
+                    search_analyzer: search_standard
