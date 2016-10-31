@@ -41,6 +41,7 @@ has compoundHetorzygotesIdsKey => (is => 'ro', default => 'compoundHeterozygotes
 has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
 has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
 has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
+has discordantKey => (is => 'ro', default => 'discordant');
 
 has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
   handles  => { inputFilePath => 'stringify' }, writer => 'setInputFile');
@@ -122,7 +123,7 @@ sub BUILD {
   $self->{_heterozygoteIdsKey} = $self->heterozygoteIdsKey;
   $self->{_homozygoteIdsKey} = $self->homozygoteIdsKey;
   $self->{_minorAllelesKey} = $self->minorAllelesKey;
-
+  $self->{_discordantKey} = $self->discordantKey;
   ########### Create DBManager instance, and instantiate track singletons #########
   # Must come before statistics, which relies on a configured Seq::Tracks
   #Expects DBManager to have been given a database_dir
@@ -249,7 +250,7 @@ sub annotate {
   # Prepend these fields to the header
   $headers->addFeaturesToHeader( [$self->{_chrKey}, $self->{_positionKey},
     $self->{_typeKey}, $self->{_heterozygoteIdsKey}, $self->{_homozygoteIdsKey},
-    $self->{_compoundHetorzygotesIdsKey}, $self->{_minorAllelesKey} ], undef, 1);
+    $self->{_compoundHetorzygotesIdsKey}, $self->{_minorAllelesKey}, $self->{_discordantKey} ], undef, 1);
 
   # Outputter needs to know which fields we're going to pass it
   $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
@@ -577,10 +578,12 @@ sub finishAnnotatingLines {
 
     # May not match the reference assembly
     # TODO: What should we do with discordant sites?
-    # if( $outAref->[$i]{$refTrackName} ne $inputAref->[$i][$self->{_referenceFieldIdx}]) {
-    #   next;
-    #   #$self->log('warn', "Reference discordant @ $inputAref->[$i][$self->{_chrFieldIdx}]\:$inputAref->[$i][$self->{_positionFieldIdx}]");
-    # }
+    if( $outAref->[$i]{$refTrackName} ne $inputAref->[$i][$self->{_referenceFieldIdx}]) {
+      $outAref->[$i]{$self->{_discordantKey}} = 1;
+      #$self->log('warn', "Reference discordant @ $inputAref->[$i][$self->{_chrFieldIdx}]\:$inputAref->[$i][$self->{_positionFieldIdx}]");
+    } else {
+      $outAref->[$i]{$self->{_discordantKey}} = 0;
+    }
 
     ############### Gather genotypes ... cache to avoid re-work ###############
     # Calculate the minor alleles from the user's reference

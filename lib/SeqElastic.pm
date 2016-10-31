@@ -148,33 +148,11 @@ sub go {
     $es->indices->open(index => $self->indexName);
   }
 
-  # $es->indices->put_settings(
-  #   index => $self->indexName,
-  #   body => $searchConfig->{settings},
-  # );
-
   $es->indices->put_mapping(
     index => $self->indexName,
     type => $self->indexType,
     body => $searchConfig->{mappings},
   );
-
-  # $es->indices->open(index => $self->indexName);
-  # Update index settings to the latest
-  # try {
-  #   $es->indices->put_mapping(
-  #     index => $self->indexName,
-  #     body => $searchConfig->{settings},
-  #   );
-
-  #   $es->indices->put_setting(
-  #     index => $self->indexName,
-  #     type => $self->indexType,
-  #     body => $searchConfig->{mapping},
-  #   );
-  # } catch {
-  #   return ("Couldn't index job", undef);
-  # };
 
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';
@@ -309,7 +287,7 @@ sub go {
 
   $self->log('info', "finished indexing");
 
-  return (undef, \@headerFields);
+  return (undef, \@headerFields, $searchConfig);
 }
 
 sub makeLogProgress {
