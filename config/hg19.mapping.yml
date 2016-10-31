@@ -1,0 +1,172 @@
+settings:
+    analysis:
+        filter: 
+            autocomplete_filter:
+                type: edge_ngram
+                min_gram: 1
+                max_gram: 20
+            
+        
+        analyzer:
+            autocomplete:
+                type: custom
+                tokenizer: standard
+                filter:
+                    - lowercase
+                    - autocomplete_filter
+mappings:
+    _all:
+        type: string
+        analyzer: autocomplete
+        search_analyzer: standard
+    properties:
+        Fragment:
+            type: string
+        Position:
+            type: integer
+        Type:
+            type: string
+        heterozygotes:
+            type: string
+        homozygotes:
+            type: string
+        compoundHeterozygotes:
+            type: string
+        minorAlleles:
+            type: string
+        hg19:
+            type: string
+        refSeq:
+            properties:
+                siteType:
+                    type: string
+                exonicAlleleFunction:
+                    type: string
+                referenceCodon:
+                    type: string
+                alleleAminoAcid:
+                    type: string
+                codonPosition:
+                    type: short
+                codonNumber:
+                    type: integer
+                strand:
+                    type: string
+                kgID:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                mRNA:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                spID:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                spDisplayID:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                geneSymbol:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                refseq:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                protAcc:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                description:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                rfamAcc:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                name:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                nearest:
+                    properties:
+                        name:
+                            type: string
+                            analyzer:  autocomplete
+                            search_analyzer: standard
+                        geneSymbol:
+                            type: string
+                            analyzer:  autocomplete
+                            search_analyzer: standard
+                        PhenotypeIDs:
+                            type: string
+                            analyzer:  autocomplete
+                            search_analyzer: standard
+                        OtherIDs:
+                            type: string
+                            analyzer:  autocomplete
+                            search_analyzer: standard
+        phastCons:
+            type: float
+        phyloP:
+            type: float
+        cadd:
+            type: float
+        dbSNP146:
+            properties:
+                name:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                strand:
+                    type: string
+                observed:
+                    type: string
+                class:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                func:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                alleles:
+                    type: string
+                alleleNs:
+                    type: integer
+                alleleFreqs:
+                    type: float
+        clinvar:
+            properties:
+                ClinicalSignificance:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                Type:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                Origin:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                ReviewStatus:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                OtherIDs:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard
+                ReferenceAllele:
+                    type: string
+                AlternateAllele:
+                    type: string
+                PhenotypeIDs:
+                    type: string
+                    analyzer:  autocomplete
+                    search_analyzer: standard

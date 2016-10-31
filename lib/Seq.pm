@@ -298,7 +298,7 @@ sub annotate {
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
-    gather => $self->makeLogProgress(\$abortErr),
+    gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
@@ -355,11 +355,12 @@ sub annotate {
       $m1->synchronize(sub{ $readFirstLine = 1 });
     }
 
-    my $lineCount = 0;
+    my $annotatedCount = 0;
+    my $skipCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
-      $lineCount++;
-
       if ($line =~ /$taint_check_regex/) {
+        $annotatedCount++;
+        
         chomp $line;
         my @fields = split $delimiter, $line;
 
@@ -373,23 +374,28 @@ sub annotate {
         }
 
         push @lines, \@fields;
+      } else {
+        $skipCount++;
       }
     }
 
     close  $MEM_FH;
 
+    my $err = '';
+    my $outString;
+    
     if(@lines) {
       #TODO: implement better error handling
-      my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
-
-      if($err ne '') {
-        MCE->gather(undef, $err);
-        $_[0]->abort();
-      }
+      ($err, $outString) = $self->annotateLinesAndPrint(\@lines);
     }
     
     # Write progress
-    MCE->gather($lineCount);
+    MCE->gather($annotatedCount, $skipCount, $err, $outString);
+
+    if($err) {
+      $_[0]->abort();
+    }
+
   } $fh;
 
   MCE::Loop::finish();
@@ -439,39 +445,40 @@ sub annotate {
   return (undef, $statsHref, $self->outputFilesInfo);
 }
 
-sub makeLogProgress {
-  my ($self, $abortErrRef) = @_;
+sub makeLogProgressAndPrint {
+  my ($self, $abortErrRef, $outFh, $statsFh) = @_;
 
-  my $total = 0;
+  my $totalAnnotated = 0;
+  my $totalSkipped = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
-  if(!$hasPublisher) {
-    # noop
-    return sub{};
-  }
-
   return sub {
-    #my $progress, $err = @_;
-    ##    $_[0], $_[1]
+    #my $annotatedCount, $skipCount, $err, $outputLines = @_;
+    ##    $_[0],          $_[1],     $_[2], $_[3]
 
-    if(defined $_[0]) {
+    if($hasPublisher && defined $_[0] && defined $_[1]) {
 
-      $total += $_[0];
+      $totalAnnotated += $_[0];
+      $totalSkipped += $_[1];
 
-      $self->publishProgress($total);
-      return;
+      $self->publishProgress($totalAnnotated, $totalSkipped);
     }
 
-    if(defined $_[1]) {
-      $$abortErrRef = $_[1];
+    if(defined $_[2]) {
+      $$abortErrRef = $_[2];
+    }
+
+    if(defined $_[3]) {
+      print $statsFh $_[3];
+      print $outFh $_[3];
     }
   }
 }
 
 # Accumulates data from the database, and writes an output string
 sub annotateLinesAndPrint {
-  my ($self, $linesAref, $outFh, $statsFh) = @_;
+  my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -493,7 +500,7 @@ sub annotateLinesAndPrint {
         my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
-          return $err;
+          return ($err, undef);
         }
 
         # Accumulate the output
@@ -525,28 +532,15 @@ sub annotateLinesAndPrint {
     my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
-      return $err;
+      return ($err, undef);
     }
     
     undef @positions; undef @inputData;
   }
 
-  # write everything for this part
-  # This should come last, makeOutputString may mutate @output
-  $outputString .= $self->{_outputter}->makeOutputString(\@output);
-
-  # Needs to be say I believe
-  # I seem to have more issues with closing the statsFh with print ; buffering?
-  # Could have been placebo
-  MCE->say($outFh, $outputString);
-  MCE->say($statsFh, $outputString);
-
-  # $self->{_outputter}->indexOutput(\@output);
-  undef @output;
-
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return "";
+  return (undef, $outputString . $self->{_outputter}->makeOutputString(\@output));
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###

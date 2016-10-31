@@ -95,10 +95,25 @@ while(my $job = $beanstalk->reserve) {
   
     my $configData = LoadFile($inputHref->{config});
 
+    # Hide the server paths in the config we send back;
+    # Those represent a security concern
+    $configData->{files_dir} = 'hidden';
+
+    if($configData->{temp_dir}) {
+      $configData->{temp_dir} = 'hidden';
+    }
+
+    $configData->{temp_dir} = 'hidden';
+
+    for my $track (@{$configData->{tracks}}) {
+      # Finish stripping local_files of their absPaths;
+      # Use Path::Tiny basename;
+    }
+
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       jobConfig => $configData,
-      # jobId   => $jobDataHref->{_id},
+      submissionID   => $jobDataHref->{submissionID},
       queueID => $job->id,
     }  } );
 
@@ -122,6 +137,7 @@ while(my $job = $beanstalk->reserve) {
       event => $events->{failed},
       reason => $err,
       queueID => $job->id,
+      submissionID   => $jobDataHref->{submissionID},
     }) } );
 
     $job->bury; 
@@ -134,7 +150,7 @@ while(my $job = $beanstalk->reserve) {
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => $events->{completed},
     queueID => $job->id,
-    # jobId   => $jobDataHref->{_id},
+    submissionID   => $jobDataHref->{submissionID},
     results  => {
       summary => $statistics,
       outputFileNames => $outputFileNamesHashRef,
