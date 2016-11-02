@@ -6,6 +6,14 @@ prefixQueryFields:
     - compoundHeterozygotes
     - dbSNP146.alleles
     - clinvar.AlternateAllele
+numericalFields:
+    - cadd
+    - phastCons
+    - phyloP
+    - Position
+    - dbSNP146.alleleNs
+    - dbSNP146.alleleFreqs
+
 settings:
     analysis:
         filter:
@@ -50,13 +58,20 @@ settings:
                     - standard
                     - lowercase
                     - search_synonym_filter
-            keyword_lowercase_synonym_autocomplete:
+            # keyword_lowercase_synonym_autocomplete:
+            #     type: custom
+            #     tokenizer: keyword
+            #     filter:
+            #         - standard
+            #         - lowercase
+            #         - synonym_filter
+            #         - autocomplete_filter
+            keyword_lowercase_autocomplete:
                 type: custom
                 tokenizer: keyword
                 filter:
                     - standard
                     - lowercase
-                    - synonym_filter
                     - autocomplete_filter
             search_standard:
                 tokenizer: standard
@@ -64,8 +79,8 @@ settings:
                     - standard
                     - lowercase
                     - search_synonym_filter
-            type_synonym_standard:
-                tokenizer: whitespace
+            search_type_synonym_keyword:
+                tokenizer: keyword
                 filter:
                     - standard
                     - lowercase
@@ -95,19 +110,23 @@ settings:
                     - codon_map_synonym_filter
 mappings:
     _all:
-        type: string
-        analyzer: autocomplete
-        search_analyzer: search_standard
+        enabled: false
+        # type: string
+        # analyzer: autocomplete
+        # search_analyzer: search_standard
     properties:
         Fragment:
             type: string
             analyzer: lowercase_keyword
+            # chr's are very short, and the "prefix" is a completely valid value
+            # so, don't include in all, because many false positivies with ngrams
+            include_in_all: false
         Position:
             type: integer
         Type:
             type: string
             analyzer: lowercase_keyword
-            search_analyzer: type_synonym_standard
+            search_analyzer: search_type_synonym_keyword
             fields:
                 raw:
                     type: string
@@ -117,21 +136,16 @@ mappings:
             include_in_all: false
         heterozygotes:
             type: string
-            analyzer: lowercase_keyword
+            analyzer: autocomplete
+            search_analyzer: search_standard
             fields:
                 raw:
                     type: string
                     index: not_analyzed
         homozygotes:
             type: string
-            analyzer: lowercase_keyword
-            fields:
-                raw:
-                    type: string
-                    index: not_analyzed
-        compoundHeterozygotes:
-            type: string
-            analyzer: lowercase_keyword
+            analyzer: autocomplete
+            search_analyzer: search_standard
             fields:
                 raw:
                     type: string
@@ -206,8 +220,8 @@ mappings:
                     search_analyzer: search_standard
                 geneSymbol:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  keyword_lowercase_autocomplete
+                    search_analyzer: search_keyword_lowercase
                     fields:
                         raw:
                             type: string

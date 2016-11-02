@@ -37,7 +37,6 @@ extends 'Seq::Base';
 # We  add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 # Users may configure these
-has compoundHetorzygotesIdsKey => (is => 'ro', default => 'compoundHeterozygotes');
 has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
 has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
 has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
@@ -119,7 +118,6 @@ sub BUILD {
   my $self = shift;
 
   # Avoid accessor lookup penalty
-  $self->{_compoundHetorzygotesIdsKey} = $self->compoundHetorzygotesIdsKey;
   $self->{_heterozygoteIdsKey} = $self->heterozygoteIdsKey;
   $self->{_homozygoteIdsKey} = $self->homozygoteIdsKey;
   $self->{_minorAllelesKey} = $self->minorAllelesKey;
@@ -250,7 +248,7 @@ sub annotate {
   # Prepend these fields to the header
   $headers->addFeaturesToHeader( [$self->{_chrKey}, $self->{_positionKey},
     $self->{_typeKey}, $self->{_heterozygoteIdsKey}, $self->{_homozygoteIdsKey},
-    $self->{_compoundHetorzygotesIdsKey}, $self->{_minorAllelesKey}, $self->{_discordantKey} ], undef, 1);
+    $self->{_minorAllelesKey}, $self->{_discordantKey} ], undef, 1);
 
   # Outputter needs to know which fields we're going to pass it
   $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
@@ -275,9 +273,10 @@ sub annotate {
   my $outputHeader = $headers->getString();
   say $outFh $headers->getString();
 
+  my $statsDir;
   if($self->run_statistics) {
     # Output header used to figure out the indices of the fields of interest
-    my ($err, $statsArgs) = $self->_prepareStatsArguments();
+    (my $err, my $statsArgs, $statsDir) = $self->_prepareStatsArguments();
 
     if($err) {
       $self->log('warn', $err);
@@ -429,7 +428,7 @@ sub annotate {
     $self->log('info', "Gathering statistics");
 
     (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $self->output_file_base->parent->child($self->outputFilesInfo->{statistics}{json})
+      $statsDir->child($self->outputFilesInfo->{statistics}{json})
     );
 
     if($status) {
@@ -549,7 +548,7 @@ my %hets = (K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1);
 my %homs = (A => 1,C => 1,G => 1,T => 1,D => 1,I => 1);
 my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
   Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*');
-
+my %indels = (E => 1,H => 1,D => 1,I => 1);
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
 sub finishAnnotatingLines {
@@ -652,16 +651,19 @@ sub finishAnnotatingLines {
       }
 
       #Is the sample a het?
-      if (exists $hets{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
-        push @{$outAref->[$i]{$self->{_heterozygoteIdsKey}}}, $id;
+      if ($hets{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
 
         # Check if the sample genotype (disambiguiated) contains the reference
-        if(index($iupac{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]},
+        # Indels cannot be compound hets
+        if(!$indels{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}
+        && index($iupac{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]},
         $inputAref->[$i][$self->{_referenceFieldIdx}]) == -1 ) {
-          push @{$outAref->[$i]{$self->{_compoundHetorzygotesIdsKey}}}, $id;
+          push @{$outAref->[$i]{$self->{_homozygoteIdsKey}}}, $id;
+        } else {
+          push @{$outAref->[$i]{$self->{_heterozygoteIdsKey}}}, $id;
         }
         # Check if the sample looks like a homozygote
-      } elsif(exists $homs{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
+      } elsif($homs{$inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}]}) {
         push @{$outAref->[$i]{$self->{_homozygoteIdsKey}}}, $id;
       } else {
         $self->log( 'warn', "$id wasn't homozygous or heterozygote" );
@@ -756,7 +758,7 @@ sub _prepareStatsArguments {
   my $homozygotesColumnName = $self->{_homozygoteIdsKey};
   my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
 
-  my $dir = $self->output_file_base->parent;
+  my $dir = $self->temp_dir || $self->output_file_base->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
   my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
@@ -770,7 +772,7 @@ sub _prepareStatsArguments {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
       . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
-      . "numberHeaderLines must equal 1 for statistics", undef);
+      . "numberHeaderLines must equal 1 for statistics", undef, undef);
   }
 
   # say "stats args are";
@@ -790,7 +792,7 @@ sub _prepareStatsArguments {
     . "-dbSNPnameColumnName $snpNameColumnName "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
     . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
-    . "-numberInputHeaderLines $numberHeaderLines" );
+    . "-numberInputHeaderLines $numberHeaderLines", $dir);
 }
 __PACKAGE__->meta->make_immutable;
 
