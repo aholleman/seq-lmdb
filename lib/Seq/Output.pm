@@ -184,7 +184,7 @@ sub makeOutputString {
 
     $outStr .= join($fieldSeparator, @singleLineOutput) . "\n";
   }
-  chomp $outStr;
+  
   return $outStr;
 }
 

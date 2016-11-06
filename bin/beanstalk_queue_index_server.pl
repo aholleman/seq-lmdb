@@ -38,7 +38,7 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 
 # Required fields
 # The annotation_file_path is constructed from inputDir, inputFileNames by SeqElastic
-my @requiredJobFields = qw/indexName indexType inputDir inputFileNames/;
+my @requiredJobFields = qw/indexName indexType inputDir inputFileNames assembly/;
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -75,18 +75,17 @@ while(my $job = $beanstalk->reserve) {
 
   try {
     $jobDataHref = decode_json( $job->data );
-  
+    
+    say "sending started event to " . $events->{started};
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
-      # jobId   => $jobDataHref->{_id},
-      queueId => $job->id,
+      submissionID => $jobDataHref->{submissionID},
+      queueID => $job->id,
     }  } );
 
     ($err, $fieldNames) = handleJob($jobDataHref, $job->id);
   
-  } catch {
-    say "job ". $job->id . " failed due to $_";
-      
+  } catch {      
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
@@ -94,10 +93,19 @@ while(my $job = $beanstalk->reserve) {
   if ($err) { 
     say "job ". $job->id . " failed due to found error, which is $err";
     
+    my $message;
+
+    if(ref $err && $err->{vars}{body}{error}{reason}) {
+      $message = $err->{vars}{body}{error}{reason};
+    } else {
+      $message = $err;
+    }
+
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => $events->{failed},
-      reason => $err,
-      queueId => $job->id,
+      submissionID => $jobDataHref->{submissionID},
+      reason => $message,
+      queueID => $job->id,
     }) } );
 
     $job->bury; 
@@ -109,8 +117,8 @@ while(my $job = $beanstalk->reserve) {
   # To be conservative; since after delete message is lost
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => $events->{completed},
-    queueId => $job->id,
-    # jobId   => $jobDataHref->{_id},
+    submissionID => $jobDataHref->{submissionID},
+    queueID => $job->id,
     fieldNames => $fieldNames,
   }) } );
   
@@ -121,7 +129,7 @@ while(my $job = $beanstalk->reserve) {
  
 sub handleJob {
   my $submittedJob = shift;
-  my $queueId = shift;
+  my $queueID = shift;
 
   my $failed;
 
@@ -150,7 +158,8 @@ sub handleJob {
     queue  => $conf->{beanstalkd}{tubes}{index}{events},
     messageBase => {
       event => $events->{progress},
-      queueID => $queueId,
+      submissionID => $submittedJob->{submissionID},
+      queueID => $queueID,
       data => undef,
     }
   };
@@ -176,6 +185,11 @@ sub coerceInputs {
       return ("$fieldName required", undef);
     }
   }
+
+  $jobDetailsHref->{config} = $configPathBaseDir . $jobDetailsHref->{assembly} . '.mapping.yml';
+
+  say "jobDetailsHref is";
+  p $jobDetailsHref;
 
   return (undef, $jobDetailsHref);
 }

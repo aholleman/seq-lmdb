@@ -20,14 +20,18 @@ use DDP;
 use Seq::Output::Delimiters;
 use MCE::Loop;
 use MCE::Shared;
-
-use Scalar::Util qw/looks_like_number/;
+use YAML::XS qw/LoadFile/;
+use Try::Tiny;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'MouseX::Getopt';
 
 # An archive, containing an "annotation" file
 has annotatedFilePath => (is => 'ro', isa => AbsFile, coerce => 1,
   writer => '_setAnnotatedFilePath');
+
+has config => (is => 'ro', isa=> AbsFile, coerce => 1, required => 1, handles => {
+  configPath => 'stringify',
+});
 
 has publisher => (is => 'ro');
 
@@ -79,6 +83,8 @@ sub go {
 
   (my $err, undef, my $fh) = $self->get_read_fh($filePath,, $annotationFileInCompressed);
   
+  my $searchConfig = LoadFile($self->configPath);
+
   if($err) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
     #i.e inappropriate ioctl when actually no issue
@@ -101,6 +107,8 @@ sub go {
     return ("First line of input file has illegal characters", undef);
   }
 
+  p @headerFields;
+  
   my @paths = @headerFields;
   for (my $i = 0; $i < @paths; $i++) {
     if( index($paths[$i], '.') > -1 ) {
@@ -111,6 +119,8 @@ sub go {
   my $delimiters = Seq::Output::Delimiters->new();
   my $primaryDelimiter = $delimiters->primaryDelimiter;
   my $secondaryDelimiter = $delimiters->secondaryDelimiter;
+
+  say "secondaryDelimiter is $secondaryDelimiter";
 
   # Todo implement tain check; default taint check doesn't work for annotated files
   $taint_check_regex = qr/./;
@@ -125,36 +135,83 @@ sub go {
     '172.31.62.32:9200',
   ]);
 
+  if(!$es->indices->exists(index => $self->indexName) ) {
+    $es->indices->create(index => $self->indexName, body => {settings => $searchConfig->{settings}});
+  } else {
+    $es->indices->close(index => $self->indexName);
+
+    $es->indices->put_settings(
+      index => $self->indexName,
+      body => $searchConfig->{settings},
+    );
+
+    $es->indices->open(index => $self->indexName);
+  }
+
+  # $es->indices->put_settings(
+  #   index => $self->indexName,
+  #   body => $searchConfig->{settings},
+  # );
+
+  $es->indices->put_mapping(
+    index => $self->indexName,
+    type => $self->indexType,
+    body => $searchConfig->{mappings},
+  );
+
+  # $es->indices->open(index => $self->indexName);
+  # Update index settings to the latest
+  # try {
+  #   $es->indices->put_mapping(
+  #     index => $self->indexName,
+  #     body => $searchConfig->{settings},
+  #   );
+
+  #   $es->indices->put_setting(
+  #     index => $self->indexName,
+  #     type => $self->indexType,
+  #     body => $searchConfig->{mapping},
+  #   );
+  # } catch {
+  #   return ("Couldn't index job", undef);
+  # };
+
   my $m1 = MCE::Mutex->new;
   tie my $abortErr, 'MCE::Shared', '';
+
+  my $bulk = $es->bulk_helper(
+    index       => $self->indexName,
+    type        => $self->indexType,
+    max_count   => $self->commitEvery,
+    max_size    => 10e6,
+    on_error    => sub {
+      my ($action, $response, $i) = @_;
+      $self->log('warn', "Index error: $action ; $response ; $i");
+      p $response;
+      $m1->synchronize(sub{ $abortErr = $response} );
+    },           # optional
+    on_conflict => sub {
+      my ($action,$response,$i,$version) = @_;
+      $self->log('warn', "Index conflict: $action ; $response ; $i ; $version");
+    },           # optional
+  );
 
   mce_loop_f {
     my ($mce, $slurp_ref, $chunk_id) = @_;
 
     my @lines;
     
-    my $bulk = $es->bulk_helper(
-      index       => $self->indexName,
-      type        => $self->indexType,
-      max_count   => $self->commitEvery,
-      max_size    => 10e6,
-      on_error    => sub {
-        my ($action,$response,$i) = @_;
-        $self->log('warn', "Couldn't index: $action ; $response ; $i");
-
-        $m1->synchronize(sub{ $abortErr = $err; });
-        $mce->abort();
-      },           # optional
-      on_conflict => sub {
-        my ($action,$response,$i,$version) = @_;
-        $self->log('warn', "Index conflict: $action ; $response ; $i ; $version");
-      },           # optional
-    );
+    if($abortErr) {
+      say "abort error found";
+      $mce->abort();
+    }
 
     open my $MEM_FH, '<', $slurp_ref; binmode $MEM_FH, ':raw';
 
+    my $lineCount;
     my @indexed;
     while ( my $line = $MEM_FH->getline() ) {
+      $lineCount++;
       if (! $line =~ /$taint_check_regex/) {
         next;
       }
@@ -164,89 +221,65 @@ sub go {
 
       my %rowDocument;
       my $colIdx = 0;
-      for my $field (@fields) {
+      my $foundWeird = 0;
+
+      # We use Perl's in-place modification / reference of looped-over variables
+      # http://ideone.com/HNgMf7
+      OUTER: for (my $i = 0; $i < @fields; $i++) {
+        my $field = $fields[$i];
+
+        my $hasSecondary = 0;
         if( index($field, $secondaryDelimiter) > -1 ) {
-          
-          my %uniq;
           my @array;
+          $hasSecondary = 1;
 
-          # | literally is an error; truncates the entire pattern
+          # char | is literally is an error; truncates the entire pattern
           # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
-          for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
+          INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
             if ($fieldValue eq 'NA') {
-              next;
-            }
-
-            # Not worrying about de-deduplication; this makes the index
-            # much less useful; cannot reproduce the exact annotation if we do that
-            # if(!defined $uniq{$fieldValue}) {
-            #   if(looks_like_number($fieldValue) ) {
-            #     $fieldValue += 0;
-            #   }
-
-            #   push @array, $fieldValue;
-
-            #   $uniq{$fieldValue} = 1;
-            # }
-            if(looks_like_number($fieldValue) ) {
-              $fieldValue += 0;
+              next INNER;
             }
 
             push @array, $fieldValue;
           }
 
+          my @splitField = grep { $_ ne 'NA' } split("\\$secondaryDelimiter", $field);
+
           # Field may be undef
-          $field = @array > 1 ? \@array : $array[0];
-        }
-
-        foreach (ref $field ? @$field : $field) {
-          if( index($_, $primaryDelimiter) > -1 ) {
-            my %uniq;
-            my @array;
-
-            for my $fieldValue ( split("\\$primaryDelimiter", $_) ) {
-              if ($fieldValue eq 'NA') {
-                next;
-              }
-
-              # if(!defined $uniq{$fieldValue}) {
-              #   if(looks_like_number($fieldValue) ) {
-              #     $fieldValue += 0;
-              #   }
-
-              #   push @array, $fieldValue;
-
-              #   $uniq{$fieldValue} = 1;
-              # }
-              if(looks_like_number($fieldValue) ) {
-                $fieldValue += 0;
-              }
-
-              push @array, $fieldValue;
-            }
-
-            # This could lead to a nested array where some of the values are undef
-            # I don't consider it big enough a deal to worry about
-            $_ = @array > 1 ? \@array : $array[0];
+          # Modify the field, to be an array, or a scalar
+          if(@splitField > 1) {
+            $field = \@splitField;
+          } elsif(@splitField == 1) {
+            $field = $splitField[0];
+          } else {
+            $field = undef;
           }
         }
 
-        my $pathAref = $paths[$colIdx];
+        for my $innerField (ref $field ? @$field : $field) {
+          if( index($innerField, $primaryDelimiter) > -1 ) {
 
-        if(!defined $field || $field eq 'NA') {
-          # Don't waste index space on NA's; missing data is implied by lack of
-          # data in the document
-          $colIdx++;
-          next;
+            my @splitField = grep { $_ ne 'NA' } split("\\$primaryDelimiter", $innerField);
+
+            if(@splitField > 1) {
+              $innerField = \@splitField;
+            } elsif(@splitField == 1) {
+              $innerField = $splitField[0];
+            } else {
+              $innerField = undef;
+            }
+
+            # Do nothing if @array is empty
+          } elsif($innerField eq 'NA') {
+            $innerField = undef;
+          }
+
+          # Else don't modify the field
         }
 
-        if(looks_like_number($field) ) {
-          $field += 0;
+        if(defined $field && $field ne 'NA') {
+          _populateHashPath(\%rowDocument, $paths[$i], $field);
         }
-
-        _populateHashPath(\%rowDocument, [ ref $paths[$colIdx] ? @{ $paths[$colIdx] } : $paths[$colIdx] ], $field);
-
-       $colIdx++;
       }
 
       push @indexed, \%rowDocument;
@@ -263,17 +296,17 @@ sub go {
 
   MCE::Loop::finish();
   
-  if($abortErr) {
-    $self->log('warn', $abortErr);
-
-    return ($abortErr, undef, undef);
-  }
+  # Disabled for now, we have many abort errors 
+  # if($abortErr) {
+  #   MCE::Shared::stop();
+  #   say "Error creating index";
+  #   return ("Error creating index, check log", undef, undef);
+  # }
 
   # Needed to close some kinds of file handles
   # Doing here for consistency, and the eventuality that we will 
   # modify this with something unexpected
 
-  MCE::Shared::stop();
   $self->log('info', "finished indexing");
 
   return (undef, \@headerFields);
@@ -306,30 +339,28 @@ sub makeLogProgress {
 }
 
 sub _populateHashPath {
-  #my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
+  my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
   #     $_[0]  , $_[1]    , $_[2]
 
-  # If $pathAref isn't an Aref, we're done after the first iteration
-  if(!ref $_[1]) {
-    $_[0]->{$_[1]} = $_[2];
-    return;
+  if(!ref $pathAref) {
+    $hashRef->{$pathAref} = $dataForEndOfPath;
+    return $hashRef;
   }
 
-  my $pathPart = shift @{ $_[1] };
-
-  if(@{ $_[1] }) {
-    if(!defined $_[0]->{$pathPart}) {
-      $_[0]->{$pathPart} = {};
+  my $href = $hashRef;
+  for (my $i = 0; $i < @$pathAref; $i++) {
+    if($i + 1 == @$pathAref) {
+      $href->{$pathAref->[$i]} = $dataForEndOfPath;
+    } else {
+      if(!defined  $href->{$pathAref->[$i]} ) {
+        $href->{$pathAref->[$i]} = {};
+      }
+      
+      $href = $href->{$pathAref->[$i]};
     }
-
-    $_[0] = $_[0]->{$pathPart};
-    # We have sutff left, so recurse another layer
-    goto &_populateHashPath;
   }
 
-  $_[0]->{$pathPart} = $_[2];
-  
-  return;
+  return $href;
 }
 
 sub _getFilePath {
@@ -387,18 +418,18 @@ sub BUILD {
     $self->setLogLevel('INFO');
   }
 
-  if(defined $self->inputFileNames && !defined $self->inputDir) {
-    $self->log('warn', "If inputFileNames provided, inputDir required");
-    return ("If inputFileNames provided, inputDir required", undef);
-  }
+  if(defined $self->inputFileNames) {
+    if(!defined $self->inputDir) {
+      $self->log('warn', "If inputFileNames provided, inputDir required");
+      return ("If inputFileNames provided, inputDir required", undef);
+    }
 
-  if(!defined $self->inputFileNames->{compressed}
-  && !defined $self->inputFileNames->{annnotation}  ) {
-    $self->log('warn', "annotation key required in inputFileNames when compressed key has a value");
-    return ("annotation key required in inputFileNames when compressed key has a value", undef);
-  }
-
-  if(!defined $self->inputFileNames && !defined $self->annotatedFilePath) {
+    if(!defined $self->inputFileNames->{compressed}
+    && !defined $self->inputFileNames->{annnotation}  ) {
+      $self->log('warn', "annotation key required in inputFileNames when compressed key has a value");
+      return ("annotation key required in inputFileNames when compressed key has a value", undef);
+    }
+  } elsif(!defined $self->annotatedFilePath) {
     $self->log('warn', "if inputFileNames not provided, annotatedFilePath must be passed");
     return ("if inputFileNames not provided, annotatedFilePath must be passed", undef);
   }

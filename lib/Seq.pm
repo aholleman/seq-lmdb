@@ -292,14 +292,13 @@ sub annotate {
   $self->{_sampleIDsToIndexesMap} = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
   $self->{_sampleIDaref} =  [ sort keys %{ $self->{_sampleIDsToIndexesMap} } ];
 
-  # close $statsFh;
-
+  my $abortErr;  
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
-    gather => $self->makeLogProgress(),
+    gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
   # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
@@ -329,9 +328,11 @@ sub annotate {
   # https://github.com/marioroy/mce-perl/issues/5
   # We want to check whether the program has any errors. An easy way is to
   # Return any error within the mce_loop_f
+  # Doesn't work nicely if you need to return a scalard value (no export)
+  # and need to call MCE::Shared::stop() to exit 
 
   my $m1 = MCE::Mutex->new;
-  tie my $abortErr, 'MCE::Shared', '';
+  # tie my $abortErr, 'MCE::Shared', '';
   tie my $readFirstLine, 'MCE::Shared', 0;
 
   mce_loop_f {
@@ -354,11 +355,12 @@ sub annotate {
       $m1->synchronize(sub{ $readFirstLine = 1 });
     }
 
-    my $lineCount = 0;
+    my $annotatedCount = 0;
+    my $skipCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
-      $lineCount++;
-
       if ($line =~ /$taint_check_regex/) {
+        $annotatedCount++;
+        
         chomp $line;
         my @fields = split $delimiter, $line;
 
@@ -372,42 +374,50 @@ sub annotate {
         }
 
         push @lines, \@fields;
+      } else {
+        $skipCount++;
       }
     }
 
     close  $MEM_FH;
 
+    my $err = '';
+    my $outString;
+    
     if(@lines) {
       #TODO: implement better error handling
-      my $err = $self->annotateLinesAndPrint(\@lines, $outFh, $statsFh);
-
-      if($err ne '') {
-        $m1->synchronize(sub{ $abortErr = $err; });
-        #Reads:
-        #$mce->abort()
-        $_[0]->abort();
-      }
+      ($err, $outString) = $self->annotateLinesAndPrint(\@lines);
     }
     
     # Write progress
-    MCE->gather($lineCount);
+    MCE->gather($annotatedCount, $skipCount, $err, $outString);
+
+    if($err) {
+      $_[0]->abort();
+    }
+
   } $fh;
 
   MCE::Loop::finish();
-  
+
+  # This removes the content of $abortErr
+  # https://metacpan.org/pod/MCE::Shared
+  # Needed to exit, and close piped file handles
+  MCE::Shared::stop();
+
+  # Unfortunately, MCE::Shared::stop() removes the value of $abortErr
+  # according to documentation, and I did not see mention of a way
+  # to copy the data from a scalar, and don't want to use a hash for this alone
+  # So, using a scalar ref to abortErr in the gather function.
   if($abortErr) {
+    say "found abort $abortErr";
+
     $self->temp_dir->remove_tree;
 
     $self->{_db}->cleanUp();
 
-    $self->log('warn', $abortErr);
-
     return ($abortErr, undef, undef);
   }
-
-  # This removes the content of $abortErr
-  # https://metacpan.org/pod/MCE::Shared
-  MCE::Shared::stop();
 
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
@@ -435,35 +445,40 @@ sub annotate {
   return (undef, $statsHref, $self->outputFilesInfo);
 }
 
-sub makeLogProgress {
-  my $self = shift;
+sub makeLogProgressAndPrint {
+  my ($self, $abortErrRef, $outFh, $statsFh) = @_;
 
-  my $total = 0;
+  my $totalAnnotated = 0;
+  my $totalSkipped = 0;
 
   my $hasPublisher = $self->hasPublisher;
 
-  if(!$hasPublisher) {
-    # noop
-    return sub{};
-  }
-
   return sub {
-    #my $progress = shift;
-    ##    $_[0] 
+    #my $annotatedCount, $skipCount, $err, $outputLines = @_;
+    ##    $_[0],          $_[1],     $_[2], $_[3]
 
-    if(defined $_[0]) {
+    if($hasPublisher && defined $_[0] && defined $_[1]) {
 
-      $total += $_[0];
+      $totalAnnotated += $_[0];
+      $totalSkipped += $_[1];
 
-      $self->publishProgress($total);
-      return;
+      $self->publishProgress($totalAnnotated, $totalSkipped);
+    }
+
+    if(defined $_[2]) {
+      $$abortErrRef = $_[2];
+    }
+
+    if(defined $_[3]) {
+      print $statsFh $_[3];
+      print $outFh $_[3];
     }
   }
 }
 
 # Accumulates data from the database, and writes an output string
 sub annotateLinesAndPrint {
-  my ($self, $linesAref, $outFh, $statsFh) = @_;
+  my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
 
@@ -485,7 +500,7 @@ sub annotateLinesAndPrint {
         my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
-          return $err;
+          return ($err, undef);
         }
 
         # Accumulate the output
@@ -517,28 +532,15 @@ sub annotateLinesAndPrint {
     my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
-      return ($err, "");
+      return ($err, undef);
     }
     
     undef @positions; undef @inputData;
   }
 
-  # write everything for this part
-  # This should come last, makeOutputString may mutate @output
-  $outputString .= $self->{_outputter}->makeOutputString(\@output);
-
-  # Needs to be say I believe
-  # I seem to have more issues with closing the statsFh with print ; buffering?
-  # Could have been placebo
-  MCE->say($outFh, $outputString);
-  MCE->say($statsFh, $outputString);
-
-  # $self->{_outputter}->indexOutput(\@output);
-  undef @output;
-
   # 0 indicates success
   # TODO: figure out better way to shut down MCE workers than die'ing (implement exit status 0)
-  return "";
+  return (undef, $outputString . $self->{_outputter}->makeOutputString(\@output));
 }
 
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
@@ -750,6 +752,16 @@ sub _prepareStatsArguments {
       . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef);
   }
+
+  # say "stats args are";
+  # p "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
+  #   . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
+  #   . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
+  #   . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
+  #   . "-dbSNPnameColumnName $snpNameColumnName "
+  #   . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
+  #   . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
+  #   . "-numberInputHeaderLines $numberHeaderLines";
 
   return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
     . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "

@@ -89,20 +89,44 @@ while(my $job = $beanstalk->reserve) {
 
   try {
     $jobDataHref = decode_json( $job->data );
+    
+     # create the annotator
+    my $inputHref = coerceInputs($jobDataHref, $job->id);
   
+    my $configData = LoadFile($inputHref->{config});
+
+    # Hide the server paths in the config we send back;
+    # Those represent a security concern
+    $configData->{files_dir} = 'hidden';
+
+    if($configData->{temp_dir}) {
+      $configData->{temp_dir} = 'hidden';
+    }
+
+    $configData->{temp_dir} = 'hidden';
+
+    for my $track (@{$configData->{tracks}}) {
+      # Finish stripping local_files of their absPaths;
+      # Use Path::Tiny basename;
+    }
+
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
-      # jobId   => $jobDataHref->{_id},
+      jobConfig => $configData,
+      submissionID   => $jobDataHref->{submissionID},
       queueID => $job->id,
     }  } );
 
-    ($err, $statistics, $outputFileNamesHashRef) = handleJob($jobDataHref, $job->id);
+    my $annotate_instance = Seq->new_with_config($inputHref);
+    ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
+
   } catch {
     say "job ". $job->id . " failed due to $_";
       
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
+
   if ($err) { 
 
     say "Got error, failing the job with queueID " . $job->id;
@@ -113,6 +137,7 @@ while(my $job = $beanstalk->reserve) {
       event => $events->{failed},
       reason => $err,
       queueID => $job->id,
+      submissionID   => $jobDataHref->{submissionID},
     }) } );
 
     $job->bury; 
@@ -125,7 +150,7 @@ while(my $job = $beanstalk->reserve) {
   $beanstalkEvents->put({ priority => 0, data =>  encode_json({
     event => $events->{completed},
     queueID => $job->id,
-    # jobId   => $jobDataHref->{_id},
+    submissionID   => $jobDataHref->{submissionID},
     results  => {
       summary => $statistics,
       outputFileNames => $outputFileNamesHashRef,
@@ -135,32 +160,6 @@ while(my $job = $beanstalk->reserve) {
   say "completed job with queue id " . $job->id;
 
   $beanstalk->delete($job->id);
-}
- 
-sub handleJob {
-  my $submittedJob = shift;
-  my $queueId = shift;
-
-  my $failed;
-
-  say "in handle job, jobData is";
-  p $submittedJob;
-
-  my $inputHref;
-  
-  $inputHref = coerceInputs($submittedJob, $queueId);
-
-  p $inputHref;
-  
-  if ($verbose) {
-    say "The user job data sent to annotator is: ";
-    p $inputHref;
-  }
-
-  # create the annotator
-  my $annotate_instance = Seq->new_with_config($inputHref);
-  
-  return $annotate_instance->annotate;
 }
 
 #Here we may wish to read a json or yaml file containing argument mappings
