@@ -20,6 +20,8 @@ use lib './lib';
 
 use Log::Any::Adapter;
 use File::Basename;
+use Getopt::Long;
+
 use DDP;
 
 
@@ -28,6 +30,8 @@ use Beanstalk::Client;
 use YAML::XS qw/LoadFile/;
 
 use Seq;
+use SeqFromQuery;
+use Path::Tiny qw/path/;
 # use AnyEvent;
 # use AnyEvent::PocketIO::Client;
 #use Sys::Info;
@@ -39,6 +43,17 @@ use Seq;
 my $DEBUG = 0;
 my $conf = LoadFile('./config/queue.yaml');
 
+# usage
+my ($verbose, $type);
+
+GetOptions(
+  'v|verbose=s'   => \$verbose,
+  't|type=s'     => \$type,
+);
+
+if(!$verbose) {
+
+}
 # Beanstalk servers will be sharded
 my $beanstalkHost  = $conf->{beanstalk_host_1};
 my $beanstalkPort  = $conf->{beanstalk_port_1};
@@ -46,22 +61,36 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 # for jobID specific pings
 # my $annotationStatusChannelBase  = 'annotationStatus:';
 
-# these keys should match the corresponding fields in the web server
-# mongoose schema; TODO: at startup request file from webserver with this config
-my $jobKeys = {};
-$jobKeys->{inputFilePath}    = 'inputFilePath';
-$jobKeys->{outputFilePath} = 'outputBasePath';
-$jobKeys->{assembly}       = 'assembly';
-$jobKeys->{options}       = 'options';
+# The properties that we accept from the worker caller
+my %required = (
+  input_file => 'inputFilePath',
+  output_file_base => 'outputBasePath',
+  assembly => 'assembly',
+);
+
+# Job dependent; one of these is required by the program this worker calls
+my %requiredByType = (
+  'saveFromQuery' => {
+    input_query => 'inputQuery',
+    field_names => 'fieldNames',
+  },
+  'annotation' => {
+    input_file => 'inputFilePath',
+  }
+);
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
 
-my $verbose = $ARGV[0];
+my $queueConfig = $conf->{beanstalkd}{tubes}{$type};
+
+if(!$queueConfig) {
+  die "$type not recognized. Options are " . ( join(', ', @{keys %{$conf->{beanstalkd}{tubes}}} ) );
+}
 
 my $beanstalk = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-  default_tube => $conf->{beanstalkd}{tubes}{annotation}{submission},
+  default_tube => $queueConfig->{submission},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
@@ -69,7 +98,7 @@ my $beanstalk = Beanstalk::Client->new({
 
 my $beanstalkEvents = Beanstalk::Client->new({
   server    => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-  default_tube => $conf->{beanstalkd}{tubes}{annotation}{events},
+  default_tube => $queueConfig->{events},
   connect_timeout => 1,
   encoder => sub { encode_json(\@_) },
   decoder => sub { @{decode_json(shift)} },
@@ -91,8 +120,12 @@ while(my $job = $beanstalk->reserve) {
     $jobDataHref = decode_json( $job->data );
     
      # create the annotator
-    my $inputHref = coerceInputs($jobDataHref, $job->id);
-  
+    ($err, my $inputHref) = coerceInputs($jobDataHref, $job->id);
+    
+    if($err) {
+      die $err;
+    }
+
     my $configData = LoadFile($inputHref->{config});
 
     # Hide the server paths in the config we send back;
@@ -103,11 +136,10 @@ while(my $job = $beanstalk->reserve) {
       $configData->{temp_dir} = 'hidden';
     }
 
-    $configData->{temp_dir} = 'hidden';
-
     for my $track (@{$configData->{tracks}}) {
       # Finish stripping local_files of their absPaths;
       # Use Path::Tiny basename;
+      $track = path($track)->basename;
     }
 
     $beanstalkEvents->put({ priority => 0, data => encode_json{
@@ -117,8 +149,13 @@ while(my $job = $beanstalk->reserve) {
       queueID => $job->id,
     }  } );
 
-    my $annotate_instance = Seq->new_with_config($inputHref);
-    ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
+    if($type eq 'annotation') {
+      my $annotate_instance = Seq->new_with_config($inputHref);
+      ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
+    } elsif($type eq 'saveFromQuery') {
+      say "received save from query";
+    }
+    
 
   } catch {
     say "job ". $job->id . " failed due to $_";
@@ -167,31 +204,59 @@ sub coerceInputs {
   my $jobDetailsHref = shift;
   my $queueId = shift;
 
-  my $inputFilePath  = $jobDetailsHref->{ $jobKeys->{inputFilePath} };
-  my $outputFilePath = $jobDetailsHref->{ $jobKeys->{outputFilePath} };
   my $debug          = $DEBUG;                                        #not, not!
 
-  my $configFilePath = getConfigFilePath( $jobDetailsHref->{ $jobKeys->{assembly} } );
+  my %args;
+  my $err;
 
-  #TODO: allow users to set options, merge with config
-  return {
-    input_file            => $inputFilePath,
-    output_file_base           => $outputFilePath,
+  my %jobSpecificArgs;
+  for my $key (keys %required) {
+    if(!defined $jobDetailsHref->{$required{$key}}) {
+      $err = "Missing required key: $key in job message";
+      return ($err, undef);
+    }
+
+    $jobSpecificArgs{$key} = $jobDetailsHref->{$required{$key}};
+  }
+
+  my $requiredForType = $requiredByType{$type};
+
+  for my $key (keys %$requiredForType) {
+    if(!defined $jobDetailsHref->{$requiredForType->{$key}}) {
+      $err = "Missing required key: $key in job message";
+      return ($err, undef);
+    }
+
+    $jobSpecificArgs{$key} = $jobDetailsHref->{$requiredForType->{$key}};
+  }
+
+  my $configFilePath = getConfigFilePath($jobSpecificArgs{assembly});
+
+  if(!$configFilePath) {
+    $err = "Assembly $jobSpecificArgs{assembly} doesn't have corresponding config file";
+    return ($err, undef);
+  }
+
+  my %commmonArgs = (
     config             => $configFilePath,
-    ignore_unknown_chr => 1,
     publisher => {
       server => $conf->{beanstalkd}{host} . ':' . $conf->{beanstalkd}{port},
-      queue  => $conf->{beanstalkd}{tubes}{annotation}{events},
+      queue  => $queueConfig->{events},
       messageBase => {
         event => $events->{progress},
         queueID => $queueId,
+        submissionID => $jobDetailsHref->{submissionID},
         data => undef,
       }
     },
     compress => 1,
     verbose => $verbose,
     run_statistics => 1,
-  };
+  );
+
+  my %combined = (%commmonArgs, %jobSpecificArgs);
+
+  return (undef, \%combined);
 }
 
 sub getConfigFilePath {
