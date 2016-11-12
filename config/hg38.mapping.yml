@@ -136,16 +136,14 @@ mappings:
             include_in_all: false
         heterozygotes:
             type: string
-            analyzer: autocomplete
-            search_analyzer: search_standard
+            analyzer: lowercase_keyword
             fields:
                 raw:
                     type: string
                     index: not_analyzed
         homozygotes:
             type: string
-            analyzer: autocomplete
-            search_analyzer: search_standard
+            analyzer: lowercase_keyword
             fields:
                 raw:
                     type: string
