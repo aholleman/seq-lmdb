@@ -40,6 +40,8 @@ use Seq::DBManager;
 # Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
 has siteTypeKey => (is => 'ro', default => 'siteType');
 has strandKey => (is => 'ro', default => 'strand');
+has exonNumberKey => (is => 'ro', default => 'exonNumber');
+
 # Will be refSeq.nearest.distance for instance
 # has nearestDistanceKeyPart => (is => 'ro', default => 'distance');
 has codonNumberKey => (is => 'ro', default => 'codonNumber');
@@ -50,7 +52,6 @@ has refAminoAcidKey => (is => 'ro', default => 'referenceAminoAcid');
 has newCodonKey => (is => 'ro', default => 'alleleCodon');
 has newAminoAcidKey => (is => 'ro', default => 'alleleAminoAcid');
 has exonicAlleleFunctionKey => (is => 'ro', default => 'exonicAlleleFunction');
-has exonNumberKey => (is => 'ro', default => 'exonNumber');
 
 ################################ Private Attributes ######################################
 ### objects that get used by multiple subs, but shouldn't be public attributes ###
