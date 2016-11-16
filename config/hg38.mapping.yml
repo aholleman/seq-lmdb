@@ -1,3 +1,19 @@
+#Our own, special field, tells an interface which fields to run prefix queries on
+prefixQueryFields:
+    - minorAlleles
+    - heterozygotes
+    - homozygotes
+    - compoundHeterozygotes
+    - dbSNP146.alleles
+    - clinvar.AlternateAllele
+numericalFields:
+    - cadd
+    - phastCons
+    - phyloP
+    - Position
+    - dbSNP146.alleleNs
+    - dbSNP146.alleleFreqs
+
 settings:
     analysis:
         filter:
@@ -12,11 +28,15 @@ settings:
             type_synonym_filter:
                 type: synonym
                 synonyms_path : "analysis/type-synonyms.txt"
-            indel_expansion_filter:
+            exonic_allele_function_synonym_filter:
                 type: synonym
-                synonyms:
-                    - ins,insertion
-                    - del,deletion
+                synonyms_path : "analysis/exonic-allele-function-synonyms.txt"
+            site_type_synonym_filter:
+                type: synonym
+                synonyms_path : "analysis/site-type-synonyms.txt"
+            codon_map_synonym_filter:
+                type: synonym
+                synonyms_path : "analysis/codon-map-synonyms.txt"
             autocomplete_filter:
                 type: edge_ngram
                 min_gram: 1
@@ -31,101 +51,145 @@ settings:
                     - lowercase
                     - synonym_filter
                     - autocomplete_filter
+            search_keyword_lowercase:
+                type: custom
+                tokenizer: keyword
+                filter:
+                    - standard
+                    - lowercase
+                    - search_synonym_filter
+            # keyword_lowercase_synonym_autocomplete:
+            #     type: custom
+            #     tokenizer: keyword
+            #     filter:
+            #         - standard
+            #         - lowercase
+            #         - synonym_filter
+            #         - autocomplete_filter
+            keyword_lowercase_autocomplete:
+                type: custom
+                tokenizer: keyword
+                filter:
+                    - standard
+                    - lowercase
+                    - autocomplete_filter
             search_standard:
                 tokenizer: standard
                 filter:
+                    - standard
+                    - lowercase
                     - search_synonym_filter
-                    - standard
-                    - lowercase
-            indel_expansion_standard:
-                tokenizer: standard
-                filter:
-                    - standard
-                    - lowercase
-                    - indel_expansion_filter
-            type_synonym_standard:
-                tokenizer: whitespace
+            search_type_synonym_keyword:
+                tokenizer: keyword
                 filter:
                     - standard
                     - lowercase
                     - type_synonym_filter
-            keyword_noop:
+            lowercase_keyword:
                 tokenizer: keyword
-            whitespace_standard:
-                tokenizer: whitespace
                 filter:
                     - standard
                     - lowercase
-            # Doesn't work well:
-            # in-del becomes unresponsive to searches...
-            # whitespace_autocomplete:
-            #     tokenizer: whitespace
-            #     filter:
-            #         - lowercase
-            #         - autocomplete_filter
-            # type_autocomplete:
-            #     type: custom
-            #     tokenizer: standard
-            #     filter:
-            #         - standard
-            #         - lowercase
-            #         - type_synonym_filter
-            #         - autocomplete_filter
+            search_exonic_allele_function_synonym_keyword:
+                tokenizer: keyword
+                filter:
+                    - standard
+                    - lowercase
+                    - exonic_allele_function_synonym_filter
+            search_site_type_synonym_keyword:
+                tokenizer: keyword
+                filter:
+                    - standard
+                    - lowercase
+                    - site_type_synonym_filter
+            search_codon_synonym_keyword:
+                tokenizer: keyword
+                filter:
+                    - standard
+                    - lowercase
+                    - codon_map_synonym_filter
 mappings:
     _all:
-        type: string
-        analyzer: autocomplete
-        search_analyzer: search_standard
+        enabled: false
+        # type: string
+        # analyzer: autocomplete
+        # search_analyzer: search_standard
     properties:
         Fragment:
             type: string
-            analyzer: whitespace_standard
+            analyzer: lowercase_keyword
+            # chr's are very short, and the "prefix" is a completely valid value
+            # so, don't include in all, because many false positivies with ngrams
+            include_in_all: false
         Position:
             type: integer
         Type:
             type: string
-            analyzer: whitespace_standard
-            # Will make _all field respond well to insertion, deletion terms
-            search_analyzer: type_synonym_standard
-            # Simply too big when doing this; index inflates many fold
-            # from this alone
-            # analyzer: type_autocomplete
-            # search_analyzer: search_standard
+            analyzer: lowercase_keyword
+            search_analyzer: search_type_synonym_keyword
+            fields:
+                raw:
+                    type: string
+                    index: not_analyzed
+        discordant:
+            type: boolean
+            include_in_all: false
         heterozygotes:
             type: string
-            analyzer: whitespace_standard
+            analyzer: lowercase_keyword
+            fields:
+                raw:
+                    type: string
+                    index: not_analyzed
         homozygotes:
             type: string
-            analyzer: whitespace_standard
-        compoundHeterozygotes:
-            type: string
-            analyzer: whitespace_standard
+            analyzer: lowercase_keyword
+            fields:
+                raw:
+                    type: string
+                    index: not_analyzed
         minorAlleles:
             type: string
             include_in_all: false
-            analyzer: whitespace_standard
+            analyzer: lowercase_keyword
         hg38:
             type: string
             include_in_all: false
-            analyzer: whitespace_standard
+            analyzer: lowercase_keyword
         refSeq:
             properties:
                 siteType:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  lowercase_keyword
+                    search_analyzer: search_site_type_synonym_keyword
+                    fields:
+                        raw:
+                            type: string
+                            index: not_analyzed
                 exonicAlleleFunction:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  lowercase_keyword
+                    search_analyzer: search_exonic_allele_function_synonym_keyword
+                    fields:
+                        raw:
+                            type: string
+                            index: not_analyzed
                 referenceCodon:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  lowercase_keyword
+                    search_analyzer: search_codon_synonym_keyword
+                alleleCodon:
+                    type: string
+                    analyzer: lowercase_keyword
+                    search_analyzer: search_codon_synonym_keyword
+                referenceAminoAcid:
+                    type: string
+                    analyzer: lowercase_keyword
+                    include_in_all: false
                 alleleAminoAcid:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  lowercase_keyword
+                    include_in_all: false
                 codonPosition:
                     type: short
                     include_in_all: false
@@ -134,7 +198,7 @@ mappings:
                     include_in_all: false
                 strand:
                     type: string
-                    analyzer: keyword_noop
+                    analyzer: keyword
                     include_in_all: false
                 kgID:
                     type: string
@@ -154,8 +218,12 @@ mappings:
                     search_analyzer: search_standard
                 geneSymbol:
                     type: string
-                    analyzer:  autocomplete
-                    search_analyzer: search_standard
+                    analyzer:  keyword_lowercase_autocomplete
+                    search_analyzer: search_keyword_lowercase
+                    fields:
+                        raw:
+                            type: string
+                            index: not_analyzed
                 refseq:
                     type: string
                     analyzer:  autocomplete
@@ -214,9 +282,10 @@ mappings:
                 strand:
                     type: string
                     analyzer: keyword
+                    include_in_all: false
                 observed:
                     type: string
-                    analyzer: whitespace_standard
+                    analyzer: lowercase_keyword
                     include_in_all: false
                 class:
                     type: string
@@ -228,7 +297,7 @@ mappings:
                     search_analyzer: search_standard
                 alleles:
                     type: string
-                    analyzer: whitespace_standard
+                    analyzer: lowercase_keyword
                     include_in_all: false
                 alleleNs:
                     type: integer
@@ -260,11 +329,11 @@ mappings:
                     search_analyzer: search_standard
                 ReferenceAllele:
                     type: string
-                    analyzer: whitespace_standard
+                    analyzer: lowercase_keyword
                     include_in_all: false
                 AlternateAllele:
                     type: string
-                    analyzer: whitespace_standard
+                    analyzer: lowercase_keyword
                     include_in_all: false
                 PhenotypeIDs:
                     type: string

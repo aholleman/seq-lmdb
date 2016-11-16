@@ -71,7 +71,7 @@ while(my $job = $beanstalk->reserve) {
   # prevents anything within the try from executing
   
   my $jobDataHref;
-  my ($err, $fieldNames);
+  my ($err, $fieldNames, $searchConfigHashRef);
 
   try {
     $jobDataHref = decode_json( $job->data );
@@ -83,7 +83,7 @@ while(my $job = $beanstalk->reserve) {
       queueID => $job->id,
     }  } );
 
-    ($err, $fieldNames) = handleJob($jobDataHref, $job->id);
+    ($err, $fieldNames, $searchConfigHashRef) = handleJob($jobDataHref, $job->id);
   
   } catch {      
     # Don't store the stack
@@ -120,6 +120,7 @@ while(my $job = $beanstalk->reserve) {
     submissionID => $jobDataHref->{submissionID},
     queueID => $job->id,
     fieldNames => $fieldNames,
+    indexConfig => $searchConfigHashRef,
   }) } );
   
   $beanstalk->delete($job->id);

@@ -5,6 +5,9 @@ beanstalkd:
     annotation:
       submission: annotation
       events: annotation_events
+    saveFromQuery:
+      submission: saveFromQuery
+      events: saveFromQuery_events
     index:
       submission: index
       events: index_events
