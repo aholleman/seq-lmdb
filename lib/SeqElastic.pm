@@ -120,7 +120,7 @@ sub go {
   my $primaryDelimiter = $delimiters->primaryDelimiter;
   my $secondaryDelimiter = $delimiters->secondaryDelimiter;
 
-  say "secondaryDelimiter is $secondaryDelimiter";
+  my $emptyFieldChar = $self->emptyFieldChar;
 
   # Todo implement tain check; default taint check doesn't work for annotated files
   $taint_check_regex = qr/./;
@@ -214,14 +214,14 @@ sub go {
           # char | is literally is an error; truncates the entire pattern
           # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
           INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
-            if ($fieldValue eq 'NA') {
+            if ($fieldValue eq $emptyFieldChar) {
               next INNER;
             }
 
             push @array, $fieldValue;
           }
 
-          my @splitField = grep { $_ ne 'NA' } split("\\$secondaryDelimiter", $field);
+          my @splitField = grep { $_ ne $emptyFieldChar } split("\\$secondaryDelimiter", $field);
 
           # Field may be undef
           # Modify the field, to be an array, or a scalar
@@ -237,7 +237,7 @@ sub go {
         for my $innerField (ref $field ? @$field : $field) {
           if( index($innerField, $primaryDelimiter) > -1 ) {
 
-            my @splitField = grep { $_ ne 'NA' } split("\\$primaryDelimiter", $innerField);
+            my @splitField = grep { $_ ne $emptyFieldChar } split("\\$primaryDelimiter", $innerField);
 
             if(@splitField > 1) {
               $innerField = \@splitField;
@@ -248,14 +248,14 @@ sub go {
             }
 
             # Do nothing if @array is empty
-          } elsif($innerField eq 'NA') {
+          } elsif($innerField eq $emptyFieldChar) {
             $innerField = undef;
           }
 
           # Else don't modify the field
         }
 
-        if(defined $field && $field ne 'NA') {
+        if(defined $field && $field ne $emptyFieldChar) {
           _populateHashPath(\%rowDocument, $paths[$i], $field);
         }
       }

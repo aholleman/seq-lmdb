@@ -204,9 +204,6 @@ sub get {
     #Reads:                   $siteUnpacker->unpack($href->[$self->dbName]);
     ($txNumbers, $siteData) = $siteUnpacker->unpack($_[1]->[$_[0]->dbName]);
     $multiple = !! ref $txNumbers;
-
-    say "siteData is";
-    p $siteData;
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
@@ -361,7 +358,6 @@ sub get {
       if( $site->[$strandIdx] eq '-' ) {
         substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $negativeStrandTranslation->{$allele};
       } else {
-        say "alleleCodonSequence $alleleCodonSequence, codonPositionIdx, $site->[$codonPositionIdx]";
         substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
       }
 
