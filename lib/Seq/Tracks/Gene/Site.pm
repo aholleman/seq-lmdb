@@ -51,6 +51,7 @@ has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
 has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
 # This one is optional, obviously only applies to variants in exons
 has exonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
+
 has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
 has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
 has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 5);
