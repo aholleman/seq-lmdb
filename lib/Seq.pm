@@ -51,7 +51,7 @@ has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
 has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
   handles => { outputFileBasePath => 'stringify' });
 
-has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1,
+has temp_dir => ( is => 'ro', isa => 'Maybe[AbsDir]', coerce => 1,
   handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)

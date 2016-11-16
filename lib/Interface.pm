@@ -23,62 +23,31 @@ use Getopt::Long::Descriptive;
 use Seq;
 with 'MouseX::Getopt';
 
-subtype AbsFile => as 'Path::Tiny';
-coerce AbsFile => from 'Str' => via { if(! -e $_) {die "File doesn't exist"; }; path($_)->absolute; };
-
-subtype AbsPath => as 'Path::Tiny';
-coerce AbsPath => from 'Str' => via { path($_)->absolute; };
-
-subtype AbsDir => as 'Path::Tiny';
-coerce AbsDir => from 'Str' => via { path($_)->absolute; };
-
-
-#without this, Getopt won't konw how to handle AbsFile, AbsPath, and you'll get
-#Invalid 'config_file' : File '/mnt/icebreaker/data/home/akotlar/my_projects/seq/1' does not exist
-#but it won't understand AbsFile=> and AbsPath=> mappings directly, so below
-#we use it's parental inference property 
-#http://search.cpan.org/~ether/MouseX-Getopt-0.68/lib/MouseX/Getopt.pm
-MouseX::Getopt::OptionTypeMap->add_option_type_to_map(
-    'Path::Tiny' => '=s',
-);
-
 ##########Parameters accepted from command line#################
-has snpfile => (
-  is        => 'rw',
-  isa       => 'AbsFile',
-  coerce => 1,
-  #handles => {openInputFile => 'open'},
+has input_file => (
+  is        => 'ro',
+  isa         => 'Str',
   required      => 1,
-  handles => {
-    snpfilePath => 'stringify',
-  },
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/input snp i/],
+  cmd_aliases   => [qw/input i/],
   documentation => qq{Input file path.},
 );
 
 has output_file_base => (
   is          => 'ro',
-  isa         => 'AbsPath',
-  coerce      => 1,
-  required    => 1,
-  handles => {
-    output_path => 'stringify',
-  },
-  cmd_aliases   => [qw/o out out_file/],
+  isa         => 'Str',
+  cmd_aliases   => [qw/o out/],
   metaclass => 'Getopt',
   documentation => qq{Where you want your output.},
 );
 
 has config => (
   is          => 'ro',
-  isa         => 'AbsFile',
+  isa         => 'Str',
   coerce      => 1,
   required    => 1,
-  handles     => {
-    configfilePath => 'stringify',
-  },
   metaclass => 'Getopt',
+  cmd_aliases   => [qw/c config/],
   documentation => qq{Yaml config file path.},
 );
 
@@ -163,9 +132,9 @@ sub annotate {
   my $self = shift;
   
   my $args = {
-    config => $self->configfilePath,
-    input_file => $self->snpfilePath,
-    output_file_base => $self->output_path,
+    config => $self->config,
+    input_file => $self->input_file,
+    output_file_base => $self->output_file_base,
     debug => $self->debug,
     ignore_unknown_chr => $self->ignore_unknown_chr,
     overwrite => $self->overwrite,

@@ -7,7 +7,10 @@ use Mouse 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
 
 #these is features used in the region database
-has geneTxErrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
+has txErrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
+
+#these is features used in the region database
+has txSizeName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txSize');
 
 #some default fields, some of which are required
 #TODO: allow people to remap the names of required fields if their source

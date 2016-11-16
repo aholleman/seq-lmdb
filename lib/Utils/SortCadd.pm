@@ -24,6 +24,7 @@ extends 'Utils::Base';
 ########## Arguments accepted ##############
 # Take the CADD file and make it a bed file
 has delimiter => (is => 'ro', lazy => 1, default => "\t");
+has '+compress' => (default => 1);
 
 my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
 
@@ -43,20 +44,16 @@ sub sort {
   my @outPaths;
   my %outFhs;
 
+  $self->log('info', "Beginning organizing cadd files by chr (single threaded)");
+
   my $outExtPart = $self->compress ? '.txt.gz' : '.txt';
 
   my $outExt = '.organized-by-chr' . $outExtPart;
 
   for my $inFilePath ( @{$self->_wantedTrack->{local_files} } ) {
-    my $chrIndex = index($inFilePath, '.chr');
+    my $outPathBase = substr($inFilePath, 0, rindex($inFilePath, '.') );
 
-    my $outPathBase;
-
-    if($chrIndex > -1) {
-      $outPathBase = substr($inFilePath, 0, $chrIndex );
-    } else {
-      $outPathBase = substr($inFilePath, 0, rindex($inFilePath, '.') );
-    }
+    $outPathBase =~ s/\.(chr[\w_\-]+)//;
     
     # Store output handles by chromosome, so we can write even if input file
     # out of order
@@ -82,7 +79,7 @@ sub sort {
       if(!$fh) {
         my $outPath = "$outPathBase.$chr$outExt";
 
-        say "outPath is $outPath";
+        $self->log('info', "Found $chr in $inFilePath; creating $outPath");
         
         push @outPaths, $outPath;
 
@@ -107,6 +104,7 @@ sub sort {
     close $outFh;
   }
 
+  $self->log('info', "Finished organizing cadd files by chr, beginning sort (multi threaded)");
   my $pm = Parallel::ForkManager->new(scalar @outPaths);
 
   for my $outPath (@outPaths) {
@@ -121,9 +119,6 @@ sub sort {
     my $finalOutPath = $finalOutPathBase . $outExt;
 
     my $tempPath = path($finalOutPath)->parent()->stringify;
-
-    say "tempPath is";
-    p $tempPath;
 
     $pm->start($finalOutPath) and next;
       my $command;
@@ -156,7 +151,9 @@ sub sort {
   $pm->wait_all_children();
 
   $self->_wantedTrack->{local_files} = \@finalOutPaths;
-  
+
+  $self->_wantedTrack->{sort_date} = $self->_dateOfRun;
+
   $self->_backupAndWriteConfig();
 }
 

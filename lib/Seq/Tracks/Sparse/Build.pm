@@ -73,14 +73,52 @@ sub makeMergeFunc {
         next;
       }
 
-      if(!$madeIntoArray->{$chr}{$pos}{$trackIdx}{$i}) {
-        $updated[$i] = [$oldTrackVal->[$i]];
-        $madeIntoArray->{$chr}{$pos}{$trackIdx}{$i} = 1;
-      }
+      # if(!$madeIntoArray->{$chr}{$pos}{$trackIdx}{$i}) {
+      #   $updated[$i] = [$oldTrackVal->[$i]];
+      #   $madeIntoArray->{$chr}{$pos}{$trackIdx}{$i} = 1;
+      # }
 
-      push @{$updated[$i]}, $newTrackVal->[$i];
+      if(ref $newTrackVal->[$i]) {
+        if(ref $newTrackVal->[$i] ne 'ARRAY') {
+          # TODO: move away from fatal, allow graceful exit w/ error message
+          $self->log('fatal', "Sparse  track received new record in mergeFunc that was a non-Array reference");
+          return;
+        }
+
+        say "pushing array";
+        p $newTrackVal->[$i];
+        say "before push";
+        p $updated[$i];
+
+        if(!ref $updated[$i]) {
+          say "updated is not a ref";
+
+          $updated[$i] = [$updated[$i], @{$newTrackVal->[$i]}];
+        } else {
+          push @{$updated[$i]}, @{$newTrackVal->[$i]};
+        }
+        
+        say "after push";
+        p $updated[$i];
+      } else {
+        if(!ref $updated[$i]) {
+          say "updated is not a ref";
+
+          $updated[$i] = [$updated[$i], $newTrackVal->[$i]];
+        } else {
+          push @{$updated[$i]}, $newTrackVal->[$i];
+        }
+      }
     }
-      
+
+    say "new Track was";
+    p $newTrackVal;
+    say "old track val was";
+    p $oldTrackVal;
+
+    say "after merge";
+    p @updated;
+  
     # if($self->name eq 'snp146') {
     #   say "oldVal is";
     #   p $oldTrackVal;
