@@ -76,7 +76,6 @@ while(my $job = $beanstalk->reserve) {
   try {
     $jobDataHref = decode_json( $job->data );
     
-    say "sending started event to " . $events->{started};
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       submissionID => $jobDataHref->{submissionID},
@@ -90,15 +89,21 @@ while(my $job = $beanstalk->reserve) {
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
 
-  if ($err) { 
-    say "job ". $job->id . " failed due to found error, which is $err";
-    
+  if ($err) {
+    if($verbose) {
+      say "job ". $job->id . " failed due to found error";
+      p $err;
+    }
+
     my $message;
 
-    if(ref $err && $err->{vars}{body}{error}{reason}) {
-      $message = $err->{vars}{body}{error}{reason};
-    } else {
-      $message = $err;
+    if(ref $err eq 'Search::Elasticsearch::Error::Request') {
+      # TODO: Improve error handling, this doesn't work reliably
+      if($err->{status_code} == 400) {
+        $err = "Query failed to parse";
+      } else {
+        $err = "Issue handling query";
+      }
     }
 
     $beanstalkEvents->put( { priority => 0, data => encode_json({
@@ -134,23 +139,16 @@ sub handleJob {
 
   my $failed;
 
-  say "in handle job, jobData is";
-  p $submittedJob;
-
   my ($err, $inputHref) = coerceInputs($submittedJob);
 
   if($err) {
     say STDERR $err;
     return ($err, undef);
   }
-
-  say "$inputHref is";
-  p $inputHref;
+  
 
   my $log_name = join '.', 'index', 'indexName', $inputHref->{indexName}, 'log';
   my $logPath = File::Spec->rel2abs( ".", $log_name );
-  
-  say "writing beanstalk queue log file here: $logPath" if $verbose;
     
   $inputHref->{logPath} = $logPath;
   $inputHref->{verbose} = $verbose;
@@ -165,9 +163,12 @@ sub handleJob {
     }
   };
 
-  if ($verbose) {
-    say "The user job data sent to annotator is: ";
+  if($verbose) {
+    say "in handle job, jobData is";
+    p $submittedJob;
+    say "$inputHref is";
     p $inputHref;
+    say "writing beanstalk index queue log file here: $logPath";
   }
 
   # create the annotator
@@ -189,9 +190,6 @@ sub coerceInputs {
 
   $jobDetailsHref->{config} = $configPathBaseDir . $jobDetailsHref->{assembly} . '.mapping.yml';
 
-  say "jobDetailsHref is";
-  p $jobDetailsHref;
-
   return (undef, $jobDetailsHref);
 }
 
@@ -212,8 +210,8 @@ sub getConfigFilePath {
       return $maybePath[0];
     }
 
-    die "\n\nNo config path found for the assembly $assembly. Exiting\n\n"
-      ; #throws the error
+    die "\n\nNo config path found for the assembly $assembly. Exiting\n\n";
+    #throws the error
     #should log here
   }
 }
