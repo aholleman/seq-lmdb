@@ -54,6 +54,9 @@ sub BUILD {
   my $tracks = Seq::Tracks->new({tracks => $self->tracks});
 
   my $buildDate = Utils::Base::getDate();
+
+  #http://stackoverflow.com/questions/1378221/how-can-i-get-name-of-the-user-executing-my-perl-script
+  my $buildAuthor = $ENV{LOGNAME} || $ENV{USER} || getpwuid($<);
   # Meta tracks are built during instantiation, so if we only want to build the
   # meta data, we can return here safely.
   if($self->meta_only) {
@@ -114,6 +117,7 @@ sub BUILD {
     my $track = first{$_->{name} eq $builder->name} @{$decodedConfig->{tracks}};
 
     $track->{build_date} = $buildDate;
+    $track->{build_author} = $buildAuthor;
     $track->{version} = $track->{version} ? ++$track->{version} : 1;
     
     $self->log('info', "Finished building " . $builder->name );
@@ -123,6 +127,7 @@ sub BUILD {
     . join(", ", map{ $_->name } @builders) );
 
   $decodedConfig->{build_date} = $buildDate;
+  $decodedConfig->{build_author} = $buildAuthor;
   $decodedConfig->{version} = $decodedConfig->{version} ? ++$decodedConfig->{version} : 1;
 
   # If this is already a symlink, remove it
