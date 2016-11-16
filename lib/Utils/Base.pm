@@ -15,8 +15,7 @@ use Types::Path::Tiny qw/AbsFile/;
 use List::MoreUtils qw/first_index/;
 use YAML::XS qw/LoadFile Dump/;
 use Path::Tiny qw/path/;
-
-my $localtime = join("_", split(" ", localtime) );
+use Time::localtime;
 
 ############## Arguments accepted #############
 # The track name that they want to use
@@ -28,7 +27,8 @@ has config => ( is => 'ro',isa => AbsFile, coerce => 1, required => 1, handles =
 
 # Logging
 has logPath => ( is => 'ro', lazy => 1, default => sub {
-  my $self = shift; return "./utils_" . $self->name . ".$localtime.log";
+  my $self = shift;
+  return "./utils_" . $self->name . "." . $self->_dateOfRun . ".log";
 });
 
 # Debug log level?
@@ -66,9 +66,13 @@ has _localFilesDir => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
 has _newConfigPath => ( is => 'ro', isa => 'Str', lazy => 1, default => sub {
   my $self = shift;
 
-  return substr($self->configPath, 0, rindex($self->config,'.') ) . ".$localtime"
+  return substr($self->configPath, 0, rindex($self->config,'.') ) . "." . $self->_dateOfRun
     . substr($self->config, rindex($self->config,'.') );
 });
+
+# Memoized date, because we want backupAndWrite to give same date as fetch_date, sort_date, etc
+has _dateOfRun => ( is => 'ro', lazy => 1, init_arg => undef,
+  default => sub{my $self = shift; $self->getDate();});
 
 sub BUILD {
   my $self = shift;
@@ -116,11 +120,16 @@ sub BUILD {
 sub _backupAndWriteConfig {
   my $self = shift;
 
+  my $backPath =  $self->configPath . ".utils-bak." . $self->_dateOfRun;
+
+  if(-e $backPath) {
+    unlink $backPath;
+  }
   # If this is already a symlink, remove it
   if(-l $self->configPath) {
     unlink $self->configPath;
   } else {
-    if( system ("mv " . $self->configPath . " " . $self->configPath . ".bak.$localtime" ) != 0 ) {
+    if( system ("mv " . $self->configPath . " $backPath") != 0 ) {
       $self->log('fatal', "Failed to back up " . $self->configPath);
     }
   }
@@ -134,6 +143,11 @@ sub _backupAndWriteConfig {
   if( system ("ln -f " . $self->_newConfigPath . " " . $self->configPath) != 0 ) {
     $self->log('fatal', "Failed to hard link " . $self->configPath . " to " . $self->_newConfigPath);
   }
+}
+
+sub getDate {
+  my $tm = localtime;
+  return sprintf("%04d-%02d-%02dT%02d:%02d:00", $tm->year+1900, ($tm->mon)+1, $tm->mday, $tm->hour, $tm->min);
 }
 
 __PACKAGE__->meta->make_immutable;

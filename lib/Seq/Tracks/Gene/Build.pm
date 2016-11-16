@@ -42,7 +42,7 @@ has build_region_track_only => (is => 'ro', lazy => 1, default => 0);
 has join => (is => 'ro', isa => 'HashRef');
 
 # These are the features stored in the Gene track's region database
-# Does not include $geneDef->geneTxErrorName here, because that is something
+# Does not include $geneDef->txErrorName here, because that is something
 # that is not actually present in UCSC refSeq or knownGene records, we add ourselves
 has '+features' => (default => sub{ $geneDef->allUCSCgeneFeatures; });
 
@@ -51,9 +51,12 @@ my $joinTrack;
 sub BUILD {
   my $self = shift;
 
-  # geneTxErrorName isn't a default feature, initializing here to make sure 
+  # txErrorName isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
-  $self->getFieldDbName($geneDef->geneTxErrorName);
+  $self->getFieldDbName($geneDef->txErrorName);
+
+  #similarly for $txSize
+  $self->getFieldDbName($geneDef->txSizeName);
 }
 
 # 1) Store a reference to the corresponding entry in the gene database (region database)
@@ -201,6 +204,9 @@ sub buildTrack {
           return;
         }
 
+        #a field added by Seqant
+        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($geneDef->txSizeName)} = $txEnd + 1 - $txStart; 
+
         if(defined $txStartData{$wantedChr}{$txStart} ) {
           push @{ $txStartData{$wantedChr}{$txStart} }, [$txNumber, $txEnd];
         } else {
@@ -228,7 +234,7 @@ sub buildTrack {
 
       my $pm2 = Parallel::ForkManager->new(scalar @allChrs);
 
-      my $txErrorDbname = $self->getFieldDbName($geneDef->geneTxErrorName);
+      my $txErrorDbname = $self->getFieldDbName($geneDef->txErrorName);
 
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;
@@ -370,7 +376,7 @@ sub buildTrack {
 sub _writeRegionData {
   my ($self, $chr, $regionDataHref) = @_;
 
-  $self->log('info', "Starting _writeRegionData for $chr");
+  $self->log('debug', "Starting _writeRegionData for $chr");
     
   my $dbName = $self->regionTrackPath($chr);
 
@@ -382,7 +388,7 @@ sub _writeRegionData {
     $self->db->dbPatchHash($dbName, $txNumber, $regionDataHref->{$txNumber});
   }
 
-  $self->log('info', "Finished _writeRegionData for $chr");
+  $self->log('debug', "Finished _writeRegionData for $chr");
 }
 
 ############ Joining some other track to Gene track's region db ################
@@ -396,7 +402,7 @@ sub _joinTracksToGeneTrackRegionDb {
     return $self->log('warn', "Join not set in _joinTracksToGeneTrackRegionDb");
   }
 
-  $self->log('info', "Starting _joinTracksToGeneTrackRegionDb for $chr");
+  $self->log('debug', "Starting _joinTracksToGeneTrackRegionDb for $chr");
   # Gene tracks cover certain positions, record the start and stop
   my @positionRanges;
   my @txNumbers;
@@ -443,6 +449,15 @@ sub _joinTracksToGeneTrackRegionDb {
       }
     }
 
+    # say "oldval";
+    # p $oldVal;
+
+    # say "newVal";
+    # p $newVal;
+
+    # say "updated";
+    # p @updated;
+
     if(@updated == 0) {
       return undef;
     }
@@ -485,7 +500,7 @@ sub _joinTracksToGeneTrackRegionDb {
     $self->db->dbPatchHash($dbName, $txNumber, \%out, undef, $mergeFunc);
   });
 
-  $self->log('info', "Finished _joinTracksToGeneTrackRegionDb for $chr");
+  $self->log('debug', "Finished _joinTracksToGeneTrackRegionDb for $chr");
 }
 
 ############### Writing gene reference & tx data to main database ##############
@@ -493,7 +508,7 @@ sub _joinTracksToGeneTrackRegionDb {
 sub _writeMainData {
   my ($self, $chr, $mainDataHref) = @_;
 
-  $self->log('info', "Starting _writeMainData for $chr");
+  $self->log('debug', "Starting _writeMainData for $chr");
   
   my %out;
   my $count = 0;
@@ -517,7 +532,7 @@ sub _writeMainData {
     undef %out;
   }
     
-  $self->log('info', "Finished _writeMainData for $chr");
+  $self->log('debug', "Finished _writeMainData for $chr");
 }
 
 ############### Writing nearest gene data to main database #####################
@@ -530,7 +545,7 @@ sub _writeMainData {
 sub _writeNearestGenes {
   my ($self, $chr, $txStartData, $coveredSitesHref) = @_;
   
-  $self->log('info', "Starting _writeNearestGenes for $chr");      
+  $self->log('debug', "Starting _writeNearestGenes for $chr");      
   
   # Get database length : assumes reference track already in the db
   my $genomeNumberOfEntries = $self->db->dbGetNumberOfEntries($chr);
@@ -627,7 +642,7 @@ sub _writeNearestGenes {
         $startPoint = $longestPreviousTxEnd;
       }
 
-      if($self->debug) {
+      if($self->debug && $self->verbose) {
         say "genome last position is @{[$genomeNumberOfEntries-1]}";
         say "longestTxEnd is $longestTxEnd";
         say "longestPreviousTxEnd is $longestPreviousTxEnd";
@@ -683,7 +698,7 @@ sub _writeNearestGenes {
     #TXSTART_LOOP
   }
 
-  $self->log('info', "Finished _writeNearestGenes for $chr");
+  $self->log('debug', "Finished _writeNearestGenes for $chr");
 }
 
 __PACKAGE__->meta->make_immutable;

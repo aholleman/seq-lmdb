@@ -34,7 +34,7 @@ use namespace::autoclean;
 use DDP;
 
 #how many bases away from exon bound we will call spliceAc or spliceDon site
-my $spliceSiteLength = 6;
+my $spliceSiteLength = 2;
 #placeholder for annotation in string
 my $annBase = '0';
 
@@ -171,7 +171,7 @@ sub BUILD {
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref) = $self->_buildTranscript();
 
-  my $txAnnotationHref = $self->_buildTranscriptAnnotation();
+  my ($txAnnotationHref, $exonPosNumHref) = $self->_buildTranscriptAnnotation();
 
   # say "txAnnotationHref";
   # p $txAnnotationHref;
@@ -192,7 +192,7 @@ sub BUILD {
   #maybe if UCSC loses it's dominance
 
   # transcriptSites holds all of our site annotations
-  $self->_buildTranscriptSites($seq, $seqPosMapAref, $txAnnotationHref);
+  $self->_buildTranscriptSites($seq, $seqPosMapAref, $txAnnotationHref, $exonPosNumHref);
 
   #this is now handled as part of the buildTranscript process
   #$self->_build_flanking_sites;
@@ -323,6 +323,9 @@ sub _buildTranscriptAnnotation {
 
   my $txAnnotationHref;
 
+  # Also store the exon number;
+  my $exonPosNumHref;
+
   # Store intron site type if that's what this is
   # Note that the splice loop below this will ovewrite any positions that are
   # Called Splice Sites
@@ -339,9 +342,12 @@ sub _buildTranscriptAnnotation {
     }
   }
 
-  #Then stroe non-coding, 5'UTR, 3'UTR annotations
+  #Then store non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
     UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
+      # Record exon numbers, even for non-coding exons
+      $exonPosNumHref->{$exonPos} = $i + 1;
+
       if($nonCoding) {
         $txAnnotationHref->{$exonPos} = $codonPacker->siteTypeMap->ncRNAsiteType;
 
@@ -354,7 +360,7 @@ sub _buildTranscriptAnnotation {
       if( $exonPos < $codingEnd ) {
         if( $exonPos >= $codingStart ) {
           #not 5'UTR,3'UTR, or non-coding
-          #we've alraedy gotten the ref base at this position in $seq
+          #we've already gotten the ref base at this position in $seq
           #so skip this pos
           next UTR_LOOP;
         }  
@@ -366,12 +372,12 @@ sub _buildTranscriptAnnotation {
        } 
       #if we're after cds end, but in an exon we must be in the 3' UTR
       $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
-        : $codonPacker->siteTypeMap->fivePrimeSiteType;      
+        : $codonPacker->siteTypeMap->fivePrimeSiteType;
     }
 
     # Annotate splice donor/acceptor bp
-    #  - i.e., bp within 6 bp of exon start / stop
-    #  - what we want to capture is the bp that are within 6 bp of the start or end of
+    #  - i.e., bp within 2 bp of exon start / stop
+    #  - what we want to capture is the bp that are within 2 bp of the start or end of
     #    an exon start/stop; whether this is only within the bounds of coding exons does
     #    not particularly matter to me
     #
@@ -388,7 +394,7 @@ sub _buildTranscriptAnnotation {
     #Compared to the "Seq" codebase written completely by Dr. Wingo: 
     #The only change to the logic that I have made, is to add a bit of logic
     #to check for cases when our splice donor / acceptor sites 
-    #as calculated by a the use of $spliceSiteLength, which is set to 6
+    #as calculated by a the use of $spliceSiteLength, which is set to 2 by default
     #actually overlap either the previous exonEnd, or the next exonStart
     #and are therefore inside of a coding sequence.
     #Dr. Wingo's original solution was completely correct, because it also 
@@ -399,12 +405,12 @@ sub _buildTranscriptAnnotation {
     #TODO: should we check if start + n is past end? or >= end - $n
     SPLICE_LOOP: for ( my $n = 1; $n <= $spliceSiteLength; $n++ ) {
       my $exonPos = $exonStarts[$i] - $n;
-      if ( $exonPos > $codingStart && $exonPos < $codingEnd 
+
       #This last condition to prevent splice acceptors for being called in
       #coding sites for weirdly tight transcripts
       # >= because EEnd (exonEnds) are open range, aka their actual number is not 
       #to be included, it's 1 past the last base of that exon
-      && $exonPos >= $exonEnds[$i-1] ) {
+      if ( $exonPos > $codingStart && $exonPos < $codingEnd && $exonPos >= $exonEnds[$i-1] ) {
         $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->spliceAcSiteType : 
           $codonPacker->siteTypeMap->spliceDonSiteType;
         next SPLICE_LOOP;
@@ -426,7 +432,7 @@ sub _buildTranscriptAnnotation {
 
   #my $errorsAref = $self->_buildTranscriptErrors($txSequence, $txAnnotationHref);
 
-  return $txAnnotationHref;
+  return ($txAnnotationHref, $exonPosNumHref);
   #return ($txAnnotationHref, $errorsAref);
 }
 
@@ -434,7 +440,7 @@ sub _buildTranscriptAnnotation {
 #TODO: think about whether we want to pack anything if no info
 #the problem with not packing something is we won't know how to unpack it apriori
 sub _buildTranscriptSites {
-  my ($self, $txSequence, $seqPosMapAref, $txAnnotationHref) = @_;
+  my ($self, $txSequence, $seqPosMapAref, $txAnnotationHref, $exonPosNumHref) = @_;
   my @exonStarts       = $self->allExonStarts;
   my @exonEnds         = $self->allExonEnds;
 
@@ -449,10 +455,13 @@ sub _buildTranscriptSites {
   #First add the annotations; note that if for some reason a codon overlaps
   for my $pos (keys %$txAnnotationHref) {
     my $siteType =  $txAnnotationHref->{$pos};
-
+    
     #storing strand for now, could remove it later if we decided to 
     #just get it from the region database entry for the transcript
-    $tempTXsites{$pos} = [$self->txNumber, $siteType, $self->strand, undef, undef, undef];
+    
+    #The 4th element is the exon number, which may, or may not exist (be defined)
+    #For this position (won't be, if it is an intronic or spliceDonor/Acceptor site)
+    $tempTXsites{$pos} = [$self->txNumber, $siteType, $self->strand, $exonPosNumHref->{$pos}, undef, undef, undef];
   }
 
   my $codingBaseCount = 0;
@@ -488,7 +497,7 @@ sub _buildTranscriptSites {
 
       $siteType = $codonPacker->siteTypeMap->codingSiteType;
 
-      $tempTXsites{ $pos } = [$self->txNumber, $siteType, $self->strand,
+      $tempTXsites{ $pos } = [$self->txNumber, $siteType, $self->strand, $exonPosNumHref->{$pos},
        $codonNumber, $codonPosition, $codonSeq];
 
       $codingBaseCount++;

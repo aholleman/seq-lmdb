@@ -49,9 +49,12 @@ has codonMap => (
 #These describe the site
 has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
 has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
-has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
-has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
-has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
+# This one is optional, obviously only applies to variants in exons
+has exonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
+
+has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
+has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
+has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 5);
 
 #pack strands as small integers, save a byte in messagepack
 state $strandMap = { '-' => 0, '+' => 1, };
@@ -71,7 +74,7 @@ if(!$combinedMap) {
 # Unless the Perl messagePack implementation isn't good
 # So store as array to save pack / unpack overhead
 sub pack {
-  my ($self, $txNumber, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
+  my ($self, $txNumber, $siteType, $strand, $exonNumber, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   my @outArray;
 
@@ -94,6 +97,10 @@ sub pack {
   #combines the strand and site type
   push @outArray, $siteTypeNum - $strandMap->{$strand};
 
+  if(defined $exonNumber) {
+    push @outArray, $exonNumber;
+  }
+  
   if(defined $codonNumber || defined $codonPosition || defined $codonSeq) {
     if(!defined $codonNumber && !defined $codonPosition && !defined $codonSeq) {
       $self->log('fatal', "Codons must be given codonNumber, codonPosition, and codonSeq"); 
@@ -130,25 +137,38 @@ sub unpack {
   # my @codon = unpack('SCCLCC', $_[1]);
   # a single item
   if(!ref $_[1]->[0] ) {
+    # Introns
     if( @{$_[1] } == 2) {
       return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ) ] );
     }
+
+    #non-coding exons
+    if( @{$_[1] } == 3) {
+      return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ), $_[1]->[2] ] );
+    }
     
     return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ), $_[1]->[2], $_[1]->[3],
-      $codonMap->num2Codon( $_[1]->[4] ) ] );
+      $_[1]->[4], $codonMap->num2Codon( $_[1]->[5] ) ] );
   }
 
   my (@site, @txNumbers);
   foreach (@{ $_[1] }) {
     push @txNumbers, $_->[0];
 
+    #Introns
     if( @{$_} == 2) {
       push @site, [ ( @{ $combinedMap->{ $_->[1] } } ) ];
       next;
     }
 
+    # non-coding exons
+    if( @{$_} == 3) {
+      push @site, [ ( @{ $combinedMap->{ $_->[1] } } ), $_->[2] ];
+      next;
+    }
+
     push @site, [ ( @{ $combinedMap->{ $_->[1] } } ), $_->[2], $_->[3],
-      $codonMap->num2Codon( $_->[4] ) ];
+      $_->[4], $codonMap->num2Codon( $_->[5] ) ];
   }
 
   return (\@txNumbers, \@site);

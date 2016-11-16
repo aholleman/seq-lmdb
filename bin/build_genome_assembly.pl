@@ -27,14 +27,14 @@ $debug = 0;
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
-  't|type=s'     => \$wantedType,
-  'n|name=s'     => \$wantedName,
+  't|type|wantedType=s'     => \$wantedType,
+  'n|name|wantedName=s'     => \$wantedName,
   'v|verbose=i'    => \$verbose,
   'h|help'       => \$help,
   'd|debug=i'      => \$debug,
   'o|overwrite=i'  => \$overwrite,
-  'chr|wanted_chr=s' => \$wantedChr,
-  'dlt|delete' => \$delete,
+  'chr|wantedChr=s' => \$wantedChr,
+  'd|delete' => \$delete,
   'build_region_track_only' => \$regionTrackOnly,
   'skip_completion_check' => \$skipCompletionCheck,
   'dry_run_insertions|dry' => \$dryRunInsertions,

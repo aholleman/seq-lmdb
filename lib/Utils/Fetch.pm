@@ -19,13 +19,60 @@ use Path::Tiny;
 use YAML::XS qw/Dump/;
 
 use Utils::SqlWriter;
+
 use DDP;
+
+# wget, ftp, whatever
+has fetch_program => (is => 'ro', writer => '_setFetchProgram');
+has fetch_program_arguments => (is => 'ro', writer => '_setFetchProgramArguments');
+has fetch_command => (is => 'ro');
+
+sub BUILD {
+  my $self = shift;
+
+  if($self->_wantedTrack->{fetch_command} || $self->_wantedTrack->{sql_statement}) {
+    return;
+  }
+
+  if(!$self->fetch_program) {
+    if($self->_wantedTrack->{fetch_program}) {
+      $self->_setFetchProgram($self->_wantedTrack->{fetch_program});
+    } else {
+      my $rsync = which('rsync');
+      $self->_setFetchProgram($rsync);
+    }
+  }
+
+  if(!$self->fetch_program) {
+    $self->log('fatal', "No fetch_program specified, and rsync not found");
+    return;
+  }
+
+  if(index($self->fetch_program, 'rsync') > -1) {
+    $self->{_isRsync} = 1;
+  }
+
+  if(!$self->fetch_program_arguments) {
+    if($self->_wantedTrack->{fetch_program_arguments}) {
+      $self->_setFetchProgramArguments($self->_wantedTrack->{fetch_program_arguments});
+
+      $self->{_argsOutIndex} = index($self->fetch_program_arguments, "{out}");
+    } elsif($self->{_isRsync}) {
+      # -a explanation: http://serverfault.com/questions/141773/what-is-archive-mode-in-rsync
+      # -P is --partial --progress
+      $self->_setFetchProgramArguments('-aPz');
+    } else {
+      $self->_setFetchProgramArguments('');
+    }
+  }
+
+}
 
 ########################## The only public export  ######################
 sub fetch {
   my $self = shift;
 
-  if(defined $self->_wantedTrack->{remote_files} && defined $self->_wantedTrack->{remote_dir}) {
+  if(defined $self->_wantedTrack->{remote_files} || defined $self->_wantedTrack->{remote_dir}) {
     return $self->_fetchFiles();
   }
 
@@ -33,12 +80,26 @@ sub fetch {
     return $self->_fetchFromUCSCsql();
   }
 
+  if(defined $self->wantedTrack->{fetch_command}) {
+    return $self->_fetchFromCommand;
+  }
+
   $self->log('fatal', "Couldn't find either remote_files + remote_dir,"
     . " or an sql_statement for this track");
 }
 
 ########################## Main methods, which do the work  ######################
+sub _fetchFromCommnad {
+  my $self = shift;
 
+  my $command = $self->wantedTrack->{fetch_command};
+
+  my $outDir = $self->_localFilesDir;
+
+  if($self->wantedTrack->{local_files}) {
+    $self->log('fatal', 'When using fetch_command, must provide local_files (glob pattern ok)');
+  }
+}
 # These are called depending on whether sql_statement or remote_files + remote_dir given
 sub _fetchFromUCSCsql {
   my $self = shift;
@@ -86,6 +147,8 @@ sub _fetchFromUCSCsql {
 
   $self->_wantedTrack->{local_files} = \@writtenFileNames;
 
+  $self->_wantedTrack->{fetch_date} = $self->_dateOfRun;
+
   $self->_backupAndWriteConfig();
 
   $self->log('info', "Finished fetching data from sql");
@@ -94,38 +157,56 @@ sub _fetchFromUCSCsql {
 sub _fetchFiles {
   my $self = shift;
 
-  my $rsync = which 'rsync';
+  my $pathRe = qr/([a-z]+:\/\/)?(\S+)/;
+  my $remoteDir;
+  my $remoteProtocol;
 
-  if(!$rsync) {
-    $self->log('fatal', "Couldn't find rsync");
+  if($self->_wantedTrack->{remote_dir}) {
+    # remove http:// (or whatever protocol)
+    $self->_wantedTrack->{remote_dir} =~ m/$pathRe/;
+
+    $remoteProtocol = $self->{_isRsync} ? 'rsync://' : $1;
+    $remoteDir = $2;
   }
 
-  $self->log('debug', "Fetching remote data from " . $self->_wantedTrack->{remote_dir});
+  my $fetchArguments;
 
-  # remove http:// (or whatever protocol)
-  $self->_wantedTrack->{remote_dir} =~ m/(\S+:\/\/)*(\S*)/;
+  $self->log('debug', $self->fetch_program . " args are " . $self->fetch_program_arguments);
 
-  my $remoteDir = $2;
-
-  # -a explanation: http://serverfault.com/questions/141773/what-is-archive-mode-in-rsync
-  my $args = '-a' . ($self->compress ? 'z' : '') . ($self->debug ? ' --progress' : '') 
-    . ' --ignore-existing';
-
-  $self->log('debug', "rsync args are $args");
-
-  my $outPath = $self->_localFilesDir;
+  my $outDir = $self->_localFilesDir;
 
   $self->_wantedTrack->{local_files} = [];
 
   for my $file ( @{$self->_wantedTrack->{remote_files}} ) {
-    $self->log('debug', "outPath is $outPath");
+    my $remoteUrl;
 
-    my $remotePath = path($remoteDir)->child($file)->stringify;
+    if($remoteDir) {
+      $remoteUrl = $remoteProtocol . path($remoteDir)->child($file)->stringify;
+       # It's an absolute remote path
+    } elsif($self->{_isRsync}) {
+      $file =~ m/$pathRe/;
+      $remoteUrl = "rsync://" . $2;
+    } else {
+      $remoteUrl = $file;
+    }
+    
+    my $fileName = $remoteDir ? $file : substr($file, rindex($file, '/'));
 
     # Always outputs verbose, capture the arguments
-    my $command = "$rsync $args rsync://$remotePath $outPath";
+    my $command; 
+    
+    my $progArgs = $self->fetch_program_arguments;
 
-    $self->log('info', "rsync cmd: " . $command );
+    if($self->{_isRsync}) {
+      $command = $self->fetch_program . " $progArgs $remoteUrl $outDir";
+    } elsif($self->{_argsOutIndex} > -1) {
+      substr($progArgs, $self->{_argsOutIndex}) = path($outDir)->child($fileName)->stringify;
+      $command = $self->fetch_program . " $progArgs $remoteUrl";
+    } else {
+      $self->log('fatal', "{out} required in fetch_program_arguments. We got: $progArgs");
+    }
+
+    $self->log('info', "Fetching: " . $self->fetch_program . " cmd: " . $command);
 
     # http://stackoverflow.com/questions/11514947/capture-the-output-of-perl-system
     open(my $fh, "-|", "$command") or $self->log('fatal', "Couldn't fork: $!\n");
@@ -143,11 +224,13 @@ sub _fetchFiles {
       $self->log('fatal', "Failed to fetch $file");
     }
 
-    push @{ $self->_wantedTrack->{local_files} }, $file;
+    push @{ $self->_wantedTrack->{local_files} }, $fileName;
 
     # stagger requests to be kind to the remote server
     sleep 3;
   }
+
+  $self->_wantedTrack->{fetch_date} = $self->_dateOfRun;
 
   $self->_backupAndWriteConfig();
 

@@ -58,7 +58,7 @@ state $messageBase;
 
 sub initialize {
   $debug = 0;
-  $verbose = 0;
+  $verbose = 10000;
   $publisher = undef;
   $messageBase = undef;
 }
@@ -88,11 +88,10 @@ sub setLogLevel {
 sub setVerbosity {
   my ($self, $verboseLevel) = @_;
   
-  say "verbose level is $verboseLevel";
   if($verboseLevel != 0 && $verboseLevel != 1 && $verboseLevel != 2) {
     # Should log this
-    say "Verbose level must be 1, 2, or 3, setting to 0";
-    $verbose = 0;
+    say "Verbose level must be 0, 1, or 2, setting to 10000 (no verbose output)";
+    $verbose = 10000;
     return;
   }
 

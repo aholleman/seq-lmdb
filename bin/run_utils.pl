@@ -44,7 +44,7 @@ GetOptions(
   'liftOver_path=s' => \$liftOver_path,
   'liftOver_chain_path=s' => \$liftOver_chain_path,
   'rename_track_to=s' => \$renameTrackTo,
-  'verbose' => \$verbose,
+  'verbose=i' => \$verbose,
   'dry_run_insertions' => \$dryRunInsertions,
 );
 
@@ -60,7 +60,6 @@ unless ($yaml_config) {
 
 my %options = (
   config       => $yaml_config,
-  compress     => $compress || 0,
   name         => $wantedName || undef,
   debug        => $debug,
   overwrite    => $overwrite || 0,
@@ -72,6 +71,10 @@ my %options = (
   verbose => $verbose,
   dry_run_insertions => $dryRunInsertions,
 );
+
+if($compress) {
+  $options{compress} = $compress;
+}
 
 # If user wants to split their local files, needs to happen before we build
 # So that the YAML config file has a chance to update
