@@ -51,9 +51,6 @@ GetOptions(
   't|type=s'     => \$type,
 );
 
-if(!$verbose) {
-
-}
 # Beanstalk servers will be sharded
 my $beanstalkHost  = $conf->{beanstalk_host_1};
 my $beanstalkPort  = $conf->{beanstalk_port_1};
@@ -62,8 +59,7 @@ my $beanstalkPort  = $conf->{beanstalk_port_1};
 # my $annotationStatusChannelBase  = 'annotationStatus:';
 
 # The properties that we accept from the worker caller
-my %required = (
-  input_file => 'inputFilePath',
+my %requiredForAll = (
   output_file_base => 'outputBasePath',
   assembly => 'assembly',
 );
@@ -71,13 +67,17 @@ my %required = (
 # Job dependent; one of these is required by the program this worker calls
 my %requiredByType = (
   'saveFromQuery' => {
-    input_query => 'inputQuery',
-    field_names => 'fieldNames',
+    inputQueryBody => 'queryBody',
+    fieldNames => 'fieldNames',
+    indexName => 'indexName',
+    indexType => 'indexType',
   },
   'annotation' => {
     input_file => 'inputFilePath',
   }
 );
+
+say "Running queue server of type: $type";
 
 my $configPathBaseDir = "config/";
 my $configFilePathHref = {};
@@ -119,6 +119,11 @@ while(my $job = $beanstalk->reserve) {
   try {
     $jobDataHref = decode_json( $job->data );
     
+    if($verbose) {
+      say "jobDataHref is";
+      p $jobDataHref;
+    }
+    
      # create the annotator
     ($err, my $inputHref) = coerceInputs($jobDataHref, $job->id);
     
@@ -149,27 +154,37 @@ while(my $job = $beanstalk->reserve) {
       queueID => $job->id,
     }  } );
 
+    my $annotate_instance;
+
     if($type eq 'annotation') {
-      my $annotate_instance = Seq->new_with_config($inputHref);
-      ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
+      $annotate_instance = Seq->new_with_config($inputHref);
     } elsif($type eq 'saveFromQuery') {
-      say "received save from query";
+      $annotate_instance = SeqFromQuery->new_with_config($inputHref);
     }
     
+    ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
 
   } catch {
-    say "job ". $job->id . " failed due to $_";
-      
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
   };
 
-  if ($err) { 
+  if ($err) {
+    say "job ". $job->id . " failed";
 
-    say "Got error, failing the job with queueID " . $job->id;
+    if($verbose) {
+      p $err;
+    }
 
-    say "job ". $job->id . " failed due to found error, which is $err";
-    
+    if(ref $err eq 'Search::Elasticsearch::Error::Request') {
+      # TODO: Improve error handling, this doesn't work reliably
+      if($err->{status_code} == 400) {
+        $err = "Query failed to parse";
+      } else {
+        $err = "Issue handling query";
+      }
+    }
+
     $beanstalkEvents->put( { priority => 0, data => encode_json({
       event => $events->{failed},
       reason => $err,
@@ -210,13 +225,13 @@ sub coerceInputs {
   my $err;
 
   my %jobSpecificArgs;
-  for my $key (keys %required) {
-    if(!defined $jobDetailsHref->{$required{$key}}) {
+  for my $key (keys %requiredForAll) {
+    if(!defined $jobDetailsHref->{$requiredForAll{$key}}) {
       $err = "Missing required key: $key in job message";
       return ($err, undef);
     }
 
-    $jobSpecificArgs{$key} = $jobDetailsHref->{$required{$key}};
+    $jobSpecificArgs{$key} = $jobDetailsHref->{$requiredForAll{$key}};
   }
 
   my $requiredForType = $requiredByType{$type};
@@ -276,8 +291,8 @@ sub getConfigFilePath {
       return $maybePath[0];
     }
 
-    die "\n\nNo config path found for the assembly $assembly. Exiting\n\n"
-      ; #throws the error
+    die "\n\nNo config path found for the assembly $assembly. Exiting\n\n";
+    #throws the error
     #should log here
   }
 }

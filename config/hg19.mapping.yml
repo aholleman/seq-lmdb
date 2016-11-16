@@ -1,11 +1,7 @@
 #Our own, special field, tells an interface which fields to run prefix queries on
 prefixQueryFields:
-    - minorAlleles
     - heterozygotes
     - homozygotes
-    - compoundHeterozygotes
-    - dbSNP146.alleles
-    - clinvar.AlternateAllele
 numericalFields:
     - cadd
     - phastCons
