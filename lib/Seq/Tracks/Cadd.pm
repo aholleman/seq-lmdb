@@ -12,7 +12,6 @@ use namespace::autoclean;
 use Seq::Tracks::Cadd::Order;
 extends 'Seq::Tracks::Get';
 
-
 state $order = Seq::Tracks::Cadd::Order->new();
 $order = $order->order;
 
@@ -38,7 +37,7 @@ sub get {
   # We may have stored an empty array at this position, in case 
   # the CADD scores read were not guaranteed to be sorted
   # Alternatively the CADD data for this position may be missing (not defined)
-  if(!defined $_[1]->[$_[0]->dbName] || !@{ $_[1]->[$_[0]->dbName] } ) {
+  if(!defined $_[1]->[ $_[0]->{_dbName} ] || !@{ $_[1]->[ $_[0]->{_dbName} ] } ) {
     return undef;
   }
   # Return undef for any allele that isn't defined for some reason
@@ -48,7 +47,10 @@ sub get {
     # if (defined $order->{ $refBase }{ $altAlleles } ) {
     if (defined $order->{ $_[4] }{ $_[5] } ) {
       #return $href->[ $self->dbName ]->[ $order->{ $refBase }{ $altAlleles } ]
-      return $_[1]->[$_[0]->dbName][ $order->{ $_[4] }{ $_[5] } ];
+      return $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[4] }{ $_[5] } ];
+    } elsif ($_[5] < 0 || length($_[5]) > 1) {
+      # If < 0 or length is > 1 it's an indel, return all records
+      return $_[1]->[ $_[0]->{_dbName} ];
     }
 
     return undef;
@@ -60,17 +62,17 @@ sub get {
 
   #for my $allele ( @{ $altAlleles } ) {
   for my $allele ( @{ $_[5] } ) {
-    # if($allele ne $refBase) {
-    if($allele ne $_[4]) {
-      # https://ideone.com/ZBQzNC
-      # if(defined $order->{ $refBase }{ $allele } ) {
-      if(defined $order->{ $_[4] }{ $allele } ) {
-        #push @out, $href->[ $self->dbName ]->[ $order->{ $refBase }->{ $allele } ];
-        push @out, $_[1]->[$_[0]->dbName][ $order->{ $_[4] }{ $allele } ];
-        next;
-      }
-      push @out, undef;
+    # https://ideone.com/ZBQzNC
+    # if(defined $order->{ $refBase }{ $allele } ) {
+    if(defined $order->{ $_[4] }{ $allele } ) {
+      #push @out, $href->[ $self->dbName ]->[ $order->{ $refBase }->{ $allele } ];
+      push @out, $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[4] }{ $allele } ];
+      next;
+    } elsif($allele < 0 || length($allele) > 1) {
+      push @out, $_[1]->[ $_[0]->{_dbName} ];
+      next;
     }
+    push @out, undef;
   }
   
   return @out || undef;

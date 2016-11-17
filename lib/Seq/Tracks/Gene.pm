@@ -115,6 +115,9 @@ sub BUILD {
   $self->{_features} = $self->features;
   $self->{_joinTrackFeatures} = $self->joinTrackFeatures;
 
+  $self->{_hasNearest} = $self->hasNearest;
+  $self->{_hasJoin} = $self->hasJoin;
+
   # Not including the txNumberKey;  this is separate from the annotations, which is 
   # what these keys represent
   
@@ -128,16 +131,18 @@ sub BUILD {
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
   #  So these features will come before any other refSeq.* features
-  $self->addFeaturesToHeader([$self->siteTypeKey, $self->exonNumberKey, $self->exonicAlleleFunctionKey,
+  $self->addFeaturesToHeader([$self->siteTypeKey, $self->strandKey, $self->exonNumberKey,
+    $self->exonicAlleleFunctionKey,
     $self->codonSequenceKey, $self->newCodonKey, $self->refAminoAcidKey,
     $self->newAminoAcidKey, $self->codonPositionKey,
-    $self->codonNumberKey, $self->exonNumberKey, $self->strandKey], $self->name, 1);
+    $self->codonNumberKey], $self->name, 1);
 
   if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
 
     $self->{_allCachedDbNames}{ $self->nearestTrackName } = $self->nearestDbName;
-    
+    $self->{_allNearestFeatureNames} = [ $self->allNearestFeatureNames ];
+
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
       $self->{_allNearestFieldNames}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
@@ -199,17 +204,17 @@ sub get {
   my ($siteData, $txNumbers, $multiple);
 
   #Reads:
-  # ( $href->[$self->dbName] ) {
-  if( $_[1]->[$_[0]->dbName] ) {
-    #Reads:                   $siteUnpacker->unpack($href->[$self->dbName]);
-    ($txNumbers, $siteData) = $siteUnpacker->unpack($_[1]->[$_[0]->dbName]);
+  # ( $href->[$self->{_dbName}] ) {
+  if( $_[1]->[$_[0]->{_dbName}] ) {
+    #Reads:                   $siteUnpacker->unpack($href->[$self->{_dbName}]);
+    ($txNumbers, $siteData) = $siteUnpacker->unpack($_[1]->[$_[0]->{_dbName}]);
     $multiple = !! ref $txNumbers;
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
   # Reads:
-  #  $self->hasNearest
-  if($_[0]->hasNearest) {
+  #  $self->{_hasNearest}
+  if($_[0]->{_hasNearest}) {
 
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
@@ -217,22 +222,9 @@ sub get {
     # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
     my $nearestGeneNumber = $txNumbers || $_[1]->[$cachedDbNames->{$_[0]->nearestTrackName}];
 
-    # if($txNumbers) {
-    #   $out{ $_[0]->{_nearestDistKey} } = 0;
-    # } else {
-    #   $out{ $_[0]->{_nearestDistKey} } = 0;
-    #   if(ref $nearestGeneNumber) {
-    #     p $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber->[0]};
-    #   } else {
-    #     p $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber};
-    #   }
-      
-    # }
-
-    if($nearestGeneNumber) {
-      for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
-          # Reads:         ($self->allNearestFeatureNames) {
-          for my $nFeature ($_[0]->allNearestFeatureNames) {
+      for my $geneRef ( ref $nearestGeneNumber ? $nearestGeneNumber : $nearestGeneNumber ) {
+          # Reads:         ($self->{_allNearestFeatureNames}) {
+          for my $nFeature ( @{$_[0]->{_allNearestFeatureNames}} ) {
             #Reads:
             #push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } }, 
             push @{ $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } },
@@ -240,12 +232,11 @@ sub get {
             #$self->{_geneTrackRegionHref}{$chr}{$geneRef}{$cachedDbNames->{$nFeature}};
           }
       }
-    }
   }
 
   #Reads:       && $self->join) {
-  if($txNumbers && $_[0]->join) {
-    for my $txNumber(ref $txNumbers ? @$txNumbers : $txNumbers) {
+  if($txNumbers && $_[0]->{_hasJoin}) {
+    for my $txNumber(ref $txNumbers ? $txNumbers->[0] : $txNumbers) {
       #The features specified in the region database which we want for nearest gene records
       #Reads:         @{$self->{_joinTracksFeatures} }
       for my $fName ( @{$_[0]->{_joinTrackFeatures}} ) {
@@ -460,14 +451,14 @@ sub _annotateIndel {
 
   # Will always be an array of dbData, which is to say an array of array presently
   for my $data (@$dbDataAref) {
-    #Reads:       $data->[$self->dbName] ) {
-    if (! defined $data->[$_[0]->dbName] ) {
+    #Reads:       $data->[$self->{_dbName}] ) {
+    if (! defined $data->[$_[0]->{_dbName}] ) {
       #this position doesn't have a gene track, so skip
       $middle .= "$intergenic,";
       next;
     }
-    #Reads:        $siteUnpacker->unpack($data->[$self->dbName]);
-    my $siteData = $siteUnpacker->unpack($data->[$_[0]->dbName]);
+    #Reads:        $siteUnpacker->unpack($data->[$self->{_dbName}]);
+    my $siteData = $siteUnpacker->unpack($data->[$_[0]->{_dbName}]);
 
     # If this position covers multiple transcripts, $siteData will be an array of arrays
       # and if not, it will be a 1D array of scalars

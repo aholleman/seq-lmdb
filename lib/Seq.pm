@@ -454,25 +454,42 @@ sub makeLogProgressAndPrint {
   my $totalChange = 0;
   my $hasPublisher = $self->hasPublisher;
 
+  if(!$hasPublisher) {
+    return sub {
+      #my $annotatedCount, $skipCount, $err, $outputLines = @_;
+      ##    $_[0],          $_[1],     $_[2], $_[3]
+
+      if(defined $_[2]) {
+        $$abortErrRef = $_[2];
+        return;
+      }
+
+      if($statsFh) {
+        print $statsFh $_[3];
+      }
+      
+      print $outFh $_[3];
+    }
+  }
+
   return sub {
     #my $annotatedCount, $skipCount, $err, $outputLines = @_;
     ##    $_[0],          $_[1],     $_[2], $_[3]
 
-    if($hasPublisher && defined $_[0] && defined $_[1]) {
-      $totalAnnotated += $_[0];
-      $totalSkipped += $_[1];
-
-      $self->publishProgress($totalAnnotated, $totalSkipped);
-    }
-
     if(defined $_[2]) {
       $$abortErrRef = $_[2];
+      return;
     }
 
-    if(defined $_[3]) {
+    $totalAnnotated += $_[0];
+    $totalSkipped += $_[1];
+    $self->publishProgress($totalAnnotated, $totalSkipped);
+    
+    if($statsFh) {
       print $statsFh $_[3];
-      print $outFh $_[3];
     }
+    
+    print $outFh $_[3];
   }
 }
 
@@ -727,10 +744,6 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
 sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
-  # To send a message to clean up files.
-  # TODO: Need somethign better
-  #MCE->gather(undef, undef, $msg);
-  
   $self->log('warn', $msg);
   return $msg;
 }

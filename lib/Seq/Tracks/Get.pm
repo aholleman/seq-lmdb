@@ -26,14 +26,21 @@ has headers => (
 sub BUILD {
   my $self = shift;
 
+  # Skip accesor penalty, the get function in this package may be called
+  # billions of times
+  $self->{_dbName} = $self->dbName;
+
   #register all features for this track
   #@params $parent, $child
   #if this class has no features, then the track's name is also its only feature
-  if($self->noFeatures) {
+  if(!$self->hasFeatures) {
     return $self->addFeaturesToHeader($self->name);
   }
 
   $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
+
+  $self->{_fieldDbNames} = map { $self->getFieldDbName($_) } $self->allFeatureNames;
+  $self->{_hasFeatures} = 1;
 }
 
 # Take a hash (that is passed to this function), and get back all features
@@ -55,7 +62,7 @@ sub get {
 
   #we do this to save space in the database, by a huge number of bytes
   #dbName defined in Seq::Tracks::Base
-  if(!defined $_[1]->[ $_[0]->dbName ] ) {
+  if(!defined $_[1]->[ $_[0]->{_dbName} ] ) {
     #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
     #if undef is not explicitly returned
     return undef;
@@ -63,8 +70,8 @@ sub get {
 
   #some features simply don't have any features, and for those just return
   #the value they stored
-  if($_[0]->noFeatures) {
-    return $_[1]->[ $_[0]->dbName ];
+  if(!$_[0]->{_hasFeatures}) {
+    return $_[1]->[ $_[0]->{_dbName} ];
   }
 
   # We have features, so let's find those and return them
@@ -75,7 +82,7 @@ sub get {
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
   return {
-    map { $_ => $_[1]->[ $_[0]->dbName ][ $_[0]->getFieldDbName($_) ] } $_[0]->allFeatureNames 
+    map { $_ => $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
   }
 }
 

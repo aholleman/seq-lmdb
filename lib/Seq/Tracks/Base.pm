@@ -66,8 +66,9 @@ has fieldNames => (is => 'ro', init_arg => undef, default => sub {
 }, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
-has wantedChr => (is => 'ro', isa => 'Maybe[Str]');
+has wantedChr => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef);
 
+# Using lazy here lets us avoid memory penalties of initializing 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int
 # We store feature types separately since those are optional as well
@@ -75,11 +76,11 @@ has features => (
   is => 'ro',
   isa => 'ArrayRef',
   lazy => 1,
+  predicate => 'hasFeatures',
   traits   => ['Array'],
   default  => sub{ [] },
   handles  => { 
     allFeatureNames => 'elements',
-    noFeatures  => 'is_empty',
   },
 );
 
@@ -103,6 +104,7 @@ has featureDataTypes => (
 has nearest => (
   is => 'ro',
   isa => 'ArrayRef',
+  # Cannot use traits with Maybe
   traits => ['Array'],
   handles => {
     noNearestFeatures => 'is_empty',
@@ -113,7 +115,7 @@ has nearest => (
   default => sub{ [] },
 );
 
-has join => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
+has join => (is => 'ro', isa => 'Maybe[HashRef]', predicate => 'hasJoin', lazy => 1, default => undef);
 
 has debug => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0 );
 

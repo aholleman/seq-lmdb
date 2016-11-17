@@ -102,6 +102,15 @@ has delete_temp => (
   default => 1,
 );
 
+has wantedChr => (
+  is => 'ro',
+  isa => 'Str',
+  metaclass => 'Getopt',
+  cmd_aliases => [qw/chr wanted_chr/],
+  documentation =>
+    qq{Annotate a single chromosome},
+);
+
 subtype HashRefJson => as 'HashRef'; #subtype 'HashRefJson', as 'HashRef', where { ref $_ eq 'HASH' };
 coerce HashRefJson => from 'Str' => via { from_json $_ };
 subtype ArrayRefJson => as 'ArrayRef';
@@ -136,6 +145,7 @@ sub annotate {
     input_file => $self->input_file,
     output_file_base => $self->output_file_base,
     debug => $self->debug,
+    wantedChr => $self->wantedChr,
     ignore_unknown_chr => $self->ignore_unknown_chr,
     overwrite => $self->overwrite,
     publisher => $self->publisher,
