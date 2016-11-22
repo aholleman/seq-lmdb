@@ -40,10 +40,6 @@ use Seq::DBManager;
 # Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
 has siteTypeKey => (is => 'ro', default => 'siteType');
 has strandKey => (is => 'ro', default => 'strand');
-has exonNumberKey => (is => 'ro', default => 'exonNumber');
-
-# Will be refSeq.nearest.distance for instance
-# has nearestDistanceKeyPart => (is => 'ro', default => 'distance');
 has codonNumberKey => (is => 'ro', default => 'codonNumber');
 has codonPositionKey => (is => 'ro', default => 'codonPosition');
 has codonSequenceKey => (is => 'ro', default => 'referenceCodon');
@@ -77,7 +73,6 @@ state $truncated = 'truncatedCodon';
 
 state $strandIdx = $siteUnpacker->strandIdx;
 state $siteTypeIdx = $siteUnpacker->siteTypeIdx;
-state $exonNumberIdx = $siteUnpacker->exonNumberIdx;
 state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
 state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
 state $codonNumberIdx = $siteUnpacker->codonNumberIdx;
@@ -88,7 +83,7 @@ state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 has '+features' => (
   default => sub { 
     my $geneDef = Seq::Tracks::Gene::Definition->new();
-    return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName, $geneDef->txSizeName]; 
+    return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; 
   },
 );
 
@@ -119,7 +114,6 @@ sub BUILD {
   # what these keys represent
   
   $self->{_keysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
-      $exonNumberIdx => $self->exonNumberKey,
       $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
       $codonSequenceIdx => $self->codonSequenceKey };
 
@@ -128,10 +122,10 @@ sub BUILD {
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
   #  So these features will come before any other refSeq.* features
-  $self->addFeaturesToHeader([$self->siteTypeKey, $self->exonNumberKey, $self->exonicAlleleFunctionKey,
+  $self->addFeaturesToHeader([$self->siteTypeKey, $self->exonicAlleleFunctionKey,
     $self->codonSequenceKey, $self->newCodonKey, $self->refAminoAcidKey,
     $self->newAminoAcidKey, $self->codonPositionKey,
-    $self->codonNumberKey, $self->exonNumberKey, $self->strandKey], $self->name, 1);
+    $self->codonNumberKey, $self->strandKey], $self->name, 1);
 
   if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
@@ -143,7 +137,7 @@ sub BUILD {
       $self->{_allNearestFieldNames}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
       $self->{_allCachedDbNames}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
     }
-    # $self->{_nearestDistKey} = $nTrackPrefix . "." . $self->nearestDistanceKeyPart;
+
     $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
   }
 
@@ -204,9 +198,6 @@ sub get {
     #Reads:                   $siteUnpacker->unpack($href->[$self->dbName]);
     ($txNumbers, $siteData) = $siteUnpacker->unpack($_[1]->[$_[0]->dbName]);
     $multiple = !! ref $txNumbers;
-
-    say "siteData is";
-    p $siteData;
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
@@ -219,18 +210,6 @@ sub get {
     # If we're in a gene, we won't have a nearest gene reference
     # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
     my $nearestGeneNumber = $txNumbers || $_[1]->[$cachedDbNames->{$_[0]->nearestTrackName}];
-
-    # if($txNumbers) {
-    #   $out{ $_[0]->{_nearestDistKey} } = 0;
-    # } else {
-    #   $out{ $_[0]->{_nearestDistKey} } = 0;
-    #   if(ref $nearestGeneNumber) {
-    #     p $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber->[0]};
-    #   } else {
-    #     p $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber};
-    #   }
-      
-    # }
 
     if($nearestGeneNumber) {
       for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
@@ -361,7 +340,6 @@ sub get {
       if( $site->[$strandIdx] eq '-' ) {
         substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $negativeStrandTranslation->{$allele};
       } else {
-        say "alleleCodonSequence $alleleCodonSequence, codonPositionIdx, $site->[$codonPositionIdx]";
         substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
       }
 
