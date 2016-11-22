@@ -8,7 +8,7 @@ package Seq::Tracks::Get;
 our $VERSION = '0.001';
 
 use Mouse 2;
-
+use DDP;
 extends 'Seq::Tracks::Base';
 
 use Seq::Headers;
@@ -26,14 +26,22 @@ has headers => (
 sub BUILD {
   my $self = shift;
 
+  # Skip accesor penalty, the get function in this package may be called
+  # billions of times
+  $self->{_dbName} = $self->dbName;
+
   #register all features for this track
   #@params $parent, $child
   #if this class has no features, then the track's name is also its only feature
   if($self->noFeatures) {
+    $self->{_noFeatures} = 1;
     return $self->addFeaturesToHeader($self->name);
   }
 
   $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
+
+  $self->{_fieldNameMap} = { map { $self->getFieldDbName($_) => $_ } $self->allFeatureNames };
+  $self->{_fieldDbNames} = [ map { $self->getFieldDbName($_) } $self->allFeatureNames ];
 }
 
 # Take a hash (that is passed to this function), and get back all features
@@ -55,7 +63,7 @@ sub get {
 
   #we do this to save space in the database, by a huge number of bytes
   #dbName defined in Seq::Tracks::Base
-  if(!defined $_[1]->[ $_[0]->dbName ] ) {
+  if(!defined $_[1]->[ $_[0]->{_dbName} ] ) {
     #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
     #if undef is not explicitly returned
     return undef;
@@ -63,8 +71,8 @@ sub get {
 
   #some features simply don't have any features, and for those just return
   #the value they stored
-  if($_[0]->noFeatures) {
-    return $_[1]->[ $_[0]->dbName ];
+  if($_[0]->{_noFeatures}) {
+    return $_[1]->[ $_[0]->{_dbName} ];
   }
 
   # We have features, so let's find those and return them
@@ -74,8 +82,9 @@ sub get {
 
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
-  return {
-    map { $_ => $_[1]->[ $_[0]->dbName ][ $_[0]->getFieldDbName($_) ] } $_[0]->allFeatureNames 
+   return {
+    #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
+    map { $_[0]->{_fieldNameMap}{$_} => $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
   }
 }
 

@@ -11,5 +11,7 @@ has secondaryDelimiter => (is => 'ro', default => '|');
 
 has fieldSeparator => (is => 'ro', default => "\t");
 
+has emptyFieldChar => (is => 'ro', default => "/");
+
 __PACKAGE__->meta->make_immutable();
 return 1;

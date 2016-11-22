@@ -51,8 +51,8 @@ has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
 has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
   handles => { outputFileBasePath => 'stringify' });
 
-has temp_dir => ( is => 'ro', isa => 'Maybe[AbsDir]', coerce => 1,
-  handles => { tempPath => 'stringify' });
+#Don't handle coercion to AbsDir here,
+has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1, handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
 has tracks => (is => 'ro', required => 1);
@@ -93,13 +93,16 @@ with 'Seq::Role::Validator';
 sub BUILDARGS {
   my ($self, $data) = @_;
 
-  if($data->{temp_dir} ) {
-    # It's a string, convert to path
-    if(!ref $data->{temp_dir}) {
-      $data->{temp_dir} = path($data->{temp_dir});
+  if(exists $data->{temp_dir}) {
+    if(!defined $data->{temp_dir}) {
+      delete $data->{temp_dir};
+    } else {
+      # It's a string, convert to path
+      if(!ref $data->{temp_dir}) {
+        $data->{temp_dir} = path($data->{temp_dir});
+      }
+      $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
     }
-
-    $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
   }
   
   if( !$data->{logPath} ) {
@@ -454,25 +457,41 @@ sub makeLogProgressAndPrint {
   my $totalChange = 0;
   my $hasPublisher = $self->hasPublisher;
 
+  if(!$hasPublisher) {
+    return sub {
+      #my $annotatedCount, $skipCount, $err, $outputLines = @_;
+      ##    $_[0],          $_[1],     $_[2], $_[3]
+      if(defined $_[2]) {
+        $$abortErrRef = $_[2];
+        return;
+      }
+
+      if($statsFh) {
+        print $statsFh $_[3];
+      }
+      
+      print $outFh $_[3];
+    }
+  }
+
   return sub {
     #my $annotatedCount, $skipCount, $err, $outputLines = @_;
     ##    $_[0],          $_[1],     $_[2], $_[3]
 
-    if($hasPublisher && defined $_[0] && defined $_[1]) {
-      $totalAnnotated += $_[0];
-      $totalSkipped += $_[1];
-
-      $self->publishProgress($totalAnnotated, $totalSkipped);
-    }
-
     if(defined $_[2]) {
       $$abortErrRef = $_[2];
+      return;
     }
 
-    if(defined $_[3]) {
+    $totalAnnotated += $_[0];
+    $totalSkipped += $_[1];
+    $self->publishProgress($totalAnnotated, $totalSkipped);
+    
+    if($statsFh) {
       print $statsFh $_[3];
-      print $outFh $_[3];
     }
+    
+    print $outFh $_[3];
   }
 }
 
@@ -635,7 +654,7 @@ sub finishAnnotatingLines {
         $outAref->[$i]{$refTrackName}, $copy,
       );
     };
-
+    
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
 
     # We call those matching the reference that we have hets or homos, 
@@ -727,10 +746,6 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
 sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
-  # To send a message to clean up files.
-  # TODO: Need somethign better
-  #MCE->gather(undef, undef, $msg);
-  
   $self->log('warn', $msg);
   return $msg;
 }

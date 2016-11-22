@@ -33,6 +33,7 @@ sub BUILD {
   $self->{_primaryDelimiter} = $self->delimiters->primaryDelimiter;
   $self->{_secondaryDelimiter} = $self->delimiters->secondaryDelimiter;
   $self->{_fieldSeparator} = $self->delimiters->fieldSeparator;
+  $self->{_emptyFieldChar} = $self->delimiters->emptyFieldChar;
 }
 
 # ABSTRACT: Knows how to make an output string
@@ -53,6 +54,7 @@ sub makeOutputString {
   my $primaryDelim = $self->{_primaryDelimiter};
   my $secondDelim = $self->{_secondaryDelimiter};
   my $fieldSeparator = $self->{_fieldSeparator};
+  my $emptyFieldChar = $self->{_emptyFieldChar};
 
   for my $href (@$outputDataAref) {
     
@@ -65,7 +67,7 @@ sub makeOutputString {
 
         if(!defined $href->{$parent} ) {
           #https://ideone.com/v9ffO7
-          push @singleLineOutput, map { 'NA' } @{ $feature->{$parent} };
+          push @singleLineOutput, map { $emptyFieldChar } @{ $feature->{$parent} };
           next PARENT;
         }
 
@@ -76,7 +78,7 @@ sub makeOutputString {
 
         CHILD: for my $child (@{ $feature->{$parent} } ) {
           if(!defined $href->{$parent}{$child} ) {
-            push @singleLineOutput, 'NA';
+            push @singleLineOutput, $emptyFieldChar;
             next CHILD;
           }
 
@@ -92,7 +94,7 @@ sub makeOutputString {
 
           # Empty array
           if( !@{ $href->{$parent}{$child} } ) {
-            push @singleLineOutput, 'NA';
+            push @singleLineOutput, $emptyFieldChar;
             next PARENT;
           }
 
@@ -108,13 +110,13 @@ sub makeOutputString {
           my $accum = '';
           ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
             if(!defined $_) {
-              $accum .= "NA$primaryDelim";
+              $accum .= "$emptyFieldChar$primaryDelim";
               next ACCUM;
             }
             # we could have an array of arrays, separate those by commas
             if(ref $_) {
               for my $val (@{$_}) {
-                $accum .= defined $val ? "$val$primaryDelim" : "NA$primaryDelim";
+                $accum .= defined $val ? "$val$primaryDelim" : "$emptyFieldChar$primaryDelim";
               }
               chop $accum;
               $accum .= $secondDelim;
@@ -136,7 +138,7 @@ sub makeOutputString {
       #say "feature is $feature";
       #p $href->{feature};
       if(!defined $href->{$feature} ) {
-        push @singleLineOutput, 'NA';
+        push @singleLineOutput, $emptyFieldChar;
         next PARENT;
       }
 
@@ -146,7 +148,7 @@ sub makeOutputString {
       }
 
       if(! @{ $href->{$feature} } ) {
-        push @singleLineOutput, 'NA';
+        push @singleLineOutput, $emptyFieldChar;
         next PARENT;
       }
 
@@ -161,14 +163,14 @@ sub makeOutputString {
       my $accum;
       ACCUM: foreach ( @{ $href->{$feature} } ) {
         if(!defined $_) {
-          $accum .= "NA$primaryDelim";
+          $accum .= "$emptyFieldChar$primaryDelim";
           next ACCUM;
         }
 
         # we could have an array of arrays, separate those by commas
         if(ref $_) {
           for my $val (@{$_}) {
-            $accum .= defined $val ? "$val$primaryDelim" : "NA$primaryDelim";
+            $accum .= defined $val ? "$val$primaryDelim" : "$emptyFieldChar$primaryDelim";
           }
           chop $accum;
           $accum .= $secondDelim;

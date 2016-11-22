@@ -57,6 +57,11 @@ sub BUILD {
 
   #similarly for $txSize
   $self->getFieldDbName($geneDef->txSizeName);
+
+  if($self->hasNearest && $self->noNearestFeatures) {
+    $self->log('fatal', "Nearest gene track must specify at least one feature");
+    return;
+  }
 }
 
 # 1) Store a reference to the corresponding entry in the gene database (region database)
@@ -320,6 +325,7 @@ sub buildTrack {
             undef %siteData;
           }
 
+          # For gene tracks we require features
           if(!$self->noNearestFeatures) {
             $self->_writeNearestGenes( $chr, $txStartData{$chr}, \%sitesCoveredByTX );
           }

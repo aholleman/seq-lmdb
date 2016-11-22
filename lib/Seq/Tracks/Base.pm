@@ -66,11 +66,14 @@ has fieldNames => (is => 'ro', init_arg => undef, default => sub {
 }, handles => ['getFieldDbName', 'getFieldName']);
 
 ################# Optional arguments ####################
-has wantedChr => (is => 'ro', isa => 'Maybe[Str]');
+has wantedChr => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef);
 
+# Using lazy here lets us avoid memory penalties of initializing 
 # The features defined in the config file, not all tracks need features
 # We allow people to set a feature type for each feature #- feature : int
 # We store feature types separately since those are optional as well
+# Cannot use predicate with this, because it ALWAYS has a default non-empty value
+# As required by the 'Array' trait
 has features => (
   is => 'ro',
   isa => 'ArrayRef',
@@ -100,20 +103,22 @@ has featureDataTypes => (
 # Although it won't make sense for some (like reference)
 # It's up to the consuming class to decide if they need it
 # It is a property that, when set, may have 0 or more features
+# Cannot use predicate with this, because it ALWAYS has a default non-empty value
+# As required by the 'Array' trait
 has nearest => (
   is => 'ro',
   isa => 'ArrayRef',
+  # Cannot use traits with Maybe
   traits => ['Array'],
   handles => {
     noNearestFeatures => 'is_empty',
     allNearestFeatureNames => 'elements',
   },
-  predicate => 'hasNearest',
   lazy => 1,
   default => sub{ [] },
 );
 
-has join => (is => 'ro', isa => 'Maybe[HashRef]', lazy => 1, default => undef);
+has join => (is => 'ro', isa => 'Maybe[HashRef]', predicate => 'hasJoin', lazy => 1, default => undef);
 
 has debug => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0 );
 
@@ -134,7 +139,7 @@ sub BUILD {
   #And if we use array format to store data (to save space) good to have
   #Genome-wide tracks have lower indexes, so that higher indexes can be used for 
   #sparser items, because we cannot store a sparse array, must store 1 byte per field
-  if($self->hasNearest) {
+  if(!$self->noNearestFeatures) {
     my $nearestFullQualifiedTrackName = $self->name . '.' . $self->nearestTrackName;
 
     $self->_setNearestDbName( $trackNameMapper->getOrMakeDbName($nearestFullQualifiedTrackName) );
@@ -146,7 +151,7 @@ sub BUILD {
 
   $self->log('debug', "Track " . $self->name . " dbName is " . $self->dbName);
   
-  if(defined $self->join ) {
+  if($self->hasJoin) {
     if(!defined $self->join->{track}) {
       $self->log('fatal', "'join' requires track key");
     }

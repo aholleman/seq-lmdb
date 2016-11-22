@@ -91,10 +91,7 @@ sub _fetchMetaFields {
   my $self = shift;
 
   my $dataHref = $self->_db->dbReadMeta($self->name, $metaKey) ;
-
-  #   say "Currently, _fetchMetaFields found";
-  #   p $dataHref;
-
+  
   #if we don't find anything, just store a new hash reference
   #to keep a consistent data type
   if( !$dataHref ) {
@@ -115,12 +112,6 @@ sub addMetaField {
   my $fieldName = shift;
 
   my @fieldKeys = keys %{ $self->fieldDbNamesMap->{$self->name} };
-  
-  #   say "in addMetaField, fields keys are";
-  #   p @fieldKeys;
-    
-  #   say "fieldDbNames";
-  #   p $fieldDbNamesMap;
   
   my $fieldNumber;
   if(!@fieldKeys) {
