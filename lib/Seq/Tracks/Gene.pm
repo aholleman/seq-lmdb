@@ -40,6 +40,10 @@ use Seq::DBManager;
 # Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
 has siteTypeKey => (is => 'ro', default => 'siteType');
 has strandKey => (is => 'ro', default => 'strand');
+has exonNumberKey => (is => 'ro', default => 'exonNumber');
+
+# Will be refSeq.nearest.distance for instance
+# has nearestDistanceKeyPart => (is => 'ro', default => 'distance');
 has codonNumberKey => (is => 'ro', default => 'codonNumber');
 has codonPositionKey => (is => 'ro', default => 'codonPosition');
 has codonSequenceKey => (is => 'ro', default => 'referenceCodon');
@@ -73,6 +77,7 @@ state $truncated = 'truncatedCodon';
 
 state $strandIdx = $siteUnpacker->strandIdx;
 state $siteTypeIdx = $siteUnpacker->siteTypeIdx;
+state $exonNumberIdx = $siteUnpacker->exonNumberIdx;
 state $codonSequenceIdx = $siteUnpacker->codonSequenceIdx;
 state $codonPositionIdx = $siteUnpacker->codonPositionIdx;
 state $codonNumberIdx = $siteUnpacker->codonNumberIdx;
@@ -83,7 +88,7 @@ state $negativeStrandTranslation = { A => 'T', C => 'G', G => 'C', T => 'A' };
 has '+features' => (
   default => sub { 
     my $geneDef = Seq::Tracks::Gene::Definition->new();
-    return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName]; 
+    return [$geneDef->allUCSCgeneFeatures, $geneDef->txErrorName, $geneDef->txSizeName]; 
   },
 );
 
@@ -109,11 +114,15 @@ sub BUILD {
   # in get()
   $self->{_features} = $self->features;
   $self->{_joinTrackFeatures} = $self->joinTrackFeatures;
-  $self->{_dbName} = $self->dbName;
+
+  $self->{_hasNearest} = $self->hasNearest;
+  $self->{_hasJoin} = $self->hasJoin;
+
   # Not including the txNumberKey;  this is separate from the annotations, which is 
   # what these keys represent
   
   $self->{_keysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
+      $exonNumberIdx => $self->exonNumberKey,
       $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
       $codonSequenceIdx => $self->codonSequenceKey };
 
@@ -122,31 +131,30 @@ sub BUILD {
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
   #  So these features will come before any other refSeq.* features
-  $self->addFeaturesToHeader([$self->siteTypeKey, $self->exonicAlleleFunctionKey,
+  $self->addFeaturesToHeader([$self->siteTypeKey, $self->strandKey, $self->exonNumberKey,
+    $self->exonicAlleleFunctionKey,
     $self->codonSequenceKey, $self->newCodonKey, $self->refAminoAcidKey,
     $self->newAminoAcidKey, $self->codonPositionKey,
-    $self->codonNumberKey, $self->strandKey], $self->name, 1);
+    $self->codonNumberKey], $self->name, 1);
 
-  if(!$self->noNearestFeatures) {
+  if($self->hasNearest) {
     my $nTrackPrefix = $self->nearestTrackName;
 
     $self->{_allCachedDbNames}{ $self->nearestTrackName } = $self->nearestDbName;
-    
+    $self->{_allNearestFeatureNames} = [ $self->allNearestFeatureNames ];
+
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
       $self->{_allNearestFieldNames}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
       $self->{_allCachedDbNames}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
     }
-
+    # $self->{_nearestDistKey} = $nTrackPrefix . "." . $self->nearestDistanceKeyPart;
     $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
-  } else {
-    $self->{_noNearestFeatures} = 1;
   }
 
-  if($self->hasJoin) {
+  if($self->join) {
     my $joinTrackName = $self->joinTrackName;
 
-    $self->{_hasJoin} = 1;
     # Faster to access the hash directly than the accessor
     $self->addFeaturesToHeader( [ map { "$joinTrackName.$_" } @{$self->{_joinTrackFeatures}} ],
       $self->name);
@@ -205,8 +213,8 @@ sub get {
 
   # ################# Populate nearestGeneSubTrackName ##############
   # Reads:
-  #  $self->{_noNearestFeatures}
-  if(!$_[0]->{_noNearestFeatures}) {
+  #  $self->{_hasNearest}
+  if($_[0]->{_hasNearest}) {
 
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
@@ -214,10 +222,9 @@ sub get {
     # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
     my $nearestGeneNumber = $txNumbers || $_[1]->[$cachedDbNames->{$_[0]->nearestTrackName}];
 
-    if($nearestGeneNumber) {
-      for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
-          # Reads:         ($self->allNearestFeatureNames) {
-          for my $nFeature ($_[0]->allNearestFeatureNames) {
+      for my $geneRef ( ref $nearestGeneNumber ? $nearestGeneNumber : $nearestGeneNumber ) {
+          # Reads:         ($self->{_allNearestFeatureNames}) {
+          for my $nFeature ( @{$_[0]->{_allNearestFeatureNames}} ) {
             #Reads:
             #push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } }, 
             push @{ $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } },
@@ -225,10 +232,9 @@ sub get {
             #$self->{_geneTrackRegionHref}{$chr}{$geneRef}{$cachedDbNames->{$nFeature}};
           }
       }
-    }
   }
 
-  #Reads:       && $_[0]->{_hasJoin}) {
+  #Reads:       && $self->join) {
   if($txNumbers && $_[0]->{_hasJoin}) {
     for my $txNumber(ref $txNumbers ? $txNumbers->[0] : $txNumbers) {
       #The features specified in the region database which we want for nearest gene records
