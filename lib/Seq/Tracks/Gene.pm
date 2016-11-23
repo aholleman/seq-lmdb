@@ -64,8 +64,9 @@ state $intergenic = 'intergenic';
 ### txEffect possible values ###
 state $silent = 'synonymous';
 state $replacement = 'nonSynonymous';
-state $frameshift = 'frameshift';
-state $inFrame = 'nonFrameshift';
+state $frameshift = 'indel-frameshift';
+state $inFrame = 'indel-nonFrameshift';
+state $indelBoundary = 'indel-exonBoundary';
 state $startLoss = 'startLoss';
 state $stopLoss = 'stopLoss';
 state $stopGain = 'stopGain';
@@ -247,6 +248,18 @@ sub get {
     #Reads:
     #$out{$self->{_siteTypeKey}} = $intergenic;
     $out{$_[0]->{_siteTypeKey}} = $intergenic;
+
+    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
+      if(length($allele) > 1) {
+        # We expect either a + or -
+        my $type = substr($allele, 0, 1);
+
+        #store as array because our output engine writes [ [one], [two] ] as "1,2"
+        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
+        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
+        next TX_EFFECTS_LOOP;
+      }
+    }
     return \%out;
   }
 
@@ -287,6 +300,17 @@ sub get {
 
   # If we want to be ~ 20-50% faster, move this before the Populate Gene Tracks section
   if(!$hasCodon) {
+    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
+      if(length($allele) > 1) {
+        # We expect either a + or -
+        my $type = substr($allele, 0, 1);
+
+        #store as array because our output engine writes [ [one], [two] ] as "1,2"
+        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
+        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
+        next TX_EFFECTS_LOOP;
+      }
+    }
     return \%out;
   }
 
@@ -299,16 +323,13 @@ sub get {
   # Looping over string, int, or ref: https://ideone.com/4APtzt
   #Reads:                          ref $allelesAref ? @$allelesAref : $allelesAref
   TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-    my @accum;
-
     if(length($allele) > 1) {
       # We expect either a + or -
       my $type = substr($allele, 0, 1);
 
       #store as array because our output engine writes [ [one], [two] ] as "1,2"
-      #Reads:      [ $self->_annotateIndel($chr, $dbPosition, $allele) ];
-      push @accum, [ $_[0]->_annotateIndel($_[2], $_[3], $allele) ];
-
+      #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
+      push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
       next TX_EFFECTS_LOOP;
     }
 
@@ -316,6 +337,7 @@ sub get {
 
     ### We only populate newAminoAcidKey for snps ###
     my $i = 0;
+    my @accum;
     SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
       if(!defined $site->[ $codonPositionIdx ]){
         push @accum, undef;
@@ -383,101 +405,96 @@ sub get {
 # TODO: remove the "NA"
 sub _annotateIndel {
   #To speed up this function call, avoid assigning these strings
-  #my ($self, $chr, $dbPosition, $allele) = @_;
+  
+  my ($self, $chr, $dbPosition, $allele) = @_;
   #    $_[0], $_[1]. $_[2],      $_[3]
-
-  my $beginning = '';
-  my $middle = '';
 
   my $dbDataAref;
 
   #Reads:           $allele,   0, 1);
-  my $type = substr($_[3], 0, 1);
+  my $type = substr($allele, 0, 1);
   #### Check if insertion or deletion ###
+
+  if($type eq '+') {
+    #Reads:                  substr($allele, 1) ) % 3
+    return length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame;
+  } elsif($type eq '-') {
+    return $allele % 3 ? $frameshift : $inFrame;
+  } else {
+    $self->log("warn", "Allele $allele on $chr\:@{[$dbPosition + 1]} isn't valid indel (must start with - or +)");
+    return undef;
+  }
+  
 
   ##################### If the site is an insertion ############################
   #If it's an insetion, we only get the next upstream position
   #It is difficult to predict the effects of an insertion, so for now we've just
   #elected to take the annotaiton of the next upstream site, and then also check
   #whether the insertion is a frameshift
-  if($type eq '+') {
-    #Reads                substr($allele, 1) ) % 3
-    $beginning = (length( substr($_[3], 1) ) % 3 ? $frameshift : $inFrame) . "[";
+  # if($type eq '+') {
+  #   # Using an array makes it easier to use a single string building function below.
 
-    # Using an array makes it easier to use a single string building function below.
+  #   #Reads:       [ $dbPosition + 1 ];
+  #   $dbDataAref = [ $dbPosition + 1 ];
 
-    #Reads:       [ $dbPosition + 1 ];
-    $dbDataAref = [ $_[2] + 1 ];
+  #   #By passing the dbRead function an array, we get an array of data back
+  #   #even if it's one position worth of data
+  #   #Reads:
+  #   #$self->{_db}->dbRead( $chr, $dbDataAref );
+  #   $self->{_db}->dbRead( $chr, $dbDataAref );
 
-    #By passing the dbRead function an array, we get an array of data back
-    #even if it's one position worth of data
-    #Reads:
-    #$self->{_db}->dbRead( $chr, $dbDataAref );
-    $_[0]->{_db}->dbRead( $_[1], $dbDataAref );
+  # ###################### If the site is a deletion ######################
+  # # Deletions are easier to understand; the annotation is the sum of all of the
+  # # deleted bases. So we take all of the annotaiton
+  # } elsif($type eq '-') {
+  #   #Get everything including the current dbPosition, in order to simplify code
+  #   #Has a small perf. when there are few indels 
+  #   #Since $allele is a negative number
+  #   #Therefore $dbPosition + $allele == $dbPosition -N bases
 
-  ###################### If the site is a deletion ######################
-  # Deletions are easier to understand; the annotation is the sum of all of the
-  # deleted bases. So we take all of the annotaiton
-  } elsif($type eq '-') {
-    #Reads:       $allele % 3
-    $beginning = ($_[3] % 3 ? $frameshift : $inFrame) . "[";
-    
-    #Get everything including the current dbPosition, in order to simplify code
-    #Has a small perf. when there are few indels 
-    #Since $allele is a negative number
-    #Therefore $dbPosition + $allele == $dbPosition -N bases
+  #   #Reads:       [ $dbPosition + int($allele) .. $dbPosition ];
+  #   $dbDataAref = [ $dbPosition + int($allele) .. $dbPosition ];
 
-    #Reads:       [ $dbPosition + $allele .. $dbPosition ];
-    $dbDataAref = [ $_[2] + $_[3] .. $_[2] ];
+  #   # dbRead modifies by reference; each position in dbDataAref gets database data or undef
+  #   # if nothing found
+  #   #Reads:
+  #   #$self->{_db}->dbRead( $chr, $dbDataAref );
+  #   $self->{_db}->dbRead( $chr, $dbDataAref );
+  # } else {
+  #   #Reads:
+  #   #$self->log("warn"
+  #   $self->log("warn", "Can't recognize allele $allele on $chr\:@{[$dbPosition + 1]}
+  #     as valid indel (must start with - or +)");
+  #   return undef;
+  # }
 
-    # dbRead modifies by reference; each position in dbDataAref gets database data or undef
-    # if nothing found
-    #Reads:
-    #$self->{_db}->dbRead( $chr, $dbDataAref );
-    $_[0]->{_db}->dbRead( $_[1], $dbDataAref );
-  } else {
-    #Reads:
-    #$self->log("warn"
-    $_[0]->log("warn", "Can't recognize allele $_[3] on $_[1]:@{[$_[2] + 1]}
-      as valid indel (must start with - or +)");
-    return undef;
-  }
+  # # Will always be an array of dbData, which is to say an array of array presently
+  # my $wasExon;
+  # my $recordedBoundry;
+  # for my $data (@$dbDataAref) {
+  #   #Reads:       $data->[$self->{_dbName}] ) {
+  #   # if (! defined $data->[$self->{_dbName}] ) {
+  #   #   #this position doesn't have a gene track, so skip
+  #   #   #make into array so that each indel will be treated as separate allele
+  #   #   $data = [$frameshift];
+  #   #   next;
+  #   # }
 
-  # Will always be an array of dbData, which is to say an array of array presently
-  for my $data (@$dbDataAref) {
-    #Reads:       $data->[$self->{_dbName}] ) {
-    if (! defined $data->[$_[0]->{_dbName}] ) {
-      #this position doesn't have a gene track, so skip
-      $middle .= "$intergenic,";
-      next;
-    }
-    #Reads:        $siteUnpacker->unpack($data->[$self->{_dbName}]);
-    my $siteData = $siteUnpacker->unpack($data->[$_[0]->{_dbName}]);
+  #   # #Reads:        $siteUnpacker->unpack($data->[$self->{_dbName}]);
+  #   # my $siteData = $siteUnpacker->unpack($data->[$self->{_dbName}]);
 
-    # If this position covers multiple transcripts, $siteData will be an array of arrays
-      # and if not, it will be a 1D array of scalars
-    for my $oneSiteData (ref $siteData->[0] ? @$siteData : $siteData) {
-       #Accumulate the annotation. We aren't using Seq::Output to format, because
-        #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
-        if ( defined $oneSiteData->[ $codonNumberIdx ] && $oneSiteData->[ $codonNumberIdx ] == 1 ) {
-          $middle .= "$startLoss;";
-        } elsif ( defined $oneSiteData->[ $codonSequenceIdx ]
-        &&  defined $codonMap->codon2aa( $oneSiteData->[ $codonSequenceIdx ] )
-        &&  $codonMap->codon2aa( $oneSiteData->[ $codonSequenceIdx ] ) eq '*' ) {
-          $middle .= "$stopLoss;";
-        } else {
-          $middle .= $oneSiteData->[ $siteTypeIdx ] . ";";
-        }
-    }
+  #   # # If this position covers multiple transcripts, $siteData will be an array of arrays
+  #   #   # and if not, it will be a 1D array of scalars
 
-    chop $middle;
-    $middle .= ',';
-  }
-  
-  chop $middle;
+  #   # for my $oneSiteData (ref @$siteData : $siteData) {
+  #   #    #Accumulate the annotation. We aren't using Seq::Output to format, because
+  #   #    #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
+  #   #    $oneSiteData->[ $siteTypeIdx ] = $siteData
+  #   # }
 
-  return $beginning . $middle . "]";
+  # }
 
+  # return $dbDataAref;
 }
 
 __PACKAGE__->meta->make_immutable;
