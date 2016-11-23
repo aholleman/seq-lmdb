@@ -48,10 +48,13 @@ sub get {
     if (defined $order->{ $_[4] }{ $_[5] } ) {
       #return $href->[ $self->dbName ]->[ $order->{ $refBase }{ $altAlleles } ]
       return $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[4] }{ $_[5] } ];
-    } elsif (length($_[5]) > 1) {
-      # If < 0 or length is > 1 it's an indel, return all records
-      return $_[1]->[ $_[0]->{_dbName} ];
     }
+    # TODO: either re-enable for use the existing interface to handle indels
+    # by passing all possible alleles
+    # elsif (length($_[5]) > 1) {
+    #   # If < 0 or length is > 1 it's an indel, return all records
+    #   return $_[1]->[ $_[0]->{_dbName} ];
+    # }
 
     return undef;
   }
@@ -68,10 +71,13 @@ sub get {
       #push @out, $href->[ $self->dbName ]->[ $order->{ $refBase }->{ $allele } ];
       push @out, $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[4] }{ $allele } ];
       next;
-    } elsif(length($allele) > 1) {
-      push @out, $_[1]->[ $_[0]->{_dbName} ];
-      next;
     }
+    # TODO: either re-enable for use the existing interface to handle indels
+    # by passing all possible alleles
+    # elsif(length($allele) > 1) {
+    #   push @out, $_[1]->[ $_[0]->{_dbName} ];
+    #   next;
+    # }
     push @out, undef;
   }
   

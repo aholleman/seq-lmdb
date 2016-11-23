@@ -210,6 +210,7 @@ sub annotate {
     return ($!, undef, undef);
   }
   
+  # Copy once to avoid accessor penalty
   my $taint_check_regex = $self->taint_check_regex; 
   my $delimiter = $self->delimiter;
 
