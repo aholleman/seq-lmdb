@@ -57,7 +57,6 @@ sub makeOutputString {
   my $emptyFieldChar = $self->{_emptyFieldChar};
 
   for my $href (@$outputDataAref) {
-    
     my @singleLineOutput;
     
     PARENT: for my $feature ( @{$self->outputDataFields} ) {
@@ -75,8 +74,18 @@ sub makeOutputString {
           push @singleLineOutput, $href->{$parent};
           next PARENT;
         }
-
+        
         CHILD: for my $child (@{ $feature->{$parent} } ) {
+          if(ref $href->{$parent} && ref $href->{$parent} ne 'HASH') {
+            say "NOT A HASH REF";
+            p $href;
+            p $parent;
+            p $child;
+
+            p $href->{$parent};
+            
+          }
+          
           if(!defined $href->{$parent}{$child} ) {
             push @singleLineOutput, $emptyFieldChar;
             next CHILD;
@@ -108,7 +117,7 @@ sub makeOutputString {
 
 
           my $accum = '';
-          ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
+          ACCUM: foreach ( @{ $href->{$parent}{$child} } ) {
             if(!defined $_) {
               $accum .= "$emptyFieldChar$primaryDelim";
               next ACCUM;

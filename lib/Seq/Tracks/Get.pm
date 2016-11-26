@@ -82,11 +82,30 @@ sub get {
 
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
-   return {
+  #map is substantially faster than other kinds of for loops
+  return {
     #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
     map { $_[0]->{_fieldNameMap}{$_} => $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
   }
 }
+
+# sub getIndel {
+#   # Same as get, but assumes that the $href (database data) is an array that
+#   # covers many positions
+#   #my ($self, $dbDataAref) = @_;
+#   my %out;
+
+#   for my $fieldDbName (@{ $_[0]->{_fieldDbNames} }) {
+#     # $out{ $self->{_fieldNameMap}{$fieldDbName} } = [ map {
+#     #   ref $_->[$fieldDbName] ? @{ $_->[$fieldDbName] } : $_->[$fieldDbName]
+#     # } map { $_->[  $self->{_dbName} ] } @{$dbDataAref} ]
+#     $out{ $_[0]->{_fieldNameMap}{$fieldDbName} } = [ map {
+#       ref $_->[$fieldDbName] ? @{ $_->[$fieldDbName] } : $_->[$fieldDbName]
+#     } map { $_->[  $_[0]->{_dbName} ] } @{$_[1]} ]
+#   }
+
+#   return %out;
+# }
 
 __PACKAGE__->meta->make_immutable;
 

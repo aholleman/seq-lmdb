@@ -36,7 +36,7 @@ sub getString {
     push @out, $feature;
   }
 
-  return join("\t", @out);
+  return join('\t', @out);
 }
 
 #not all children will have parents

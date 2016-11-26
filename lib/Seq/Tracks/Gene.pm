@@ -114,9 +114,12 @@ sub BUILD {
   # Not including the txNumberKey;  this is separate from the annotations, which is 
   # what these keys represent
   
-  $self->{_keysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
+  $self->{_siteKeysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
       $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
       $codonSequenceIdx => $self->codonSequenceKey };
+
+  # $self->{_siteKeysAndRefAmino} = [ $self->strandKey, $self->siteTypeKey, $self->codonNumberKey,
+  #   $self->codonPositionKey, $self->codonSequenceKey, $self->refAminoAcidKey ];
 
   $self->{_db} = Seq::DBManager->new();
 
@@ -170,12 +173,16 @@ sub BUILD {
 #@param <String|ArrayRef> $allelesAref : the alleles (including ref potentially)
 # that are found in the user's experiment, for this position that we're annotating
 #@param <Number> $dbPosition : The 0-index position of the current data
+sub getIndel {
+  say "getting indel";
+}
+
 sub get {
   #These are the arguments passed to this function
   #This function may be called millions of times. To speed up access,
   #Avoid copying the data during sub call
-  #my ($self, $href, $chr, $dbPosition, $refBase, $allelesAref) = @_;
-  #    $_[0]  $_[1]  $_[2]  $_[3]       $_[4]     $_[5]
+  #my ($self, $href, $chr, $refBase, $allelesAref) = @_;
+  #    $_[0]  $_[1]  $_[2] $_[3]     $_[4]
   
   my %out;
 
@@ -208,39 +215,35 @@ sub get {
   # Reads:
   #  $self->{_noNearestFeatures}
   if(!$_[0]->{_noNearestFeatures}) {
-
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
     # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
     my $nearestGeneNumber = $txNumbers || $_[1]->[$cachedDbNames->{$_[0]->nearestTrackName}];
 
-    if($nearestGeneNumber) {
-      for my $geneRef ( ref $nearestGeneNumber ? @$nearestGeneNumber : $nearestGeneNumber ) {
-          # Reads:         ($self->allNearestFeatureNames) {
-          for my $nFeature ($_[0]->allNearestFeatureNames) {
-            #Reads:
-            #push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } }, 
-            push @{ $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } },
-            $_[0]->{_geneTrackRegionHref}{$_[2]}{$geneRef}{$cachedDbNames->{$nFeature}};
-            #$self->{_geneTrackRegionHref}{$chr}{$geneRef}{$cachedDbNames->{$nFeature}};
-          }
+    # Reads:         ($self->allNearestFeatureNames) {
+    for my $nFeature ($_[0]->allNearestFeatureNames) {
+      if(ref $nearestGeneNumber) {
+        #push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } }, 
+        $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } = [ map {
+          #$self->{_geneTrackRegionHref}{$chr}{$_}{$cachedDbNames->{$nFeature}};
+          $_[0]->{_geneTrackRegionHref}{$_[2]}{$_}{$cachedDbNames->{$nFeature}} || undef
+        } @$nearestGeneNumber ];
+      } else {
+        $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } =
+        $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
       }
     }
   }
 
   #Reads:       && $_[0]->{_hasJoin}) {
   if($txNumbers && $_[0]->{_hasJoin}) {
-    for my $txNumber(ref $txNumbers ? $txNumbers->[0] : $txNumbers) {
-      #The features specified in the region database which we want for nearest gene records
-      #Reads:         @{$self->{_joinTracksFeatures} }
-      for my $fName ( @{$_[0]->{_joinTrackFeatures}} ) {
-        #Reads       $self->{_allJoinFieldNames}{$fName} } },
-        push @{$out{ $_[0]->{_allJoinFieldNames}{$fName} } },
-        #Reads
-        #$self->{_geneTrackRegionHref}{$chr}{$txNumber}{$cachedDbNames->{$fName} };
-         $_[0]->{_geneTrackRegionHref}{$_[2]}{$txNumber}{$cachedDbNames->{$fName} };
-      }
+    # http://ideone.com/jlImGA
+    #The features specified in the region database which we want for nearest gene records
+    #Reads:         @{$self->{_joinTracksFeatures} }
+    for my $fName ( @{$_[0]->{_joinTrackFeatures}} ) {
+      $out{ $_[0]->{_allJoinFieldNames}{$fName} } =  $_[0]->{_geneTrackRegionHref}{$_[2]}
+        ->{ref $txNumbers ?  $txNumbers->[0] : $txNumbers}{$cachedDbNames->{$fName} };
     }
   }
 
@@ -248,35 +251,24 @@ sub get {
     #Reads:
     #$out{$self->{_siteTypeKey}} = $intergenic;
     $out{$_[0]->{_siteTypeKey}} = $intergenic;
-
-    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-      if(length($allele) > 1) {
-        # We expect either a + or -
-        my $type = substr($allele, 0, 1);
-
-        #store as array because our output engine writes [ [one], [two] ] as "1,2"
-        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
-        next TX_EFFECTS_LOOP;
-      }
-    }
     return \%out;
   }
 
   ################## Populate site information ########################
   # save unpacked sites, for use in txEffectsKey population #####
   # moose attrs are very slow, cache
-
+  # Don't store as 
   my $hasCodon;
   OUTER: for my $site ($multiple ? @$siteData : $siteData) {
-    for (my $i = 0; $i < @$site; $i++) {
+    # faster than c-style loop
+    for my $i (0 .. $#$site) {
       if($i == $codonPositionIdx){
         # We store codon position as 0-based, but people probably expect 1-based
-        #Reads:      $self->{_keysMap}{$i}
-        push @{ $out{$_[0]->{_keysMap}{$i}} }, $site->[$i] + 1;
+        #Reads:      $self->{_siteKeysMap}{$i}
+        push @{ $out{$_[0]->{_siteKeysMap}{$i}} }, $site->[$i] + 1;
       } else {
-        #Reads:      $self->{_keysMap}{$i}
-        push @{ $out{$_[0]->{_keysMap}{$i} } }, $site->[$i];
+        #Reads:      $self->{_siteKeysMap}{$i}
+        push @{ $out{$_[0]->{_siteKeysMap}{$i} } }, $site->[$i];
       }
     }
 
@@ -285,32 +277,28 @@ sub get {
     if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
       #Reads:      $self->{_refAminoAcidKey}
       push @{ $out{$_[0]->{_refAminoAcidKey}} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
-      $hasCodon = 1;
+
+      if(!$hasCodon) {
+        $hasCodon = 1;
+      }
     }
   }
 
   # ################# Populate geneTrack's user-defined features #####################
   #Reads:            $self->{_features}
   for my $feature (@{$_[0]->{_features}}) {
-    INNER: for my $txNumber ($multiple ? @$txNumbers : $txNumbers) {
+    if($multiple) {
       #Reads:                   $self->{_geneTrackRegionHref}{$chr}{$txNumber}{ $cachedDbNames->{$feature} };
-      push @{ $out{$feature} }, $_[0]->{_geneTrackRegionHref}{$_[2]}{$txNumber}{ $cachedDbNames->{$feature} };
+      $out{$feature} = [ map {
+        $_[0]->{_geneTrackRegionHref}{$_[2]}{$_}{ $cachedDbNames->{$feature} } || undef
+      } @$txNumbers ];
+    } else {
+      $out{$feature} = $_[0]->{_geneTrackRegionHref}{$_[2]}{$txNumbers}{ $cachedDbNames->{$feature} };
     }
   }
 
   # If we want to be ~ 20-50% faster, move this before the Populate Gene Tracks section
   if(!$hasCodon) {
-    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-      if(length($allele) > 1) {
-        # We expect either a + or -
-        my $type = substr($allele, 0, 1);
-
-        #store as array because our output engine writes [ [one], [two] ] as "1,2"
-        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
-        next TX_EFFECTS_LOOP;
-      }
-    }
     return \%out;
   }
 
@@ -318,184 +306,91 @@ sub get {
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
   
-  # WARNING: DO NOT MODIFY $_[5] in the loop. IT WILL MODIFY BY REFERENCE EVEN
+  # WARNING: DO NOT MODIFY $_[4] in the loop. IT WILL MODIFY BY REFERENCE EVEN
   # WHEN SCALAR!!!
   # Looping over string, int, or ref: https://ideone.com/4APtzt
   #Reads:                          ref $allelesAref ? @$allelesAref : $allelesAref
-  TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-    if(length($allele) > 1) {
-      # We expect either a + or -
-      my $type = substr($allele, 0, 1);
-
-      #store as array because our output engine writes [ [one], [two] ] as "1,2"
+  if(length($_[4]) > 1) {
+    # We expect either a + or -
+    if(substr($_[4], 0, 1) eq '+') {
+      #Reads:                  substr($allele, 1) ) % 3
+      $out{ $_[0]->{_exonicAlleleFunctionKey} } = length( substr($_[4], 1) ) % 3 ? $frameshift : $inFrame;
+    } else {
+      # Assumes any other type is a deletion (form: -N)
       #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-      push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
-      next TX_EFFECTS_LOOP;
+      $out{ $_[0]->{_exonicAlleleFunctionKey} } = int($_[4]) % 3 ? $frameshift : $inFrame;
     }
 
-    ######### Most cases are just snps, so  inline that functionality ##########
+    return \%out;
+  }
 
-    ### We only populate newAminoAcidKey for snps ###
-    my $i = 0;
-    my @accum;
-    SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
-      if(!defined $site->[ $codonPositionIdx ]){
-        push @accum, undef;
-        #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
-        push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
+  ######### Most cases are just snps, so  inline that functionality ##########
 
-        next SNP_LOOP;
-      }
+  ### We only populate newAminoAcidKey for snps ###
+  my $i = 0;
+  my @accum;
+  SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
+    if(!defined $site->[ $codonPositionIdx ]){
+      push @accum, undef;
+      #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
+      push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
 
-      #Reads:                $out{ $self->{_codonSequenceKey} }[$i];
-      my $refCodonSequence = $out{ $_[0]->{_codonSequenceKey} }[$i];
+      next SNP_LOOP;
+    }
 
-      if(length($refCodonSequence) != 3) {
-        push @accum, $truncated;
-        #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
-        push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
-        
-        next SNP_LOOP;
-      }
+    #Reads:                $out{ $self->{_codonSequenceKey} }[$i];
+    my $refCodonSequence = $out{ $_[0]->{_codonSequenceKey} }[$i];
 
-      #make a codon where the reference base is swapped for the allele
-      my $alleleCodonSequence = $refCodonSequence;
+    if(length($refCodonSequence) != 3) {
+      push @accum, $truncated;
+      #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
+      push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
+      
+      next SNP_LOOP;
+    }
 
-      # If codon is on the opposite strand, invert the allele
-      if( $site->[$strandIdx] eq '-' ) {
-        substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $negativeStrandTranslation->{$allele};
-      } else {
-        substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $allele;
-      }
+    #make a codon where the reference base is swapped for the allele
+    my $alleleCodonSequence = $refCodonSequence;
 
-      #Reads: $out{$self->{_newCodonKey}} }, $alleleCodonSequence;
-      push @{ $out{$_[0]->{_newCodonKey}} }, $alleleCodonSequence;
-      #Reads: $out{$self->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
-      push @{ $out{$_[0]->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
+    # If codon is on the opposite strand, invert the allele
+    if( $site->[$strandIdx] eq '-' ) {
+      substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $negativeStrandTranslation->{$_[4]};
+    } else {
+      substr($alleleCodonSequence, $site->[ $codonPositionIdx ], 1 ) = $_[4];
+    }
 
-      #Reads:      $out{$self->{_newAminoAcidKey}}->[$i]) {
-      if(!defined $out{$_[0]->{_newAminoAcidKey}}->[$i]) {
-        $i++;
-        next;
-      }
+    #Reads: $out{$self->{_newCodonKey}} }, $alleleCodonSequence;
+    push @{ $out{$_[0]->{_newCodonKey}} }, $alleleCodonSequence;
+    #Reads: $out{$self->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
+    push @{ $out{$_[0]->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
 
-      # If reference codon is same as the allele-substititued version, it's a Silent site
-      # Reads:                                      $out{$self->{_newAminoAcidKey}}->[$i] ) {
-      if( $codonMap->codon2aa($refCodonSequence) eq $out{$_[0]->{_newAminoAcidKey}}->[$i] ) {
-        push @accum, $silent;
-      #Reads: $out{$self->{_newAminoAcidKey}}->[$i] eq '*') {
-      } elsif($out{$_[0]->{_newAminoAcidKey}}->[$i] eq '*') {
-        push @accum, $stopGain;
-      } else {
-        push @accum, $replacement;
-      }
-
+    #Reads:      $out{$self->{_newAminoAcidKey}}->[$i]) {
+    if(!defined $out{$_[0]->{_newAminoAcidKey}}->[$i]) {
       $i++;
+      next;
     }
 
-    if(@accum) {
-      #Reads:     $self->{_exonicAlleleFunctionKey}}}, @accum > 1 ? \@accum : $accum[0];
-      push @{$out{$_[0]->{_exonicAlleleFunctionKey}}}, @accum > 1 ? \@accum : $accum[0];
+    # If reference codon is same as the allele-substititued version, it's a Silent site
+    # Reads:                                      $out{$self->{_newAminoAcidKey}}->[$i] ) {
+    if( $codonMap->codon2aa($refCodonSequence) eq $out{$_[0]->{_newAminoAcidKey}}->[$i] ) {
+      push @accum, $silent;
+    #Reads: $out{$self->{_newAminoAcidKey}}->[$i] eq '*') {
+    } elsif($out{$_[0]->{_newAminoAcidKey}}->[$i] eq '*') {
+      push @accum, $stopGain;
+    } else {
+      push @accum, $replacement;
     }
+
+    $i++;
+  }
+
+  if(@accum) {
+    #Reads:     $self->{_exonicAlleleFunctionKey}}}, @accum > 1 ? \@accum : $accum[0];
+    $out{$_[0]->{_exonicAlleleFunctionKey}} = @accum > 1 ? \@accum : $accum[0];
   }
 
   return \%out;
 };
-
-# TODO: remove the "NA"
-sub _annotateIndel {
-  #To speed up this function call, avoid assigning these strings
-  
-  my ($self, $chr, $dbPosition, $allele) = @_;
-  #    $_[0], $_[1]. $_[2],      $_[3]
-
-  my $dbDataAref;
-
-  #Reads:           $allele,   0, 1);
-  my $type = substr($allele, 0, 1);
-  #### Check if insertion or deletion ###
-
-  if($type eq '+') {
-    #Reads:                  substr($allele, 1) ) % 3
-    return length( substr($allele, 1) ) % 3 ? $frameshift : $inFrame;
-  } elsif($type eq '-') {
-    return $allele % 3 ? $frameshift : $inFrame;
-  } else {
-    $self->log("warn", "Allele $allele on $chr\:@{[$dbPosition + 1]} isn't valid indel (must start with - or +)");
-    return undef;
-  }
-  
-
-  ##################### If the site is an insertion ############################
-  #If it's an insetion, we only get the next upstream position
-  #It is difficult to predict the effects of an insertion, so for now we've just
-  #elected to take the annotaiton of the next upstream site, and then also check
-  #whether the insertion is a frameshift
-  # if($type eq '+') {
-  #   # Using an array makes it easier to use a single string building function below.
-
-  #   #Reads:       [ $dbPosition + 1 ];
-  #   $dbDataAref = [ $dbPosition + 1 ];
-
-  #   #By passing the dbRead function an array, we get an array of data back
-  #   #even if it's one position worth of data
-  #   #Reads:
-  #   #$self->{_db}->dbRead( $chr, $dbDataAref );
-  #   $self->{_db}->dbRead( $chr, $dbDataAref );
-
-  # ###################### If the site is a deletion ######################
-  # # Deletions are easier to understand; the annotation is the sum of all of the
-  # # deleted bases. So we take all of the annotaiton
-  # } elsif($type eq '-') {
-  #   #Get everything including the current dbPosition, in order to simplify code
-  #   #Has a small perf. when there are few indels 
-  #   #Since $allele is a negative number
-  #   #Therefore $dbPosition + $allele == $dbPosition -N bases
-
-  #   #Reads:       [ $dbPosition + int($allele) .. $dbPosition ];
-  #   $dbDataAref = [ $dbPosition + int($allele) .. $dbPosition ];
-
-  #   # dbRead modifies by reference; each position in dbDataAref gets database data or undef
-  #   # if nothing found
-  #   #Reads:
-  #   #$self->{_db}->dbRead( $chr, $dbDataAref );
-  #   $self->{_db}->dbRead( $chr, $dbDataAref );
-  # } else {
-  #   #Reads:
-  #   #$self->log("warn"
-  #   $self->log("warn", "Can't recognize allele $allele on $chr\:@{[$dbPosition + 1]}
-  #     as valid indel (must start with - or +)");
-  #   return undef;
-  # }
-
-  # # Will always be an array of dbData, which is to say an array of array presently
-  # my $wasExon;
-  # my $recordedBoundry;
-  # for my $data (@$dbDataAref) {
-  #   #Reads:       $data->[$self->{_dbName}] ) {
-  #   # if (! defined $data->[$self->{_dbName}] ) {
-  #   #   #this position doesn't have a gene track, so skip
-  #   #   #make into array so that each indel will be treated as separate allele
-  #   #   $data = [$frameshift];
-  #   #   next;
-  #   # }
-
-  #   # #Reads:        $siteUnpacker->unpack($data->[$self->{_dbName}]);
-  #   # my $siteData = $siteUnpacker->unpack($data->[$self->{_dbName}]);
-
-  #   # # If this position covers multiple transcripts, $siteData will be an array of arrays
-  #   #   # and if not, it will be a 1D array of scalars
-
-  #   # for my $oneSiteData (ref @$siteData : $siteData) {
-  #   #    #Accumulate the annotation. We aren't using Seq::Output to format, because
-  #   #    #it doesn't fit well with this scheme, in which we prepend FrameShift[ and append ]
-  #   #    $oneSiteData->[ $siteTypeIdx ] = $siteData
-  #   # }
-
-  # }
-
-  # return $dbDataAref;
-}
 
 __PACKAGE__->meta->make_immutable;
 

@@ -138,6 +138,10 @@ sub dbReadOne {
 sub dbRead {
   #my ($self, $chr, $posAref) = @_;
   #== $_[0], $_[1], $_[2] (don't assign to avoid copy)
+  if(!ref $_[2]) {
+    goto &dbReadOne;
+  }
+
   my $db = $_[0]->_getDbi($_[1]);
 
   if(!$db) {
@@ -151,7 +155,8 @@ sub dbRead {
 
   # my @out;
   #or an array of values, in order
-  for my $pos ( @{ $_[2] } ) {
+  #CAREFUL: modifies the array
+  for my $pos (@{ $_[2] }) {
     $txn->get($db->{dbi}, $pos, $json);
     
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
@@ -209,8 +214,6 @@ sub dbPatchHash {
 
   my $db = $self->_getDbi($chr);
 
-  say "getting data for $chr";
-  
   my $dbi = $db->{dbi};
   my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
 
