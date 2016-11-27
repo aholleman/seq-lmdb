@@ -111,17 +111,15 @@ sub BUILD {
   $self->{_features} = $self->features;
   $self->{_joinTrackFeatures} = $self->joinTrackFeatures;
   $self->{_dbName} = $self->dbName;
+
+  $self->{_db} = Seq::DBManager->new();
+
   # Not including the txNumberKey;  this is separate from the annotations, which is 
   # what these keys represent
   
   $self->{_siteKeysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
       $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
       $codonSequenceIdx => $self->codonSequenceKey };
-
-  # $self->{_siteKeysAndRefAmino} = [ $self->strandKey, $self->siteTypeKey, $self->codonNumberKey,
-  #   $self->codonPositionKey, $self->codonSequenceKey, $self->refAminoAcidKey ];
-
-  $self->{_db} = Seq::DBManager->new();
 
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
@@ -138,11 +136,11 @@ sub BUILD {
     
     #the features specified in the region database which we want for nearest gene records
     for my $nearestFeatureName ($self->allNearestFeatureNames) {
-      $self->{_allNearestFieldNames}{$nearestFeatureName} = "$nTrackPrefix.$nearestFeatureName";
       $self->{_allCachedDbNames}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
     }
 
     $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
+    $self->{_nearestFeatureMap} = { map { $_ => "$nTrackPrefix.$_" } $self->allNearestFeatureNames };
   } else {
     $self->{_noNearestFeatures} = 1;
   }
@@ -151,14 +149,14 @@ sub BUILD {
     my $joinTrackName = $self->joinTrackName;
 
     $self->{_hasJoin} = 1;
+    $self->{_joinTrackFeatureMap} = { map { $_ => "$joinTrackName.$_" } @{ $self->{_joinTrackFeatures} } };
+
     # Faster to access the hash directly than the accessor
-    $self->addFeaturesToHeader( [ map { "$joinTrackName.$_" } @{$self->{_joinTrackFeatures}} ],
-      $self->name);
+    $self->addFeaturesToHeader( [ map { "$joinTrackName.$_" } @{$self->{_joinTrackFeatures}} ], $self->name );
 
     # TODO: ould theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
     for my $fName ( @{$self->joinTrackFeatures} ) {
-      $self->{_allJoinFieldNames}{$fName} = "$joinTrackName.$fName";
       $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
     }
   }
@@ -166,37 +164,33 @@ sub BUILD {
   for my $fName (@{$self->{_features}}) {
     $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
   }
-};
 
-#gets the gene, nearest gene data for the position
-#also checks for indels
-#@param <String|ArrayRef> $allelesAref : the alleles (including ref potentially)
-# that are found in the user's experiment, for this position that we're annotating
-#@param <Number> $dbPosition : The 0-index position of the current data
-sub getIndel {
-  say "getting indel";
-}
+  my @allGeneTrackFeatures = @{ $self->getParentFeatures($self->name) };
+  
+  for my $i (0 .. $#allGeneTrackFeatures) {
+    $self->{_featureIdxMap}{ $allGeneTrackFeatures[$i] } = $i;
+  }
+
+  $self->{_lastFeatureIdx} = $#allGeneTrackFeatures;
+};
 
 sub get {
   #These are the arguments passed to this function
   #This function may be called millions of times. To speed up access,
   #Avoid copying the data during sub call
-  #my ($self, $href, $chr, $refBase, $allelesAref) = @_;
+  my ($self, $href, $chr, $refBase, $allelesAref) = @_;
   #    $_[0]  $_[1]  $_[2] $_[3]     $_[4]
   
-  my %out;
+  my @out;
+  $#out = $self->{_lastFeatureIdx};
 
   # Cached field names to make things easier to read
   # Reads:            $self->{_allCachedDbNames};
-  my $cachedDbNames = $_[0]->{_allCachedDbNames};
+  my $cachedDbNames = $self->{_allCachedDbNames};
 
   ################# Cache track's region data ##############
   #Reads:     $self->{_geneTrackRegionHref}{$chr} ) {
-  if(!defined $_[0]->{_geneTrackRegionHref}{$_[2]} ) {
-    #Reads:
-    #$self->{_geneTrackRegionHref}{$chr} = $self->{_db}->dbReadAll( $self->regionTrackPath($chr) );
-    $_[0]->{_geneTrackRegionHref}{$_[2]} = $_[0]->{_db}->dbReadAll( $_[0]->regionTrackPath($_[2]) );
-  }
+  $self->{_geneTrackRegionHref}{$chr} //= $self->{_db}->dbReadAll( $self->regionTrackPath($chr) );
   
   ####### Get all transcript numbers, and site data for this position #########
 
@@ -205,53 +199,54 @@ sub get {
 
   #Reads:
   # ( $href->[$self->{_dbName}] ) {
-  if( $_[1]->[$_[0]->{_dbName}] ) {
+  if( $href->[$self->{_dbName}] ) {
     #Reads:                   $siteUnpacker->unpack($href->[$self->{_dbName}]);
-    ($txNumbers, $siteData) = $siteUnpacker->unpack($_[1]->[$_[0]->{_dbName}]);
+    ($txNumbers, $siteData) = $siteUnpacker->unpack($href->[$self->{_dbName}]);
     $multiple = !! ref $txNumbers;
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
   # Reads:
   #  $self->{_noNearestFeatures}
-  if(!$_[0]->{_noNearestFeatures}) {
+  if(!$self->{_noNearestFeatures}) {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference
     # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
-    my $nearestGeneNumber = $txNumbers || $_[1]->[$cachedDbNames->{$_[0]->nearestTrackName}];
+    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
 
     # Reads:         ($self->allNearestFeatureNames) {
-    for my $nFeature ($_[0]->allNearestFeatureNames) {
+    for my $nFeature ($self->allNearestFeatureNames) {
       if(ref $nearestGeneNumber) {
         #push @{ $out{ $self->{_allNearestFieldNames}{$nFeature} } }, 
-        $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } = [ map {
+        $out[ $self->{_featureIdxMap}{$self->{_nearestFeatureMap}{$nFeature}} ] = [ map {
           #$self->{_geneTrackRegionHref}{$chr}{$_}{$cachedDbNames->{$nFeature}};
-          $_[0]->{_geneTrackRegionHref}{$_[2]}{$_}{$cachedDbNames->{$nFeature}} || undef
+          $self->{_geneTrackRegionHref}{$chr}{$_}{$cachedDbNames->{$nFeature}} || undef
         } @$nearestGeneNumber ];
       } else {
-        $out{ $_[0]->{_allNearestFieldNames}{$nFeature} } =
-        $_[0]->{_geneTrackRegionHref}{$_[2]}{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
+        $out[ $self->{_featureIdxMap}{$self->{_nearestFeatureMap}{$nFeature}} ] =
+        $self->{_geneTrackRegionHref}{$chr}{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
       }
     }
   }
 
-  #Reads:       && $_[0]->{_hasJoin}) {
-  if($txNumbers && $_[0]->{_hasJoin}) {
+  #Reads:       && $self->{_hasJoin}) {
+  if($txNumbers && $self->{_hasJoin}) {
+    my $num = ref $txNumbers ?  $txNumbers->[0] : $txNumbers;
     # http://ideone.com/jlImGA
     #The features specified in the region database which we want for nearest gene records
     #Reads:         @{$self->{_joinTracksFeatures} }
-    for my $fName ( @{$_[0]->{_joinTrackFeatures}} ) {
-      $out{ $_[0]->{_allJoinFieldNames}{$fName} } =  $_[0]->{_geneTrackRegionHref}{$_[2]}
-        ->{ref $txNumbers ?  $txNumbers->[0] : $txNumbers}{$cachedDbNames->{$fName} };
+    for my $fName ( @{$self->{_joinTrackFeatures}} ) {
+      $out[ $self->{_featureIdxMap}{$self->{_joinTrackFeatureMap}{$fName}} ]
+      = $self->{_geneTrackRegionHref}{$chr}->{$num}{$cachedDbNames->{$fName} };
     }
   }
-
+  
   if( !$txNumbers ) {
     #Reads:
     #$out{$self->{_siteTypeKey}} = $intergenic;
-    $out{$_[0]->{_siteTypeKey}} = $intergenic;
-    return \%out;
+    $out[ $self->{_featureIdxMap}{ $self->{_siteTypeKey}} ] = $intergenic;
+    return \@out;
   }
 
   ################## Populate site information ########################
@@ -265,10 +260,10 @@ sub get {
       if($i == $codonPositionIdx){
         # We store codon position as 0-based, but people probably expect 1-based
         #Reads:      $self->{_siteKeysMap}{$i}
-        push @{ $out{$_[0]->{_siteKeysMap}{$i}} }, $site->[$i] + 1;
+        push @{ $out[ $self->{_featureIdxMap}{ $self->{_siteKeysMap}{$i} } ] }, $site->[$i] + 1;
       } else {
         #Reads:      $self->{_siteKeysMap}{$i}
-        push @{ $out{$_[0]->{_siteKeysMap}{$i} } }, $site->[$i];
+        push @{ $out[ $self->{_featureIdxMap}{ $self->{_siteKeysMap}{$i} } ] }, $site->[$i];
       }
     }
 
@@ -276,7 +271,8 @@ sub get {
     ###    we can have only one codon sequence, so not need to set array of them ###
     if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
       #Reads:      $self->{_refAminoAcidKey}
-      push @{ $out{$_[0]->{_refAminoAcidKey}} }, $codonMap->codon2aa( $site->[$codonSequenceIdx] );
+      push @{ $out[ $self->{_featureIdxMap}{ $self->{_refAminoAcidKey}} ] },
+      $codonMap->codon2aa( $site->[$codonSequenceIdx] );
 
       if(!$hasCodon) {
         $hasCodon = 1;
@@ -286,20 +282,20 @@ sub get {
 
   # ################# Populate geneTrack's user-defined features #####################
   #Reads:            $self->{_features}
-  for my $feature (@{$_[0]->{_features}}) {
+  for my $feature (@{$self->{_features}}) {
     if($multiple) {
       #Reads:                   $self->{_geneTrackRegionHref}{$chr}{$txNumber}{ $cachedDbNames->{$feature} };
-      $out{$feature} = [ map {
-        $_[0]->{_geneTrackRegionHref}{$_[2]}{$_}{ $cachedDbNames->{$feature} } || undef
+      $out[ $self->{_featureIdxMap}{$feature} ] = [ map {
+        $self->{_geneTrackRegionHref}{$chr}{$_}{ $cachedDbNames->{$feature} } || undef
       } @$txNumbers ];
     } else {
-      $out{$feature} = $_[0]->{_geneTrackRegionHref}{$_[2]}{$txNumbers}{ $cachedDbNames->{$feature} };
+      $out[ $self->{_featureIdxMap}{$feature} ] = $self->{_geneTrackRegionHref}{$chr}{$txNumbers}{ $cachedDbNames->{$feature} };
     }
   }
 
   # If we want to be ~ 20-50% faster, move this before the Populate Gene Tracks section
   if(!$hasCodon) {
-    return \%out;
+    return \@out;
   }
 
   # ################# Populate $transcriptEffectsKey, $self->{_newAminoAcidKey} #####################
@@ -314,14 +310,14 @@ sub get {
     # We expect either a + or -
     if(substr($_[4], 0, 1) eq '+') {
       #Reads:                  substr($allele, 1) ) % 3
-      $out{ $_[0]->{_exonicAlleleFunctionKey} } = length( substr($_[4], 1) ) % 3 ? $frameshift : $inFrame;
+      $out[ $self->{_featureIdxMap}{ $self->{_exonicAlleleFunctionKey} } ] = length( substr($_[4], 1) ) % 3 ? $frameshift : $inFrame;
     } else {
       # Assumes any other type is a deletion (form: -N)
       #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-      $out{ $_[0]->{_exonicAlleleFunctionKey} } = int($_[4]) % 3 ? $frameshift : $inFrame;
+      $out[ $self->{_featureIdxMap}{ $self->{_exonicAlleleFunctionKey} } ] = int($_[4]) % 3 ? $frameshift : $inFrame;
     }
 
-    return \%out;
+    return \@out;
   }
 
   ######### Most cases are just snps, so  inline that functionality ##########
@@ -333,18 +329,18 @@ sub get {
     if(!defined $site->[ $codonPositionIdx ]){
       push @accum, undef;
       #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
-      push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
+      push @{ $out[ $self->{_featureIdxMap}{$self->{_newAminoAcidKey}} ] }, undef;
 
       next SNP_LOOP;
     }
 
     #Reads:                $out{ $self->{_codonSequenceKey} }[$i];
-    my $refCodonSequence = $out{ $_[0]->{_codonSequenceKey} }[$i];
+    my $refCodonSequence = $out[ $self->{_featureIdxMap}{ $self->{_codonSequenceKey} } ][$i];
 
     if(length($refCodonSequence) != 3) {
       push @accum, $truncated;
       #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
-      push @{ $out{$_[0]->{_newAminoAcidKey}} }, undef;
+      push @{ $out[ $self->{_featureIdxMap}{ $self->{_newAminoAcidKey} } ] }, undef;
       
       next SNP_LOOP;
     }
@@ -360,22 +356,25 @@ sub get {
     }
 
     #Reads: $out{$self->{_newCodonKey}} }, $alleleCodonSequence;
-    push @{ $out{$_[0]->{_newCodonKey}} }, $alleleCodonSequence;
+    push @{ $out[ $self->{_featureIdxMap}{$self->{_newCodonKey}} ] }, $alleleCodonSequence;
+
+    my $newAA = $codonMap->codon2aa($alleleCodonSequence);
+
     #Reads: $out{$self->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
-    push @{ $out{$_[0]->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
+    push @{ $out[ $self->{_featureIdxMap}{$self->{_newAminoAcidKey}} ] }, $newAA;
 
     #Reads:      $out{$self->{_newAminoAcidKey}}->[$i]) {
-    if(!defined $out{$_[0]->{_newAminoAcidKey}}->[$i]) {
+    if(!defined $newAA) {
       $i++;
       next;
     }
 
     # If reference codon is same as the allele-substititued version, it's a Silent site
     # Reads:                                      $out{$self->{_newAminoAcidKey}}->[$i] ) {
-    if( $codonMap->codon2aa($refCodonSequence) eq $out{$_[0]->{_newAminoAcidKey}}->[$i] ) {
+    if( $codonMap->codon2aa($refCodonSequence) eq $newAA) {
       push @accum, $silent;
     #Reads: $out{$self->{_newAminoAcidKey}}->[$i] eq '*') {
-    } elsif($out{$_[0]->{_newAminoAcidKey}}->[$i] eq '*') {
+    } elsif($newAA eq '*') {
       push @accum, $stopGain;
     } else {
       push @accum, $replacement;
@@ -386,10 +385,10 @@ sub get {
 
   if(@accum) {
     #Reads:     $self->{_exonicAlleleFunctionKey}}}, @accum > 1 ? \@accum : $accum[0];
-    $out{$_[0]->{_exonicAlleleFunctionKey}} = @accum > 1 ? \@accum : $accum[0];
+    $out[ $self->{_featureIdxMap}{ $self->{_exonicAlleleFunctionKey} } ] = @accum > 1 ? \@accum : $accum[0];
   }
 
-  return \%out;
+  return \@out;
 };
 
 __PACKAGE__->meta->make_immutable;

@@ -20,6 +20,7 @@ has headers => (
   default => sub { Seq::Headers->new() },
   handles => {
     addFeaturesToHeader => 'addFeaturesToHeader',
+    getParentFeatures => 'getParentFeatures',
   }
 );
 
@@ -39,7 +40,6 @@ sub BUILD {
   }
 
   $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
-
   $self->{_fieldNameMap} = { map { $self->getFieldDbName($_) => $_ } $self->allFeatureNames };
   $self->{_fieldDbNames} = [ map { $self->getFieldDbName($_) } $self->allFeatureNames ];
 }
@@ -83,10 +83,10 @@ sub get {
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
   #map is substantially faster than other kinds of for loops
-  return {
+  return [
     #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
-    map { $_[0]->{_fieldNameMap}{$_} => $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
-  }
+    map { $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
+  ]
 }
 
 # sub getIndel {

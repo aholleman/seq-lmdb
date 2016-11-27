@@ -6,18 +6,64 @@ use 5.10.0;
 use strict;
 use warnings;
 use namespace::autoclean;
+use DDP;
 
 with 'Seq::Role::Message';
 #stored as array ref to preserve order
 # [ { $parent => [ $child1, $child2 ] }, $feature2, $feature3, etc ]
 state $orderedHeaderFeaturesAref = [];
+# [ [ $child1, $child2 ], $feature2, $feature3, etc ]
+state $orderedHeaderFeaturesArefNoMap;
+# { $parent => [ $child1, $child2 ] }
+state $parentChild = {};
 
-sub initialize {
+state $orderMap;
+
+sub initialize() {
   $orderedHeaderFeaturesAref = [];
 }
 
-sub get {
+sub get() {
   return $orderedHeaderFeaturesAref;
+}
+
+sub getParentFeatures {
+  my ($self, $parentName) = @_;
+  return $parentChild->{$parentName};
+}
+
+sub getOrderedHeaderNoMap() {
+  if($orderedHeaderFeaturesArefNoMap) {
+    return $orderedHeaderFeaturesArefNoMap;
+  }
+
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      my $trackName = (keys %{$orderedHeaderFeaturesAref->[$i]})[0];
+
+      $orderedHeaderFeaturesArefNoMap->[$i] = $orderedHeaderFeaturesAref->[$i]{$trackName};
+    } else {
+      $orderedHeaderFeaturesArefNoMap->[$i] = $orderedHeaderFeaturesAref->[$i];
+    }
+  }
+
+  return $orderedHeaderFeaturesArefNoMap; 
+}
+
+sub getParentFeaturesMap() {
+  if($orderMap) {
+    return $orderMap;
+  }
+
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      $orderMap->{ (keys %{$orderedHeaderFeaturesAref->[$i]})[0] } = $i;
+    } else {
+      $orderMap->{$orderedHeaderFeaturesAref->[$i]} = $i;
+    }
+  }
+
+  return $orderMap; 
 }
 
 sub getString {
@@ -36,7 +82,7 @@ sub getString {
     push @out, $feature;
   }
 
-  return join('\t', @out);
+  return join("\t", @out);
 }
 
 #not all children will have parents
@@ -69,6 +115,7 @@ sub addFeaturesToHeader {
           push @$valuesAref, $child;
         }
         
+        $parentChild->{$parent} = $valuesAref;
 
         $parentFound = 1;
         last;
@@ -84,6 +131,7 @@ sub addFeaturesToHeader {
         push @$orderedHeaderFeaturesAref, $val;
       }
       
+      $parentChild->{$parent} = [$child];
     }
 
     return;
