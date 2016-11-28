@@ -51,9 +51,15 @@ sub BUILD {
 # @return <HashRef> : A hash ref of featureName => featureValue pairs for
 # all features the user specified for this Track in their config file
 sub get {
+  #my ($self, $href, $chr, $refBase, $altAlleles, $outAccum, $alleleNumber) = @_
   #$href is the data that the user previously grabbed from the database
-  #my ($self, $href) = @_;
-  # so $_[0] is $self, $_[1] is $href; 
+  # $_[0] == $self
+  # $_[1] == $href
+  # $_[2] == $chr
+  # $_[3] == $refBase
+  # $_[4] == $altAlleles
+  # $_[5] == $outAccum
+  # $_[6] == $alleleNumber
   
   #internally the feature data is store keyed on the dbName not name, to save space
   # 'some dbName' => someData
@@ -66,13 +72,13 @@ sub get {
   if(!defined $_[1]->[ $_[0]->{_dbName} ] ) {
     #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
     #if undef is not explicitly returned
-    return undef;
+    return $_[5] ? push @{$_[5]}, undef : undef;
   }
 
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->{_noFeatures}) {
-    return $_[1]->[ $_[0]->{_dbName} ];
+    return  $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ] : $_[1]->[ $_[0]->{_dbName} ];
   }
 
   # We have features, so let's find those and return them
@@ -83,10 +89,40 @@ sub get {
   #return a hash reference
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
   #map is substantially faster than other kinds of for loops
-  return [
-    #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
-    map { $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
-  ]
+  #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
+  if($_[5]) {
+    my @out = map { $_[1]->[$_[0]->{_dbName}][$_] || undef } @{$_[0]->{_fieldDbNames}};
+
+    if($_[6] == 0) {
+      $_[5] = \@out;
+      return;
+    }
+
+    if($_[6] == 1) {
+      for my $part (@{$_[5]}) {
+        $part = [$part];
+      }
+    }
+
+    # if($_[5]->[0] && $_[5]->[0] eq 'rs532935489') {
+    #     say "wtf";
+    #     p $_[5];
+    #     p $_[6];
+    #   }
+
+    for my $i (0 .. $#out) {
+      # if($_[5]->[$i] && $_[5]->[$i] eq 'rs532935489') {
+      #   say "wtf";
+      #   p $_[5];
+      #   p $_[6];
+      # }
+      push @{ $_[5]->[$i] }, $out[$i];
+    }
+
+    return;
+  }
+
+  return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
 }
 
 # sub getIndel {

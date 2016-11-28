@@ -19,12 +19,14 @@ $order = $order->order;
 #accepts $self, $dataHref, $chr (not used), $altAlleles
 #@param <String|ArrayRef> $altAlleles : the alleles, like A,C,T,G or ['A','C','T','G'] 
 sub get {
-  #my ($self, $href, $chr, $position, $refBase, $altAlleles) = @_
+  #my ($self, $href, $chr, $refBase, $altAlleles, $outAccum, $alleleNumber) = @_
   # $_[0] == $self
   # $_[1] == $href
   # $_[2] == $chr
   # $_[3] == $refBase
   # $_[4] == $altAlleles
+  # $_[5] == $outAccum
+  # $_[6] == $alleleNumber
 
   # if (!defined $order->{ $refBase} )
   if (!defined $order->{ $_[3] } ) {
@@ -33,28 +35,29 @@ sub get {
     
     # Eplicitly return undef as a value, this is what our program treats as missing data
     # Returning nothing is not the same, in list context
-    return undef;
+    return $_[5] ? push @{$_[5]}, undef : undef;
   }
 
   # We may have stored an empty array at this position, in case 
   # the CADD scores read were not guaranteed to be sorted
   # Alternatively the CADD data for this position may be missing (not defined)
   if(!defined $_[1]->[ $_[0]->{_dbName} ] || !@{ $_[1]->[ $_[0]->{_dbName} ] } ) {
-    return undef;
+    return $_[5] ? push @{$_[5]}, undef : undef;
   }
   
   # if (defined $order->{ $refBase }{ $altAlleles } ) {
   if (defined $order->{ $_[3] }{ $_[4] } ) {
     #return $href->[ $self->dbName ]->[ $order->{ $refBase }{ $altAlleles } ]
-    return $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[3] }{ $_[4] } ];
+    return $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[3] }{ $_[4] } ]
+      : $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[3] }{ $_[4] } ]
   }
 
   # For indels, which will be the least frequent, return it all
   if (length( $_[4] ) > 1) {
-    return $_[1]->[ $_[0]->{_dbName} ];
+    return $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ] : $_[1]->[ $_[0]->{_dbName} ];
   }
 
-  return undef;
+  return $_[5] ? push @{$_[5]}, undef : undef;
 }
 
 # sub getIndel {

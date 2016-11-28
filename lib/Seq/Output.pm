@@ -47,48 +47,69 @@ sub BUILD {
 #which we are going to re-use in our output (namely chr, position, type alleles)
 sub makeOutputString {
   my ($self, $outputDataAref) = @_;
-
-  my $primaryDelim = $self->{_primaryDelimiter};
-  my $secondDelim = $self->{_secondaryDelimiter};
-  my $fieldSeparator = $self->{_fieldSeparator};
+  # my $fieldSeparator = $self->{_fieldSeparator};
   my $emptyFieldChar = $self->{_emptyFieldChar};
 
   my $trackIdx;
-  my $headers = $self->{_headers}->getOrderedHeaderNoMap();
 
+  my $outerDelimiter = $self->{_secondaryDelimiter};
+  my $innerDelimiter = $self->{_primaryDelimiter};
   for my $trackData (@$outputDataAref) {
     $trackIdx = 0;
+
+    # p $trackData;
     PARENT: for my $track ( @{ $self->{_headers}->getOrderedHeaderNoMap() } ) {
       #it's a trackName with children: [feature1, feature2, etc]
       if(ref $track) {
+        # p $track;
         for my $childIdx (0 .. $#$track) {
-          if(ref $trackData->[$trackIdx][$childIdx]) {
-            # p $trackData->[$trackIdx][$childIdx];
-            $trackData->[$trackIdx][$childIdx] = join(';', map {
-              $_ || $emptyFieldChar
-            } @{$trackData->[$trackIdx][$childIdx]});
-          }
-
           if(!defined $trackData->[$trackIdx][$childIdx]) {
             $trackData->[$trackIdx][$childIdx] = $emptyFieldChar;
+          } elsif(ref $trackData->[$trackIdx][$childIdx]) {
+            # Debug until the bs with sparse track joining is fixed
+            for my $val ( @{$trackData->[$trackIdx][$childIdx]} ) {
+              $val //= $emptyFieldChar;
+
+              if(ref $val) {
+                $val = join($innerDelimiter, map {
+                  # TODO: remove the "," join when the b.s with sparse tracks fixed.
+                  $_ ? ( ref $_ ? join(",", map{ $_ || $emptyFieldChar } @$_) : $_ ) : $emptyFieldChar
+                } @$val);
+              }
+              
+            }
+
+            $trackData->[$trackIdx][$childIdx] = join($outerDelimiter,
+              @{$trackData->[$trackIdx][$childIdx]} ); 
+
+            # TODO: Re-enable
+            # $trackData->[$trackIdx][$childIdx] = join("|", map {
+            #   $_ ? ( ref $_ ? join(";", map{ $_ || $emptyFieldChar } @{$_}) : $_ ) : $emptyFieldChar
+            # } @{$trackData->[$trackIdx][$childIdx]});
+      
+          }
+
+          
+        }
+
+
+        # p $trackData->[$trackIdx];
+        $trackData->[$trackIdx]
+        = join("\t", map { $_ || $emptyFieldChar} @{$trackData->[$trackIdx]} );
+
+        # If it has a child, but it is an array, multiallelic or indel
+      } elsif(ref $trackData->[$trackIdx]) {
+        for my $data ( @{$trackData->[$trackIdx]} ) {
+          $data //= $emptyFieldChar;
+
+          if(ref $data) {
+            $data = join($innerDelimiter, map { $_ || $emptyFieldChar } @$data);
           }
         }
 
-        $trackData->[$trackIdx] = join("\t", map {
-          $_ ? ( ref $_ ? join("|", map{ 'bal' } @{$_}) : $_ ) : $emptyFieldChar 
-        } @{$trackData->[$trackIdx]});
-
-        # If it has a child, but it is an array, multiallelic or indel
-        # if(ref $trackData->[$trackIdx]) {
-        #   p $trackData->[$trackIdx];
-        #   $trackData->[$trackIdx] = join("|", map {
-        #     $_ || $emptyFieldChar
-        #   } @{$trackData->[$trackIdx]});
-        # }
-      } elsif(ref $trackData->[$trackIdx]) {
-        $trackData->[$trackIdx] = join("|", map {
-          $_ ? ( ref $_ ? join(";", map{ $_ || $emptyFieldChar } @{$_}) : $_ ) : $emptyFieldChar 
-        } @{$trackData->[$trackIdx]})
+        $trackData->[$trackIdx] = join($outerDelimiter,
+          map { $_ || $emptyFieldChar } @{$trackData->[$trackIdx]}
+        );
       }
 
       if(!defined $trackData->[$trackIdx]) {
@@ -105,7 +126,7 @@ sub makeOutputString {
 
   # p @$outputDataAref;
 
-  return join("\n", @$outputDataAref);
+  return join("\n", @$outputDataAref) . "\n";
 }
 # sub makeOutputString {
 #   my ( $self, $outputDataAref) = @_;
