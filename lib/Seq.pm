@@ -268,9 +268,6 @@ sub annotate {
     $self->{_homozygoteIdsKey},
     $self->{_minorAllelesKey} ], undef, 1);
 
-  # Outputter needs to know which fields we're going to pass it
-  $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
-
   my @headers = @{$headers->get()};
   $self->{_numHeaders} = $#headers;
 
@@ -322,7 +319,7 @@ sub annotate {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
-    # chunk_size => 8192,
+    chunk_size => 8192,
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -394,11 +391,13 @@ sub annotate {
         my @fields = split '\t', $line;
 
         if ( !defined $chromosomesHref->{ $fields[0] } ) {
+          $skipCount++;
           next;
         }
 
         # Don't annotate unreliable sites, no need to notify user, standard behavior
         if($fields[$typeFieldIdx] eq "LOW" || $fields[$typeFieldIdx] eq "MESS") {
+          $skipCount++;
           next;
         }
 

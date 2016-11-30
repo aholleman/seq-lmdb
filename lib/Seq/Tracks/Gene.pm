@@ -172,14 +172,20 @@ sub BUILD {
   }
 
   $self->{_lastFeatureIdx} = $#allGeneTrackFeatures;
+
+  ################## Pre-fetch all gene track data ########################
+  # saves memory, costs startup time for small jobs
+  # $self->{_geneTrackRegionHref} = { map { 
+  #   $_ => $self->{_db}->dbReadAll($self->regionTrackPath($_))
+  # } $self->allWantedChrs() };
 };
 
 sub get {
   #These are the arguments passed to this function
   #This function may be called millions of times. To speed up access,
   #Avoid copying the data during sub call
-  my ($self, $href, $chr, $refBase, $allelesAref, $alleleIdx, $positionIdx, $outAccum) = @_;
-  #    $_[0]  $_[1]  $_[2] $_[3]     $_[4]
+  my ($self, $href, $chr, $refBase, $allele, $alleleIdx, $positionIdx, $outAccum) = @_;
+  #    $_[0]  $_[1]  $_[2] $_[3]    $_[4]
   
   my @out;
   $#out = $self->{_lastFeatureIdx};
@@ -213,18 +219,12 @@ sub get {
   if(!$self->{_noNearestFeatures}) {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
-    # If we're in a gene, we won't have a nearest gene reference
-    # Reads: =              $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
-    my $nearestGeneNumber = $txNumbers || $href->[$cachedDbNames->{$self->nearestTrackName}];
+    # If we're in a gene, we won't have a nearest gene reference, but will have a txNumber
+    my $nearestGeneNumber =
+      defined $txNumbers
+      ? $txNumbers 
+      : $href->[$cachedDbNames->{$self->nearestTrackName}];
 
-    # say "nearest";
-    # p $cachedDbNames->{$self->nearestTrackName};
-    # p $href->[$cachedDbNames->{$self->nearestTrackName}];
-    # p $href;
-    # if(!$nearestGeneNumber) {
-    #   say "no nearest name";
-    #   p $href;
-    # }
     # Reads:         ($self->allNearestFeatureNames) {
     for my $nFeature ($self->allNearestFeatureNames) {
       $out[ $idxMap->{$self->{_nearestFeatureMap}{$nFeature}} ] =
@@ -313,15 +313,15 @@ sub get {
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
   
-  # WARNING: DO NOT MODIFY $_[4] in the loop. IT WILL MODIFY BY REFERENCE EVEN
-  # WHEN SCALAR!!!
+  # WARNING: DO NOT MODIFY $_[4]/$allele in the loop. IT WILL MODIFY BY REFERENCE EVEN
+  # WHEN SCALAR, and if referenceing $_[4] directly, affect other tracks!!!
   # Looping over string, int, or ref: https://ideone.com/4APtzt
   #Reads:                          ref $allelesAref ? @$allelesAref : $allelesAref
-  if(length($_[4]) > 1) {
+  if(length($allele) > 1) {
     $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = 
-      substr($_[4], 0, 1) eq '+'
-      ? length(substr($_[4], 1)) % 3 ? $frameshift : $inFrame
-      : int($_[4]) % 3 ? $frameshift : $inFrame; 
+      substr($allele, 0, 1) eq '+'
+      ? length(substr($allele, 1)) % 3 ? $frameshift : $inFrame
+      : int($allele) % 3 ? $frameshift : $inFrame; 
 
     return $outAccum ? accumOut($alleleIdx, $positionIdx, $outAccum, \@out) : \@out;
   }
@@ -369,9 +369,9 @@ sub get {
 
     # If codon is on the opposite strand, invert the allele
     if( $site->[$strandIdx] eq '-' ) {
-      substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $negativeStrandTranslation->{$_[4]};
+      substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $negativeStrandTranslation->{$allele};
     } else {
-      substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $_[4];
+      substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $allele;
     }
 
     my $newAA = $codonMap->codon2aa($alleleCodonSequence);
@@ -416,31 +416,17 @@ sub get {
 };
 
 sub accumOut {
-  my ($alleleIdx, $positionIdx, $outAccum, $outAref) = @_;
+  # my ($alleleIdx, $positionIdx, $outAccum, $outAref) = @_;
+  #     $_[0]     , $_[1]       , $_[2]    , $_[3]
   
-  # if($alleleNum == 0) {
-  #   for my $feature (@$outAref) {
-      
-  #     push @$outAccum, 
-  #     # outer array holds the per-alleleNumber of this feature
-  #     [
-  #       # inner array holds the per-position of this feature
-  #       [$feature]
-  #     ];
-  #   }
-  # }
-
-  # say "position $positionIdx, allele $alleleIdx";
-  
-  for my $featureIdx (0 .. $#$outAref) {
-    $outAccum->[$featureIdx][$alleleIdx][$positionIdx] = $outAref->[$featureIdx];
+  # for my $featureIdx (0 .. $#$outAref) {
+  for my $featureIdx (0 .. $#{$_[3]}) {
+    #$outAccum->[$featureIdx][$alleleIdx][$positionIdx] = $outAref->[$featureIdx];
+    $_[2]->[$featureIdx][$_[0]][$_[1]] = $_[3]->[$featureIdx];
   }
-  # for my $i (0 .. $#$outAref) {
-  #   $outAccum->[$i][$alleleIdx][$positionIdx] = $outAref->[$i];
-  # }
 
-  # p $outAccum;
-  return $outAccum;
+  #return $outAccum;
+  return $_[2];
 }
 __PACKAGE__->meta->make_immutable;
 
