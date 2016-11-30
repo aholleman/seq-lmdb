@@ -248,18 +248,6 @@ sub get {
     #Reads:
     #$out{$self->{_siteTypeKey}} = $intergenic;
     $out{$_[0]->{_siteTypeKey}} = $intergenic;
-
-    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-      if(length($allele) > 1) {
-        # We expect either a + or -
-        my $type = substr($allele, 0, 1);
-
-        #store as array because our output engine writes [ [one], [two] ] as "1,2"
-        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
-        next TX_EFFECTS_LOOP;
-      }
-    }
     return \%out;
   }
 
@@ -300,17 +288,6 @@ sub get {
 
   # If we want to be ~ 20-50% faster, move this before the Populate Gene Tracks section
   if(!$hasCodon) {
-    TX_EFFECTS_LOOP: for my $allele (ref $_[5] ? @{$_[5]} : $_[5]) {
-      if(length($allele) > 1) {
-        # We expect either a + or -
-        my $type = substr($allele, 0, 1);
-
-        #store as array because our output engine writes [ [one], [two] ] as "1,2"
-        #Reads:      $self->_annotateIndel($chr, $dbPosition, $allele);
-        push @{ $out{ $_[0]->{_exonicAlleleFunctionKey} } }, $_[0]->_annotateIndel($_[2], $_[3], $allele);
-        next TX_EFFECTS_LOOP;
-      }
-    }
     return \%out;
   }
 
