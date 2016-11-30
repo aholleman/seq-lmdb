@@ -58,27 +58,30 @@ sub get {
   # $_[2] == $chr
   # $_[3] == $refBase
   # $_[4] == $altAlleles
-  # $_[5] == $outAccum
-  # $_[6] == $alleleNumber
+  # $_[5] == $alleleIdx
+  # $_[6] == $positionIdx
+  # $_[7] == $outAccum
   
   #internally the feature data is store keyed on the dbName not name, to save space
   # 'some dbName' => someData
-
   #dbName is simply the track name as stored in the database
-  #this is handled transparently to use, we just need to call $self->dbName
 
-  #we do this to save space in the database, by a huge number of bytes
-  #dbName defined in Seq::Tracks::Base
-  if(!defined $_[1]->[ $_[0]->{_dbName} ] ) {
-    #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
-    #if undef is not explicitly returned
-    return $_[5] ? push @{$_[5]}, undef : undef;
+  if($_[0]->{_dbName} == 14) {
+    say "14";
+    p @_;
   }
 
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->{_noFeatures}) {
-    return  $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ] : $_[1]->[ $_[0]->{_dbName} ];
+    if($_[7]) {
+      #$outAccum->[$alleleIdx][$positionIdx] = $href->[$self->dbName]
+      $_[7]->[$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
+      
+      return $_[7];
+    }
+
+    return $_[1]->[ $_[0]->{_dbName} ];
   }
 
   # We have features, so let's find those and return them
@@ -90,38 +93,17 @@ sub get {
   #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
   #map is substantially faster than other kinds of for loops
   #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
-  if($_[5]) {
-    my @out = map { $_[1]->[$_[0]->{_dbName}][$_] || undef } @{$_[0]->{_fieldDbNames}};
+  if($_[7]) {
+    my @out = map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}};
 
-    if($_[6] == 0) {
-      $_[5] = \@out;
-      return;
+    for my $featureIdx (0 .. $#out) {
+      $_[7]->[$featureIdx][$_[5]][$_[6]] = $out[$featureIdx];
     }
 
-    if($_[6] == 1) {
-      for my $part (@{$_[5]}) {
-        $part = [$part];
-      }
-    }
-
-    # if($_[5]->[0] && $_[5]->[0] eq 'rs532935489') {
-    #     say "wtf";
-    #     p $_[5];
-    #     p $_[6];
-    #   }
-
-    for my $i (0 .. $#out) {
-      # if($_[5]->[$i] && $_[5]->[$i] eq 'rs532935489') {
-      #   say "wtf";
-      #   p $_[5];
-      #   p $_[6];
-      # }
-      push @{ $_[5]->[$i] }, $out[$i];
-    }
-
-    return;
+    return $_[7];
   }
 
+  #http://ideone.com/WD3Ele
   return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
 }
 

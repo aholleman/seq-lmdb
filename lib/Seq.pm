@@ -271,7 +271,8 @@ sub annotate {
   # Outputter needs to know which fields we're going to pass it
   $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
 
-  $self->{_numHeaders} = scalar @{ $headers->get() };
+  my @headers = @{$headers->get()};
+  $self->{_numHeaders} = $#headers;
 
   my $headerMap = $headers->getParentFeaturesMap();
   for my $trackName (keys %$headerMap) {
@@ -604,21 +605,21 @@ sub finishAnnotatingLines {
   # This will save us millions of split's and assignments
   # Careful, this could be a place for a subtle bug in a multi-process
   # long-running environment
-  # ONLY WORKS IF WE CHOOSE 
+  # ONLY WORKS IF WE ARE COMPARING INPUT'S Ref & Alleles columns
   state $cached = {};
 
-  # my $discordant = 0;
+  # We store data for each indel
   my @indelDbData;
-  my @indelPositions;
   my @indelRef;
-  my $minorAlleles;
-  my $position;
+
   # We accumulate all of our results, using alleleNumber
   # Each track get method accumulates values on its own, using this
   # to keep track of whether or not an array represents multiple alleles
   # or one allele's values for a particular field
-  my $alleleNumber;
-  my $multipleAlleles;
+  my $alleleIdx;
+  my $ref;
+  my $alleles;
+
   POSITION_LOOP: for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] not found. Wrong assembly?");
@@ -630,53 +631,18 @@ sub finishAnnotatingLines {
 
     $outAref->[$i] = \@out;
 
-    $out[$refTrackIdx] = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]);
-
     ############# Store chr, position, alleles, type, and discordant status ###############
-    $out[0] = $inputAref->[$i][$self->{_chrFieldIdx}];
-    $out[1] = $inputAref->[$i][$self->{_positionFieldIdx}];
-    $out[2] = $inputAref->[$i][$self->{_typeFieldIdx}];
+    $out[0][0][0] = $inputAref->[$i][$self->{_chrFieldIdx}];
+    $out[1][0][0] = $inputAref->[$i][$self->{_positionFieldIdx}];
+    $out[2][0][0] = $inputAref->[$i][$self->{_typeFieldIdx}];
     
+    # Take a temporary reference to the current position
+    # We will store one or more references at the $out[$refTrackIdx]
+    # Depending on # of alleles, # of positions (indels may have > 1 position)
+    $ref = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]);
+
     # Record discordant sites
-    $out[3] = $out[$refTrackIdx] ne $inputAref->[$i][$self->{_referenceFieldIdx}] ? 1 : 0;
-
-    ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
-    # Homozygotes are index 4, heterozygotes 5
-
-    # We call those matching the reference that we have hets or homos, 
-    # not the reference given in the input file
-    my $geno;
-    SAMPLE_LOOP: for my $id (@{ $self->{_sampleIDaref}}) {
-      $geno = $inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}];
-
-      #Does the sample genotype equal "N" or our assembly's reference?
-      if($geno eq $out[$refTrackIdx] || $geno eq 'N') {
-        next SAMPLE_LOOP;
-      }
-
-      #Is the sample a het?
-      if ($hets{$geno}) {
-        # Is this a compound heterozygote, at this position, if so, call that homozygous
-        # Indels cannot be compound hets
-        if(!defined $indels{$geno}) {
-          if(index( $iupac{$geno}, $out[$refTrackIdx] ) == -1 ) {
-            #Homozygous (compound het)
-            push @{$out[4]}, $id;
-          } else {
-            # Heterozygous
-            push @{$out[5]}, $id;
-          }
-        } else {
-          push @{$out[5]}, $id;
-        }
-        # Check if the sample looks like a homozygote
-      } elsif($homs{$geno}) {
-        # Homozygous
-        push @{$out[4]}, $id;
-      } else {
-        $self->log( 'warn', "$id wasn't homozygous or heterozygote" );
-      }
-    }
+    $out[3][0][0] = $ref ne $inputAref->[$i][$self->{_referenceFieldIdx}] ? 1 : 0;
 
     ############### Get the minor alleles, cached to avoid re-work ###############
     # Calculate the minor alleles from the user's reference
@@ -698,97 +664,113 @@ sub finishAnnotatingLines {
       }
     }
 
-    $out[6] = $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    $alleles = $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+
+    ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
+    # Homozygotes are index 4, heterozygotes 5
     
-    # say "for position:  $outAref->[$i]{$self->{_positionKey}}, allele is $outAref->[$i][$self->{_minorAllelesOutIdx}]";
-    # MUST come last, unless we want the output to contain ";" separated positions in indel cases
-    # Usually we want a single position in the output Position column
+    my $geno;
+    SAMPLE_LOOP: for my $id (@{ $self->{_sampleIDaref}}) {
+      $geno = $inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}];
+
+      #Does the sample genotype equal "N" or our assembly's reference?
+      if($geno eq $ref || $geno eq 'N') {
+        next SAMPLE_LOOP;
+      }
+
+      if ($hets{$geno}) {
+        # Is this a bi-allelic sample? if so, call that homozygous
+        # None of our fake IUPAC indel codes contain a reference disambiguated
+        if(!defined $indels{$geno}) {
+          if(index($iupac{$geno}, $ref) == -1) {
+            # If both alleles are non-reference, call that a homozygote
+            push @{$out[4][0][0]}, $id;
+          } else {
+            # Heterozygote
+            push @{$out[5][0][0]}, $id;
+          }
+        } else {
+          # Heterozygote
+          push @{$out[5][0][0]}, $id;
+        }
+        # Check if the sample looks like a homozygote
+      } elsif($homs{$geno}) {
+        # Homozygote
+        push @{$out[4][0][0]}, $id;
+      } else {
+        $self->log( 'warn', "$id wasn't homozygous or heterozygote" );
+      }
+    }
+    
     # http://ideone.com/NbvlF5
     if(@indelDbData) {
       undef @indelDbData;
       undef @indelRef;
     }
 
-    $alleleNumber = 0;
-    for my $allele (ref $out[6] ? @{$out[6]} : $out[6]) {
+    $alleleIdx = 0;
+    for my $allele (ref $alleles ? @$alleles : $alleles) {
+      # The minorAlleles column
+      $out[6][$alleleIdx][0] = $allele;
+
       if(length($allele) > 1) {
         # It's a deletion
         if( looks_like_number($allele) ) {
           # If the allele is == -1, it's a single base deletion, treat like a snp
           # with a weird genotype
           if($allele < -1)  {
-            # If deletion is -2, position 100, we indelDbData = (99, 100)
-            @indelDbData = (@{ $self->{_db}->dbRead( $chr, [$out[1]  + int($allele) + 1 .. $out[1] - 1]) }, $dataFromDbAref->[$i]);
+            # If deletion is -2, position 100, deleted bases are 100, 101
+            if($allele == -2) {
+              @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0] + 1));
+            } else {
+              @indelDbData = (
+                $dataFromDbAref->[$i],
+                # From position + 1 to position + abs(allele) - 1 == position - (-allele + 1)
+                @{$self->{_db}->dbRead( $chr, [$out[1][0][0] + 1 .. $out[1][0][0]  - (int($allele) + 1)] )}
+              );
+            }
+            
             #faster than perl-style loop (much faster than c-style)
             @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;
-          };
-        }  else {
+          }
+        } else {
           #It's an insertion
-          @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1] + 1));
-          @indelRef =  ( $out[$refTrackIdx], $self->{_refTrackGetter}->get($indelDbData[1]) );
+          @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0] + 1));
+          
+          @indelRef =  ( $ref, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }
       }
 
-      ############### Gather all track data (besides reference) #################
-
-      if(@indelDbData) {
-        my $internalAlleleNum;
-
+       if(@indelDbData) {
         ############### Gather all track data (besides reference) #################
-        for my $track (@{ $self->{_trackGettersExceptReference} }) {
-          $out[$self->{_trackIdx}{$track->name}] //= []; 
-          # Pass: dataFromDatabase, chromosome, position, real reference, alleles
-          $internalAlleleNum = $alleleNumber;
+        for my $posIdx (0 .. $#indelDbData) {
+          for my $track (@{ $self->{_trackGettersExceptReference} }) {
+            $out[$self->{_trackIdx}{$track->name}] //= [];
 
-          for my $i (0 .. $#indelDbData) {
-            $track->get($indelDbData[$i], $chr, $indelRef[$i], $allele, $out[$self->{_trackIdx}{$track->name}], $internalAlleleNum);
-            $internalAlleleNum++;
+            $track->get($indelDbData[$posIdx], $chr, $indelRef[$posIdx], $allele,
+              $alleleIdx, $posIdx, $out[$self->{_trackIdx}{$track->name}]);
           }
+          
+          $out[$refTrackIdx][$alleleIdx][$posIdx] = $indelRef[$posIdx];
         }
-
-        $alleleNumber += scalar @indelDbData;
-      } elsif(ref $out[6]) {
-        for my $track (@{ $self->{_trackGettersExceptReference} }) {
-          $out[$self->{_trackIdx}{$track->name}] //= []; 
-
-          $track->get($dataFromDbAref->[$i], $chr, $out[$refTrackIdx], $allele, $out[$self->{_trackIdx}{$track->name}], $alleleNumber);
-        }
-
-        $alleleNumber++;
       } else {
         for my $track (@{ $self->{_trackGettersExceptReference} }) {
-          $out[$self->{_trackIdx}{$track->name}] = $track->get($dataFromDbAref->[$i], $chr, $out[$refTrackIdx], $allele);
+          $out[$self->{_trackIdx}{$track->name}] //= [];
+
+          $track->get($dataFromDbAref->[$i], $chr, $ref, $allele,
+            $alleleIdx, 0, $out[$self->{_trackIdx}{$track->name}])
         }
+
+        $out[$refTrackIdx][$alleleIdx][0] = $ref;
       }
+
+      $alleleIdx++;
     }
   }
 
   # 0 status indicates success
   return '';
 }
-
-# sub _getIndelGenotype {
-#   my ($self, $chr, $pos, $allele, $existingDbData, $existingRef) = @_;
-
-#   my (@indelDbData, @indelRef) = @_;
-#   if( looks_like_number($allele) ) {
-#     # If the allele is == -1, it's a single base deletion, treat like a snp
-#     # with a weird genotype
-#     if($allele < -1)  {
-#       # If deletion is -2, position 100, we indelDbData = (99, 100)
-#       @indelDbData = ( @{ $self->{_db}->dbRead( $chr,
-#         [ $pos  + int($allele) + 1 .. $out[1] - 1 ] ) }, $existingDbData );
-#       #faster than perl-style loop (much faster than c-style)
-#       @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;
-#     };
-#   }  else {
-#     #It's an insertion
-#     @indelDbData = ($existingDbData, $self->{_db}->dbReadOne( $chr, $pos + 1) );
-#     @indelRef = ( $existingRef, $self->{_refTrackGetter}->get($indelDbData[1]) );
-#   }
-
-#   return (\@indelDbData, \@indelRef);
-# }
 
 sub _moveFilesToFinalDestinationAndDeleteTemp {
   my $self = shift;
@@ -856,8 +838,7 @@ sub _prepareStatsArguments {
 
   my $assembly = $self->assembly;
 
-  my $primaryDelimiter = $self->{_outputter}->delimiters->primaryDelimiter;
-  my $secondaryDelimiter = $self->{_outputter}->delimiters->secondaryDelimiter;
+  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
   my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
 
   my $numberHeaderLines = 1;
@@ -882,7 +863,7 @@ sub _prepareStatsArguments {
     && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1) ) {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
-      . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
+      . "primaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef, undef);
   }
 
@@ -902,7 +883,7 @@ sub _prepareStatsArguments {
     . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
     . "-dbSNPnameColumnName $snpNameColumnName "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
+    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
     . "-numberInputHeaderLines $numberHeaderLines", $dir);
 }
 __PACKAGE__->meta->make_immutable;

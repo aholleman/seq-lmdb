@@ -11,6 +11,8 @@ use Scalar::Util qw/looks_like_number/;
 use Seq::Output::Delimiters;
 use Seq::Headers;
 
+with 'Seq::Role::Message';
+
 use DDP;
 
 has outputDataFields => (
@@ -27,15 +29,17 @@ has delimiters => (is => 'ro', isa => 'Seq::Output::Delimiters', default => sub 
 
 sub BUILD {
   my $self = shift;
-  my $delimiters = Seq::Output::Delimiters->new();
+
+  $self->{_headers} = Seq::Headers->new();
+  # my $delimiters = Seq::Output::Delimiters->new();
 
   # To try to avoid accessor penalty; 
   # These may be called hundreds of millions of times
-  $self->{_primaryDelimiter} = $self->delimiters->primaryDelimiter;
-  $self->{_secondaryDelimiter} = $self->delimiters->secondaryDelimiter;
-  $self->{_fieldSeparator} = $self->delimiters->fieldSeparator;
-  $self->{_emptyFieldChar} = $self->delimiters->emptyFieldChar;
-  $self->{_headers} = Seq::Headers->new();
+  # $self->{_primaryDelimiter} = $self->delimiters->primaryDelimiter;
+  # $self->{_secondaryDelimiter} = $self->delimiters->secondaryDelimiter;
+  # $self->{_fieldSeparator} = $self->delimiters->fieldSeparator;
+  # $self->{_emptyFieldChar} = $self->delimiters->emptyFieldChar;
+  
 }
 
 # ABSTRACT: Knows how to make an output string
@@ -48,86 +52,265 @@ sub BUILD {
 sub makeOutputString {
   my ($self, $outputDataAref) = @_;
   # my $fieldSeparator = $self->{_fieldSeparator};
-  my $emptyFieldChar = $self->{_emptyFieldChar};
+  my $emptyFieldChar = $self->delimiters->emptyFieldChar;
 
-  my $trackIdx;
+  my $rowIdx;
 
-  my $outerDelimiter = $self->{_secondaryDelimiter};
-  my $innerDelimiter = $self->{_primaryDelimiter};
-  for my $trackData (@$outputDataAref) {
+  my $alleleDelimiter = $self->delimiters->alleleDelimiter;
+  my $positionDelimiter = $self->delimiters->positionDelimiter;
+  my $valueDelimiter = $self->delimiters->valueDelimiter;
+  my $fieldSeparator = $self->delimiters->fieldSeparator;
+
+  if(!$self->{_multiDepth}) {
+    my @headers = @{ $self->{_headers}->getOrderedHeaderNoMap() };
+
+    $self->{_multiDepth} = { map {
+      $_ => ref $headers[$_] ? 3 : 2;
+    } 0 .. $#headers };
+
+    $self->{_orderedHeader} = \@headers;
+  }
+  # p @{$self->{_orderedHeader}};
+  my $trackIdx = -1;
+  my $multiallelic;
+  my $featureData;
+  for my $row (@$outputDataAref) {
+    $rowIdx = 0;
+
+    # if($row->[2][0][0] eq 'MULTIALLELIC') {
+    #   p $row;
+    # }
+    # p $row;
     $trackIdx = 0;
+    TRACK_LOOP: for my $trackName ( @{$self->{_orderedHeader}} ) {
+      if(ref $trackName) {
+        if(!defined $row->[$trackIdx]) {
+          $row->[$trackIdx] = join($fieldSeparator, ($emptyFieldChar) x @$trackName);
 
-    # p $trackData;
-    PARENT: for my $track ( @{ $self->{_headers}->getOrderedHeaderNoMap() } ) {
-      #it's a trackName with children: [feature1, feature2, etc]
-      if(ref $track) {
-        # p $track;
-        for my $childIdx (0 .. $#$track) {
-          if(!defined $trackData->[$trackIdx][$childIdx]) {
-            $trackData->[$trackIdx][$childIdx] = $emptyFieldChar;
-          } elsif(ref $trackData->[$trackIdx][$childIdx]) {
-            # Debug until the bs with sparse track joining is fixed
-            for my $val ( @{$trackData->[$trackIdx][$childIdx]} ) {
-              $val //= $emptyFieldChar;
+          $trackIdx++;
+          next TRACK_LOOP;
+        }
 
-              if(ref $val) {
-                $val = join($innerDelimiter, map {
-                  # TODO: remove the "," join when the b.s with sparse tracks fixed.
-                  $_ ? ( ref $_ ? join(",", map{ $_ || $emptyFieldChar } @$_) : $_ ) : $emptyFieldChar
-                } @$val);
+        for my $featureIdx (0 .. $#$trackName) {
+          $featureData = $row->[$trackIdx][$featureIdx];
+
+          # p $featureData;
+          for my $alleleData (@{$row->[$trackIdx][$featureIdx]}) {
+            # p $alleleData;
+            for my $positionData (@$alleleData) {
+              $positionData //= $emptyFieldChar;
+
+              if(ref $positionData) {
+                $positionData = join($valueDelimiter, map { 
+                  $_
+                  # Unfortunately, prior to 11/30/16 Seqant dbs would merge sparse tracks
+                  # incorrectly, resulting in an extra array depth
+                  ? (ref $_ ? join($valueDelimiter, map { $_ || $emptyFieldChar } @$_) : $_)
+                  : $emptyFieldChar
+                } @$positionData);
               }
-              
+
+              # p $positionData;
+            }
+            $alleleData = @$alleleData > 1 ? join($positionDelimiter, @$alleleData) : $alleleData->[0];
+          }
+
+          # p $featureData;
+
+          $row->[$trackIdx][$featureIdx] =
+            @{$row->[$trackIdx][$featureIdx]} > 1 
+            ? join($alleleDelimiter, @$featureData)
+            : $row->[$trackIdx][$featureIdx][0];
+
+          # p $featureData;
+        }
+
+        # if($)
+        # p $row->[$trackIdx];
+        # $row->[$trackIdx] =
+        #   @{$row->[$trackIdx]} > 1 
+        #   ? join($alleleDelimiter, @%{$row->[$trackIdx]})
+        #   : $row->[$trackIdx][0]
+        $row->[$trackIdx] = join($fieldSeparator, @{$row->[$trackIdx]});
+
+        # p $row->[$trackIdx];
+      } else {
+        if(!defined $row->[$trackIdx]) {
+          # say "$trackIdx not defined";
+
+          $row->[$trackIdx] = $emptyFieldChar;
+
+          $trackIdx++;
+          next TRACK_LOOP;
+        }
+
+        # p $featureData;
+        # p $row->[$trackIdx];
+        for my $alleleData (@{$row->[$trackIdx]}) {
+          # p $alleleData;
+          if(!$alleleData) {
+            # p $row;
+          }
+          for my $positionData (@$alleleData) {
+            $positionData //= $emptyFieldChar;
+
+            if(ref $positionData) {
+              $positionData = join($valueDelimiter, map { $_ || $emptyFieldChar } @$positionData);
             }
 
-            $trackData->[$trackIdx][$childIdx] = join($outerDelimiter,
-              @{$trackData->[$trackIdx][$childIdx]} ); 
-
-            # TODO: Re-enable
-            # $trackData->[$trackIdx][$childIdx] = join("|", map {
-            #   $_ ? ( ref $_ ? join(";", map{ $_ || $emptyFieldChar } @{$_}) : $_ ) : $emptyFieldChar
-            # } @{$trackData->[$trackIdx][$childIdx]});
-      
+            # p $positionData;
           }
+          $alleleData = @$alleleData > 1 ? join($positionDelimiter, @$alleleData) : $alleleData->[0];
 
-          
+          # p $alleleData;
         }
 
+        $row->[$trackIdx] = join($alleleDelimiter, @{$row->[$trackIdx]});
 
-        # p $trackData->[$trackIdx];
-        $trackData->[$trackIdx]
-        = join("\t", map { $_ || $emptyFieldChar} @{$trackData->[$trackIdx]} );
-
-        # If it has a child, but it is an array, multiallelic or indel
-      } elsif(ref $trackData->[$trackIdx]) {
-        for my $data ( @{$trackData->[$trackIdx]} ) {
-          $data //= $emptyFieldChar;
-
-          if(ref $data) {
-            $data = join($innerDelimiter, map { $_ || $emptyFieldChar } @$data);
-          }
-        }
-
-        $trackData->[$trackIdx] = join($outerDelimiter,
-          map { $_ || $emptyFieldChar } @{$trackData->[$trackIdx]}
-        );
       }
-
-      if(!defined $trackData->[$trackIdx]) {
-        $trackData->[$trackIdx] = $emptyFieldChar;
-      }
-
-      # p $trackData->[$trackIdx];
 
       $trackIdx++;
     }
-
-    $trackData = join("\t", map { $_ || $emptyFieldChar } @$trackData);
+    
+    $row = join("\t", @$row);
   }
-
-  # p @$outputDataAref;
 
   return join("\n", @$outputDataAref) . "\n";
 }
+  # for my $row (@$outputDataAref) {
+  #   $rowIdx = 0;
+
+  #   if($row->[2] eq 'MULTIALLELIC') {
+  #     p $row;
+  #   }
+
+  #   $trackIdx = -1;
+  #   $multiallelic = 0;
+  #   TRACK_LOOP: for my $trackName ( @{$self->{_orderedHeader}} ) {
+  #     $trackIdx++;
+
+  #     if(ref $trackName) {
+  #       if(!$row->[$trackIdx]) {
+  #         $row->[$trackIdx] = join("\t", ($emptyFieldChar) x @$trackName);
+  #         next TRACK_LOOP;
+  #       }
+
+  #       # p $row->[$trackIdx];
+  #       # It's a track that has child features
+  #       FEATURE_LOOP: for my $featureIdx (0 .. $#$trackName) {
+  #         if(!$row->[$trackIdx][$featureIdx]) {
+  #           $row->[$trackIdx][$featureIdx] = $emptyFieldChar;
+  #           next FEATURE_LOOP;
+  #         }
+
+  #         # It's a 1D or 3D array
+  #         if(ref $row->[$trackIdx][$featureIdx]) {
+  #           ALLELE_LOOP: for my $alleleData ( @{$row->[$trackIdx][$featureIdx]} ) {
+  #             if(!$alleleData) {
+  #               $alleleData = $emptyFieldChar;
+  #               next ALLELE_LOOP;
+  #             }
+
+  #             if(ref $alleleData) {
+  #               $alleleData = join(';', map {
+  #                 # In the revision of the dbs prior to 11/29/16
+  #                 # sparse tracks that were merged contained fields that were arrays of arrays
+  #                 # instead of 1D arrays 
+  #                 $_ ? (ref $_ ? join(';', map{ $_ || $emptyFieldChar } @{$_}) : $_ ) : $emptyFieldChar
+  #               } @$alleleData);
+
+  #               p $alleleData;
+  #             }
+  #           }
+  #         }
+
+  #       }
+
+  #       next TRACK_LOOP;
+  #     }
+
+  #     # some tracks may have no data, replace with empty field character
+  #     if(!$row->[$trackIdx]) {
+  #       $row->[$trackIdx] = $emptyFieldChar;
+  #       next TRACK_LOOP;
+  #     }
+  #   }
+  # }
+    # $trackIdx = -1;
+    # TRACK_LOOP: for my $track (@$row) {
+    #   $trackIdx++;
+
+    #   # some tracks may have no data, replace with empty field character
+    #   $track //= $emptyFieldChar;
+
+    #   # We can have two modes... Either a 3 deep array, or a 1 deep array
+    #   # 0-1 deep is used by single allele, single position variants
+    #   # 3 deep for everything else
+    #   if(!ref $track) {
+    #     next TRACK_LOOP;
+    #   }
+
+    #   # If it's an array ref it could be a 1D array-based track feature,
+    #   # or a 3D array (minimum, due to Seqant db merge bug could be 4 deep, see below)
+    #   # If a different kind of reference, this will crash hard, reflecting a serious 
+    #   # misunderstanding of how getters should function
+    #   for my $alleleOrFeature (@$track) {
+    #     $alleleOrFeature //= $emptyFieldChar;
+
+    #     # p $alleleOrFeature;
+    #     # Found an inner array. It's a 3D (minimum) array
+    #     if(ref $alleleOrFeature) {
+    #       for my $positionData (@$alleleOrFeature) {
+    #         # some entries may be undef, cannot join these
+    #         $positionData //= $emptyFieldChar;
+
+    #         if($self->{_multiDepth}{$trackIdx} == 3) {
+    #           if(ref $positionData) {
+    #             for my $featureVal (@$positionData) {
+    #               # p $featureVal;
+    #             }
+                
+    #             p $row;
+    #             $self->log('fatal', "Expected either 1 or 3+ deep array, got 2");
+    #             return;
+    #           }
+
+    #           # Inside each position should be feature data
+    #           # Unfortunately, one build of Seqant did not properly merge
+    #           # sparse tracks, resulting in an extra deep array
+    #           # So we have this extra inner merge step
+    #           # $positionData = join(';', map {
+    #           #   $_ ? (ref $_ ? join(';', map { $_ || $emptyFieldChar } @{$_}) : $_) : $emptyFieldChar
+    #           # } @$positionData);
+    #         }
+    #       }
+
+    #       # It's an allele, join those by \
+    #       $alleleOrFeature = join('/', @$alleleOrFeature);
+
+    #       # If we don't move on, then the outer track data will get ';' delimited
+    #       next TRACK_LOOP;
+    #     }
+
+    #     # if($self->{_multiDepth}[$trackIdx] == 2) {
+    #     #   p $track;
+    #     #   p $row;
+    #     #   $self->log('fatal', "Expected either 1 or 3+ deep array, got 2");
+    #     #   return;
+    #     # }
+    #   }
+
+    #   # The track data is a reference, but it's a 1D array, join that by ";"
+    #   $track = join(';', @$track)
+    # }
+
+  #   $row = join("\t", @$row);
+  # }
+
+  # p @$outputDataAref;
+
+  # return join("\n", @$outputDataAref) . "\n";
+#}
 # sub makeOutputString {
 #   my ( $self, $outputDataAref) = @_;
 

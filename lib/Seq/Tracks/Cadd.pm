@@ -25,39 +25,68 @@ sub get {
   # $_[2] == $chr
   # $_[3] == $refBase
   # $_[4] == $altAlleles
-  # $_[5] == $outAccum
-  # $_[6] == $alleleNumber
+  # $_[5] == $alleleIdx
+  # $_[6] == $positionIdx
+  # $_[7] == $outAccum
 
-  # if (!defined $order->{ $refBase} )
-  if (!defined $order->{ $_[3] } ) {
+  if (!defined $order->{$_[3]} ) {
     # $self->log
     $_[0]->log('warn', "reference base $_[3] doesn't look valid, in Cadd.pm");
     
     # Eplicitly return undef as a value, this is what our program treats as missing data
     # Returning nothing is not the same, in list context
-    return $_[5] ? push @{$_[5]}, undef : undef;
+    if($_[7]) {
+      $_[7][$_[5]][$_[6]] = undef;
+
+      return $_[7];
+    }
+
+    return undef
   }
 
   # We may have stored an empty array at this position, in case 
   # the CADD scores read were not guaranteed to be sorted
   # Alternatively the CADD data for this position may be missing (not defined)
-  if(!defined $_[1]->[ $_[0]->{_dbName} ] || !@{ $_[1]->[ $_[0]->{_dbName} ] } ) {
-    return $_[5] ? push @{$_[5]}, undef : undef;
+  if( !defined $_[1]->[$_[0]->{_dbName}] || !@{$_[1]->[$_[0]->{_dbName}]} ) {
+    if($_[7]) {
+      $_[7][$_[5]][$_[6]] = undef;
+
+      return $_[7];
+    }
+
+    return undef;
   }
   
   # if (defined $order->{ $refBase }{ $altAlleles } ) {
-  if (defined $order->{ $_[3] }{ $_[4] } ) {
+  if ( defined $order->{$_[3]}{$_[4]} ) {
     #return $href->[ $self->dbName ]->[ $order->{ $refBase }{ $altAlleles } ]
-    return $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[3] }{ $_[4] } ]
-      : $_[1]->[ $_[0]->{_dbName} ][ $order->{ $_[3] }{ $_[4] } ]
+    if($_[7]) {
+      $_[7][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][ $order->{$_[3]}{$_[4]} ];
+
+      return $_[7];
+    }
+
+    return $_[1]->[$_[0]->{_dbName}][ $order->{$_[3]}{$_[4]} ];
   }
 
   # For indels, which will be the least frequent, return it all
   if (length( $_[4] ) > 1) {
-    return $_[5] ? push @{$_[5]}, $_[1]->[ $_[0]->{_dbName} ] : $_[1]->[ $_[0]->{_dbName} ];
+    if($_[7]) {
+       $_[7][$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
+
+       return $_[7];
+    }
+    return $_[1]->[ $_[0]->{_dbName} ];
   }
 
-  return $_[5] ? push @{$_[5]}, undef : undef;
+  # Allele isn't an indel, but isn't found
+  if ($_[7]) {
+    $_[7][$_[5]][$_[6]] = undef;
+
+    return $_[7];
+  }
+
+  return  undef;
 }
 
 # sub getIndel {
