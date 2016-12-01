@@ -99,12 +99,18 @@ sub BUILD {
   $self->{_geneTrackRegionHref} = {};
 
   # Avoid accessor penalties by aliasing to the $self hash
+  # These correspond to all of the sites held in Gene::Site
+  $self->{_strandKey} = $self->strandKey; 
   $self->{_siteTypeKey} = $self->siteTypeKey;
+  $self->{_codonSequenceKey} = $self->codonSequenceKey;
+  $self->{_codonPositionKey} = $self->codonPositionKey;
+  $self->{_codonNumberKey} = $self->codonNumberKey;
+
+  # The values for these keys we calculate at get() time.
   $self->{_refAminoAcidKey} = $self->refAminoAcidKey;
   $self->{_newCodonKey} = $self->newCodonKey;
   $self->{_newAminoAcidKey} = $self->newAminoAcidKey;
   $self->{_exonicAlleleFunctionKey} = $self->exonicAlleleFunctionKey;
-  $self->{_codonSequenceKey} = $self->codonSequenceKey;
 
   # Avoid Accessor performance hit, these can be called many millions of times
   # in get()
@@ -116,10 +122,6 @@ sub BUILD {
 
   # Not including the txNumberKey;  this is separate from the annotations, which is 
   # what these keys represent
-  
-  $self->{_siteKeysMap} = { $strandIdx => $self->strandKey, $siteTypeIdx => $self->siteTypeKey,
-      $codonNumberIdx => $self->codonNumberKey,  $codonPositionIdx => $self->codonPositionKey,
-      $codonSequenceIdx => $self->codonSequenceKey };
 
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
@@ -132,32 +134,35 @@ sub BUILD {
   if(!$self->noNearestFeatures) {
     my $nTrackPrefix = $self->nearestTrackName;
 
+    $self->{_hasNearest} = 1;
+
     $self->{_allCachedDbNames}{ $self->nearestTrackName } = $self->nearestDbName;
     
-    #the features specified in the region database which we want for nearest gene records
-    for my $nearestFeatureName ($self->allNearestFeatureNames) {
-      $self->{_allCachedDbNames}{$nearestFeatureName} = $self->getFieldDbName($nearestFeatureName);
-    }
+    $self->{_flatNearestFeatures} = [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ];
+    $self->addFeaturesToHeader($self->{_flatNearestFeatures}, $self->name);
 
-    $self->addFeaturesToHeader( [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ], $self->name);
-    $self->{_nearestFeatureMap} = { map { $_ => "$nTrackPrefix.$_" } $self->allNearestFeatureNames };
-  } else {
-    $self->{_noNearestFeatures} = 1;
+    #the features specified in the region database which we want for nearest gene records
+    my $i = 0;
+    for my $nfName ($self->allNearestFeatureNames) {
+      $self->{_allCachedDbNames}{$self->{_flatNearestFeatures}[$i]} = $self->getFieldDbName($nfName);
+      $i++;
+    }
   }
 
   if($self->hasJoin) {
     my $joinTrackName = $self->joinTrackName;
 
     $self->{_hasJoin} = 1;
-    $self->{_joinTrackFeatureMap} = { map { $_ => "$joinTrackName.$_" } @{ $self->{_joinTrackFeatures} } };
-
-    # Faster to access the hash directly than the accessor
-    $self->addFeaturesToHeader( [ map { "$joinTrackName.$_" } @{$self->{_joinTrackFeatures}} ], $self->name );
+    
+    $self->{_flatJoinFeatures} = [map{ "$joinTrackName.$_" } @{ $self->{_joinTrackFeatures} }];
+    $self->addFeaturesToHeader($self->{_flatJoinFeatures}, $self->name);
 
     # TODO: ould theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
+    my $i = 0;
     for my $fName ( @{$self->joinTrackFeatures} ) {
-      $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
+      $self->{_allCachedDbNames}{$self->{_flatJoinFeatures}[$i]} = $self->getFieldDbName($fName);
+      $i++;
     }
   }
 
@@ -167,6 +172,9 @@ sub BUILD {
 
   my @allGeneTrackFeatures = @{ $self->getParentFeatures($self->name) };
   
+  # This includes features added to header, using addFeatureToHeader 
+  # such as the modified nearest feature names ($nTrackPrefix.$_) and join track names
+  # and siteType, strand, codonNumber, etc.
   for my $i (0 .. $#allGeneTrackFeatures) {
     $self->{_featureIdxMap}{ $allGeneTrackFeatures[$i] } = $i;
   }
@@ -214,9 +222,7 @@ sub get {
   }
 
   # ################# Populate nearestGeneSubTrackName ##############
-  # Reads:
-  #  $self->{_noNearestFeatures}
-  if(!$self->{_noNearestFeatures}) {
+  if($self->{_hasNearest}) {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference, but will have a txNumber
@@ -226,11 +232,11 @@ sub get {
       : $href->[$cachedDbNames->{$self->nearestTrackName}];
 
     # Reads:         ($self->allNearestFeatureNames) {
-    for my $nFeature ($self->allNearestFeatureNames) {
-      $out[ $idxMap->{$self->{_nearestFeatureMap}{$nFeature}} ] =
+    for my $nFeature (@{$self->{_flatNearestFeatures}}) {
+      $out[ $idxMap->{$nFeature} ] =
         ref $nearestGeneNumber
         ? [map { $geneDb->{$_}{$cachedDbNames->{$nFeature}} } @$nearestGeneNumber]
-        :  $geneDb->{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
+        : $geneDb->{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
     }
   }
 
@@ -239,9 +245,9 @@ sub get {
     my $num = $multiple ?  $txNumbers->[0] : $txNumbers;
     # http://ideone.com/jlImGA
     #The features specified in the region database which we want for nearest gene records
-    #Reads:         @{$self->{_joinTracksFeatures} }
-    for my $fName ( @{$self->{_joinTrackFeatures}} ) {
-      $out[ $idxMap->{$self->{_joinTrackFeatureMap}{$fName}} ] = $geneDb->{$num}{$cachedDbNames->{$fName}};
+    #Reads:         @{$self->{_flatJoinFeatures} }
+    for my $fName ( @{$self->{_flatJoinFeatures}} ) {
+      $out[ $idxMap->{$fName} ] = $geneDb->{$num}{$cachedDbNames->{$fName}};
     }
   }
   
@@ -256,42 +262,32 @@ sub get {
   # save unpacked sites, for use in txEffectsKey population #####
   # moose attrs are very slow, cache
   # Push, because we'll use the indexes in calculating alleles
+  # TODO: Better handling of truncated codons
+  # Avoid a bunch of \;\ for non-coding sites
+  # By not assigning until the lower SNP_LOOP:
+  # $out[ $idxMap->{$self->{_codonNumberKey}} ];
+  # $out[ $idxMap->{$self->{_codonPositionKey}} ];
+  # $out[ $idxMap->{$self->{_codonSequenceKey}} ];
   my $hasCodon;
-  OUTER: for my $site ($multiple ? @$siteData : $siteData) {
-    # faster than c-style loop
-    for my $i (0 .. $#$site) {
-      if($i == $codonPositionIdx){
-        if($multiple) {
-          # We store codon position as 0-based, but people probably expect 1-based
-          #Reads:      $idxMap->{$self->{_siteKeysMap}{$i}} ]}, $site->[$i] + 1;
-          push @{ $out[$idxMap->{$self->{_siteKeysMap}{$i}}] }, $site->[$i] + 1;
-        } else {
-          $out[ $idxMap->{$self->{_siteKeysMap}{$i}} ] = $site->[$i] + 1;
-        }
-        
-      } else {
-        if($multiple) {
-          #Reads:      $idxMap->{ $self->{_siteKeysMap}{$i}} ]}, $site->[$i];
-          push @{$out[ $idxMap->{ $self->{_siteKeysMap}{$i}} ]}, $site->[$i];
-        } else {
-          $out[ $idxMap->{ $self->{_siteKeysMap}{$i}} ] = $site->[$i];
-        }
-        
-      }
+  if(!$multiple) {
+    $out[ $idxMap->{$self->{_strandKey}} ] = $siteData->[$strandIdx];
+    $out[ $idxMap->{$self->{_siteTypeKey}} ] = $siteData->[$siteTypeIdx];
+
+    # Only call codon2aa if needed; 
+    # TODO: What to do when truncated codon
+    if(defined $siteData->[$codonSequenceIdx]) {
+      $hasCodon = 1;
     }
+  } else {
+    for my $site (@$siteData) {
+      push @{ $out[ $idxMap->{$self->{_strandKey}} ] }, $site->[$strandIdx];
+      push @{ $out[ $idxMap->{$self->{_siteTypeKey}} ] }, $site->[$siteTypeIdx];
 
-    #### Populate refAminoAcidKey; note that for a single site
-    ###    we can have only one codon sequence, so not need to set array of them ###
-    if( defined $site->[$codonSequenceIdx] && length $site->[$codonSequenceIdx] == 3) {
-      if($multiple) {
-        #Reads:      $idxMap->{ $self->{_refAminoAcidKey}} ]}
-        push @{$out[ $idxMap->{ $self->{_refAminoAcidKey}} ]}, $codonMap->codon2aa($site->[$codonSequenceIdx]);
-      } else {
-        $out[ $idxMap->{ $self->{_refAminoAcidKey}} ] = $codonMap->codon2aa($site->[$codonSequenceIdx]);
+      # TODO: what to do when truncated codon
+      # Push an undef if nothing found, to keep multiple site data in transcript order
+      if(defined $site->[$codonSequenceIdx]) {
+        $hasCodon //= 1;
       }
-      
-
-      $hasCodon //= 1;
     }
   }
 
@@ -313,59 +309,69 @@ sub get {
   # ################# We include analysis of indels here, becuase  
   # #############  we may want to know how/if they disturb genes  #####################
   
-  # WARNING: DO NOT MODIFY $_[4]/$allele in the loop. IT WILL MODIFY BY REFERENCE EVEN
-  # WHEN SCALAR, and if referenceing $_[4] directly, affect other tracks!!!
-  # Looping over string, int, or ref: https://ideone.com/4APtzt
-  #Reads:                          ref $allelesAref ? @$allelesAref : $allelesAref
+  # TODO: Populate exonicAlleleFunction more than once for indels?
+  # It seems kind of silly to keep them in txOrder, since the annotation is
+  # always the same.
   if(length($allele) > 1) {
-    $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = 
+    my $indelAllele = 
       substr($allele, 0, 1) eq '+'
       ? length(substr($allele, 1)) % 3 ? $frameshift : $inFrame
       : int($allele) % 3 ? $frameshift : $inFrame; 
+
+    if($multiple) {
+      SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
+        push @{ $out[ $idxMap->{$self->{_codonNumberKey}} ] }, $site->[$codonNumberIdx];
+          # We store as 0-based, users probably expect 1 based
+        push @{ $out[ $idxMap->{$self->{_codonPositionKey}} ] },
+          $site->[$codonPositionIdx] ? $site->[$codonPositionIdx] + 1 : undef;
+        push @{ $out[ $idxMap->{$self->{_codonSequenceKey}} ] }, $site->[$codonSequenceIdx];
+
+        push @{$out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ]}, 
+          defined $site->[$codonSequenceIdx] ? $indelAllele : undef;
+      }
+    }else {
+      $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = $indelAllele;
+    }
 
     return $outAccum ? accumOut($alleleIdx, $positionIdx, $outAccum, \@out) : \@out;
   }
 
   ######### Most cases are just snps, so  inline that functionality ##########
 
-  ### We only populate newAminoAcidKey for snps ###
   my $i = 0;
-  my @accum;
+  my @funcAccum;
+  my $newAA;
+  my $refAA;
   SNP_LOOP: for my $site ( $multiple ? @$siteData : $siteData ) {
-    if(!defined $site->[$codonPositionIdx]){
-      push @accum, undef;
-      
+    push @{ $out[ $idxMap->{$self->{_codonNumberKey}} ] }, $site->[$codonNumberIdx];
+      # We store as 0-based, users probably expect 1 based
+    push @{ $out[ $idxMap->{$self->{_codonPositionKey}} ] },
+      $site->[$codonPositionIdx] ? $site->[$codonPositionIdx] + 1 : undef;
+    push @{ $out[ $idxMap->{$self->{_codonSequenceKey}} ] }, $site->[$codonSequenceIdx];
+
+    if( !(defined $site->[$codonSequenceIdx] && length($site->[$codonSequenceIdx]) == 3
+    && defined $site->[$codonPositionIdx]) ) {
+      # We only need to push undef, because (since our $out is expanded to num of features)
+      # We default to scalar undef for every field
       if($multiple) {
-        #Reads: $out{$self->{_newAminoAcidKey}} }, undef;
+        push @funcAccum, undef;
+        push @{$out[ $idxMap->{$self->{_refAminoAcidKey}} ]}, undef;
         push @{$out[ $idxMap->{$self->{_newAminoAcidKey}} ]}, undef;
-      } else {
-        $out[ $idxMap->{$self->{_newAminoAcidKey}} ] = undef;
+        push @{$out[ $idxMap->{$self->{_newCodonKey}} ]}, undef;
+
+        # say "didn't find things, out for $allele with this number of sites: " . scalar @$siteData;
+        # p @out;
+        # p $siteData;
+
+        # p $idxMap;
       }
       
-      next SNP_LOOP;
-    }
-
-    my $refCodonSequence =
-      $multiple 
-      ? $out[ $idxMap->{ $self->{_codonSequenceKey}} ][$i]
-      : $out[ $idxMap->{ $self->{_codonSequenceKey}} ];
-
-    if(length($refCodonSequence) != 3) {
-      push @accum, $truncated;
-
-      #Reads:$out{$self->{_newAminoAcidKey}} }, undef;
-      if($multiple) {
-        push @{$out[$idxMap->{$self->{_newAminoAcidKey}} ]}, undef;
-      } else {
-        $out[$idxMap->{$self->{_newAminoAcidKey}} ] = undef;
-      }
-      
-      
+      $i++;
       next SNP_LOOP;
     }
 
     #make a codon where the reference base is swapped for the allele
-    my $alleleCodonSequence = $refCodonSequence;
+    my $alleleCodonSequence = $site->[$codonSequenceIdx];
 
     # If codon is on the opposite strand, invert the allele
     if( $site->[$strandIdx] eq '-' ) {
@@ -374,43 +380,52 @@ sub get {
       substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $allele;
     }
 
-    my $newAA = $codonMap->codon2aa($alleleCodonSequence);
+    $newAA = $codonMap->codon2aa($alleleCodonSequence);
+    $refAA = $codonMap->codon2aa($site->[$codonSequenceIdx]);
 
     if($multiple) {
-      #Reads:$out[ $idxMap->{$self->{_newCodonKey}} ], $alleleCodonSequence;
+      push @{$out[ $idxMap->{$self->{_refAminoAcidKey}} ]}, $refAA;
       push @{$out[ $idxMap->{$self->{_newCodonKey}} ]}, $alleleCodonSequence;
-      #Reads: $out{$self->{_newAminoAcidKey}} }, $codonMap->codon2aa($alleleCodonSequence);
       push @{$out[ $idxMap->{$self->{_newAminoAcidKey}} ]}, $newAA;
     } else {
+      $out[ $idxMap->{$self->{_refAminoAcidKey}} ] = $refAA;
       $out[ $idxMap->{$self->{_newCodonKey}} ] = $alleleCodonSequence;
       $out[ $idxMap->{$self->{_newAminoAcidKey}} ] = $newAA;
     }
     
-
-    #Reads:      $out{$self->{_newAminoAcidKey}}->[$i]) {
     if(!defined $newAA) {
+      if($multiple) {
+        push @funcAccum, undef;
+      }
+
       $i++;
       next;
     }
 
-    # If reference codon is same as the allele-substititued version, it's a Silent site
-    # Reads:                                      $out{$self->{_newAminoAcidKey}}->[$i] ) {
-    if( $codonMap->codon2aa($refCodonSequence) eq $newAA) {
-      push @accum, $silent;
-    #Reads: $out{$self->{_newAminoAcidKey}}->[$i] eq '*') {
+    if($refAA eq $newAA) {
+      push @funcAccum, $silent;
     } elsif($newAA eq '*') {
-      push @accum, $stopGain;
+      push @funcAccum, $stopGain;
+    } elsif($refAA eq '*') {
+      push @funcAccum, $stopLoss;
     } else {
-      push @accum, $replacement;
+      push @funcAccum, $replacement;
     }
 
     $i++;
   }
 
-  if(@accum) {
-    #Reads:$idxMap->{$self->{_exonicAlleleFunctionKey}}]
-    $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = @accum > 1 ? \@accum : $accum[0];
-  }
+  $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = @funcAccum > 1 ? \@funcAccum : $funcAccum[0];
+
+  # if(@funcAccum) {
+  #   #Reads:$idxMap->{$self->{_exonicAlleleFunctionKey}}]
+  #   $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = @funcAccum > 1 ? \@funcAccum : $funcAccum[0];
+  # } else {
+  #   $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = [undef] x @$txNumbers;
+
+  #   say "I did stuff";
+  #   p $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] ;
+  # }
 
   return $outAccum ? accumOut($alleleIdx, $positionIdx, $outAccum, \@out) : \@out;
 };
@@ -418,11 +433,11 @@ sub get {
 sub accumOut {
   # my ($alleleIdx, $positionIdx, $outAccum, $outAref) = @_;
   #     $_[0]     , $_[1]       , $_[2]    , $_[3]
-  
+
   # for my $featureIdx (0 .. $#$outAref) {
   for my $featureIdx (0 .. $#{$_[3]}) {
     #$outAccum->[$featureIdx][$alleleIdx][$positionIdx] = $outAref->[$featureIdx];
-    $_[2]->[$featureIdx][$_[0]][$_[1]] = $_[3]->[$featureIdx];
+    $_[2]->[$featureIdx][$_[0]][$_[1]] = $_[3]->[$featureIdx] || undef;
   }
 
   #return $outAccum;
