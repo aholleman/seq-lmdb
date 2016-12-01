@@ -46,10 +46,6 @@ state $optionalInputHeaderFields = {
   alleleCountField => qr/Allele_Counts/i,
 };
 
-# The last field containing snp data; 5th or 6th
-# Set in checkInputFileHeader
-my $lastSnpFileFieldIdx;
-
 # @ public only the common fields exposed
 has chrFieldName => ( is => 'ro', init_arg => undef);
 
@@ -75,9 +71,17 @@ has typeFieldIdx => ( is => 'ro', init_arg => undef);
 
 has alleleCountFieldIdx => ( is => 'ro', init_arg => undef);
 
+# The last field containing snp data; 5th or 6th
+# Set in checkInputFileHeader
+has lastSnpFileFieldIdx => ( is => 'ro', init_arg => undef, writer => '_setLastSnpFileFieldIdx');
+
+# The first sample genotype field
+# Set in checkInputFileHeader
+# has firstSampleIdx => (is => 'ro', init_arg => undef, writer => '_setFirstSampleIdx');
+
 sub getSampleNamesIdx {
   my ($self, $fAref) = @_;
-  my $strt = $lastSnpFileFieldIdx + 1;
+  my $strt = $self->lastSnpFileFieldIdx + 1;
 
   # every other field column name is blank, holds genotype probability 
   # for preceeding column's sample;
@@ -125,7 +129,11 @@ sub checkInputFileHeader {
     }
   }
 
-  $lastSnpFileFieldIdx = max(@indicesFound);
+  my $lastSnpFileFieldIdx = max(@indicesFound);
+
+  $self->_setLastSnpFileFieldIdx($lastSnpFileFieldIdx);
+
+  # $self->_setFirstSampleIdx($lastSnpFileFieldIdx + 1);
 
   if($notFound) {
     if($dontDieOnUnkown) {

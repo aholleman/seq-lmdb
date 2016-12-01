@@ -120,12 +120,6 @@ sub BUILDARGS {
 
 sub BUILD {
   my $self = shift;
-
-  # Avoid accessor lookup penalty
-  $self->{_heterozygoteIdsKey} = $self->heterozygoteIdsKey;
-  $self->{_homozygoteIdsKey} = $self->homozygoteIdsKey;
-  $self->{_minorAllelesKey} = $self->minorAllelesKey;
-  $self->{_discordantKey} = $self->discordantKey;
   ########### Create DBManager instance, and instantiate track singletons #########
   # Must come before statistics, which relies on a configured Seq::Tracks
   #Expects DBManager to have been given a database_dir
@@ -251,22 +245,20 @@ sub annotate {
   $self->{_alleleFieldIdx} = $inputFileProcessor->alleleFieldIdx;
   $self->{_typeFieldIdx} = $inputFileProcessor->typeFieldIdx;
 
-  $self->{_chrKey} = $inputFileProcessor->chrFieldName;
-  $self->{_positionKey} = $inputFileProcessor->positionFieldName;
-  $self->{_typeKey} = $inputFileProcessor->typeFieldName;
-
   ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
   # Prepend these fields to the header
+  # Order here is important, we expect the first 7 keys to be in this order,
+  # or need to modify below in finishAnnotatingLines
   $headers->addFeaturesToHeader( [
-    $self->{_chrKey},
-    $self->{_positionKey},
-    $self->{_typeKey},
-    $self->{_discordantKey}, 
-    $self->{_heterozygoteIdsKey},
-    $self->{_homozygoteIdsKey},
-    $self->{_minorAllelesKey} ], undef, 1);
+    $inputFileProcessor->chrFieldName,
+    $inputFileProcessor->positionFieldName,
+    $inputFileProcessor->typeFieldName,
+    $self->discordantKey,
+    $self->heterozygoteIdsKey,
+    $self->homozygoteIdsKey,
+    $self->minorAllelesKey ], undef, 1);
 
   my @headers = @{$headers->get()};
   $self->{_numHeaders} = $#headers;
@@ -316,7 +308,9 @@ sub annotate {
 
   my $abortErr;  
   MCE::Loop::init {
-    max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
+    max_workers => 8, use_slurpio => 1,
+    #Disable on shared storage: 
+    # parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
     chunk_size => 8192,
@@ -549,8 +543,6 @@ sub annotateLinesAndPrint {
 
         # Accumulate the output
         $outputString .= $self->{_outputter}->makeOutputString(\@output);
-
-        # $self->{_outputter}->indexOutput(\@output);
 
         undef @positions; undef @output; undef @inputData;
       }
@@ -789,7 +781,6 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
 
   if($self->temp_dir) {
     my $mvCommand = $self->delete_temp ? 'mv' : 'cp';
-    
     $self->log('info', "Putting output file into final destination on EFS or S3 using $mvCommand");
 
     my $result;
@@ -843,11 +834,11 @@ sub _prepareStatsArguments {
   my $numberHeaderLines = 1;
 
   my $refColumnName = $self->{_refTrackGetter}->name;
-  my $alleleColumnName = $self->{_minorAllelesKey};
+  my $alleleColumnName = $self->minorAllelesKey;
   my $siteTypeColumnName = $self->statistics->{site_type_column_name};
 
-  my $homozygotesColumnName = $self->{_homozygoteIdsKey};
-  my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
+  my $homozygotesColumnName = $self->homozygoteIdsKey;
+  my $heterozygotesColumnName = $self->heterozygoteIdsKey;
 
   my $dir = $self->temp_dir || $self->output_file_base->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
