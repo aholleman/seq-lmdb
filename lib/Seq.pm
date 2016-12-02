@@ -828,8 +828,13 @@ sub _prepareStatsArguments {
 
   my $assembly = $self->assembly;
 
+  # Accumulate the delimiters: Note that $alleleDelimiter isn't necessary
+  # because the seqant_statistics scrip never operates on multiallelic sites
   my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
+  my $positionDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
+
   my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
+  my $emptyFieldCharacter = $self->{_outputter}->delimiters->emptyFieldChar;
 
   my $numberHeaderLines = 1;
 
@@ -845,34 +850,25 @@ sub _prepareStatsArguments {
   my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
 
-  # These two are optional
-  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name} || "";
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name} || "";
+  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
+  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
 
-  if (! ($refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-    && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1) ) {
+  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldCharacter
+  && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
+  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1)) {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
       . "primaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef, undef);
   }
-
-  # say "stats args are";
-  # p "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
-  #   . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
-  #   . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
-  #   . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
-  #   . "-dbSNPnameColumnName $snpNameColumnName "
-  #   . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-  #   . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
-  #   . "-numberInputHeaderLines $numberHeaderLines";
-
   return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
     . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
     . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
     . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
     . "-dbSNPnameColumnName $snpNameColumnName "
+    . "-emptyFieldString \$\"$emptyFieldCharacter\" "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
+    . "-secondaryDelimiter \$\"$positionDelimiter\""
     . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
     . "-numberInputHeaderLines $numberHeaderLines", $dir);
 }
