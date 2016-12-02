@@ -313,7 +313,7 @@ sub annotate {
     # parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
-    chunk_size => 8192,
+    # chunk_size => 8192,
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -826,17 +826,12 @@ sub _prepareStatsArguments {
     return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
   }
 
-  my $assembly = $self->assembly;
-
   # Accumulate the delimiters: Note that $alleleDelimiter isn't necessary
   # because the seqant_statistics scrip never operates on multiallelic sites
   my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
-  my $positionDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
 
   my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
-  my $emptyFieldCharacter = $self->{_outputter}->delimiters->emptyFieldChar;
-
-  my $numberHeaderLines = 1;
+  my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
 
   my $refColumnName = $self->{_refTrackGetter}->name;
   my $alleleColumnName = $self->minorAllelesKey;
@@ -853,9 +848,9 @@ sub _prepareStatsArguments {
   my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
   my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
 
-  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldCharacter
+  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
   && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1)) {
+  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath)) {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
       . "primaryDelimiter, fieldSeparator, and "
@@ -866,11 +861,9 @@ sub _prepareStatsArguments {
     . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
     . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
     . "-dbSNPnameColumnName $snpNameColumnName "
-    . "-emptyFieldString \$\"$emptyFieldCharacter\" "
+    . "-emptyFieldString \$\"$emptyFieldString\" "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-secondaryDelimiter \$\"$positionDelimiter\""
-    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
-    . "-numberInputHeaderLines $numberHeaderLines", $dir);
+    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ", $dir);
 }
 __PACKAGE__->meta->make_immutable;
 

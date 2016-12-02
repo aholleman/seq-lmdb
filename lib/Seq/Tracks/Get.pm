@@ -28,7 +28,7 @@ sub BUILD {
   my $self = shift;
 
   # Skip accesor penalty, the get function in this package may be called
-  # billions of times
+  # hundreds of millions of times
   $self->{_dbName} = $self->dbName;
 
   #register all features for this track
@@ -40,8 +40,8 @@ sub BUILD {
   }
 
   $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
-  $self->{_fieldNameMap} = { map { $self->getFieldDbName($_) => $_ } $self->allFeatureNames };
   $self->{_fieldDbNames} = [ map { $self->getFieldDbName($_) } $self->allFeatureNames ];
+  $self->{_fieldIdxRange} = [ 0 .. $#{$self->{_fieldDbNames}} ];
 }
 
 # Take a hash (that is passed to this function), and get back all features
@@ -62,71 +62,31 @@ sub get {
   # $_[6] == $positionIdx
   # $_[7] == $outAccum
   
-  #internally the feature data is store keyed on the dbName not name, to save space
+  #internally the data is store keyed on the dbName not name, to save space
   # 'some dbName' => someData
   #dbName is simply the track name as stored in the database
-
-  if($_[0]->{_dbName} == 14) {
-    say "14";
-    p @_;
-  }
 
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->{_noFeatures}) {
-    if($_[7]) {
-      #$outAccum->[$alleleIdx][$positionIdx] = $href->[$self->dbName]
-      $_[7]->[$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
-      
-      return $_[7];
-    }
+    $_[7]->[$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
 
-    return $_[1]->[ $_[0]->{_dbName} ];
+    return $_[7];
   }
 
   # We have features, so let's find those and return them
   # Since all features are stored in some shortened form in the db, we also
   # will first need to get their dbNames ($self->getFieldDbName)
   # and these dbNames will be found as a value of $href->{$self->dbName}
-
-  #return a hash reference
-  #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
-  #map is substantially faster than other kinds of for loops
-  #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
-  if($_[7]) {
-    my @out = map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}};
-
-    for my $featureIdx (0 .. $#out) {
-      $_[7]->[$featureIdx][$_[5]][$_[6]] = $out[$featureIdx];
-    }
-
-    return $_[7];
+  # #http://ideone.com/WD3Ele
+  # return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
+  for my $idx (@{$_[0]->{_fieldIdxRange}}) {
+    #$outAref->[$idx][$alleleIdx][$positionIdx] = $href->[$self->{_dbName}][$self->{_fieldDbNames}[$idx]] }
+    $_[7]->[$idx][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][$_[0]->{_fieldDbNames}[$idx]];
   }
-
-  #http://ideone.com/WD3Ele
-  return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
+  
+  return $_[7];
 }
-
-# sub getIndel {
-#   # Same as get, but assumes that the $href (database data) is an array that
-#   # covers many positions
-#   #my ($self, $dbDataAref) = @_;
-#   my %out;
-
-#   for my $fieldDbName (@{ $_[0]->{_fieldDbNames} }) {
-#     # $out{ $self->{_fieldNameMap}{$fieldDbName} } = [ map {
-#     #   ref $_->[$fieldDbName] ? @{ $_->[$fieldDbName] } : $_->[$fieldDbName]
-#     # } map { $_->[  $self->{_dbName} ] } @{$dbDataAref} ]
-#     $out{ $_[0]->{_fieldNameMap}{$fieldDbName} } = [ map {
-#       ref $_->[$fieldDbName] ? @{ $_->[$fieldDbName] } : $_->[$fieldDbName]
-#     } map { $_->[  $_[0]->{_dbName} ] } @{$_[1]} ]
-#   }
-
-#   return %out;
-# }
-
 __PACKAGE__->meta->make_immutable;
 
 1;
-
-#TODO: figure out how to neatly add feature exclusion, if it's useful

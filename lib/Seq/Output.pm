@@ -68,8 +68,6 @@ sub makeOutputString {
         }
 
         for my $featureIdx (0 .. $#$trackName) {
-          $featureData = $row->[$trackIdx][$featureIdx];
-
           for my $alleleData (@{$row->[$trackIdx][$featureIdx]}) {
             for my $positionData (@$alleleData) {
               $positionData //= $emptyFieldChar;
@@ -90,7 +88,7 @@ sub makeOutputString {
           # p  $row->[$trackIdx][$featureIdx];
           $row->[$trackIdx][$featureIdx] =
             @{$row->[$trackIdx][$featureIdx]} > 1 
-            ? join($alleleDelimiter, @$featureData)
+            ? join($alleleDelimiter, @{$row->[$trackIdx][$featureIdx]})
             : $row->[$trackIdx][$featureIdx][0];
         }
 
