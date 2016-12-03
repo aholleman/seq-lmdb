@@ -1,14 +1,37 @@
 #Our own, special field, tells an interface which fields to run prefix queries on
 prefixQueryFields:
-    - heterozygotes
-    - homozygotes
+    heterozygotes: 1
+    homozygotes: 1
 numericalFields:
-    - cadd
-    - phastCons
-    - phyloP
-    - Position
-    - dbSNP146.alleleNs
-    - dbSNP146.alleleFreqs
+    cadd : 1
+    phastCons : 1
+    phyloP : 1
+    Position : 1
+    dbSNP146.alleleNs : 1
+    dbSNP146.alleleFreqs : 1
+hasExactFields:
+    refSeq.mRNA : 1
+    refSeq.kgID : 1
+    refSeq.spID : 1
+    refSeq.spDisplayID : 1
+    refSeq.geneSymbol : 1
+    refSeq.refseq : 1
+    refSeq.protAcc : 1
+    refSeq.description : 1
+    refSeq.rfamAcc : 1
+    refSeq.name : 1
+    refSeq.nearest.name : 1
+    refSeq.nearest.geneSymbol : 1
+    refSeq.clinvar.PhenotypIDs : 1
+    dbSNP146.name : 1
+    dbSNP146.class : 1
+    dbSNP146.func : 1
+    clinvar.ClinicalSignificance : 1
+    clinvar.Type : 1
+    clinvar.Origin : 1
+    clinvar.ReviewStatus : 1
+    clinvar.OtherIDs : 1
+    clinvar.PhenotypIDs : 1
 
 settings:
     analysis:
@@ -54,14 +77,6 @@ settings:
                     - standard
                     - lowercase
                     - search_synonym_filter
-            # keyword_lowercase_synonym_autocomplete:
-            #     type: custom
-            #     tokenizer: keyword
-            #     filter:
-            #         - standard
-            #         - lowercase
-            #         - synonym_filter
-            #         - autocomplete_filter
             keyword_lowercase_autocomplete:
                 type: custom
                 tokenizer: keyword
@@ -158,18 +173,10 @@ mappings:
                     type: string
                     analyzer:  lowercase_keyword
                     search_analyzer: search_site_type_synonym_keyword
-                    fields:
-                        raw:
-                            type: string
-                            index: not_analyzed
                 exonicAlleleFunction:
                     type: string
                     analyzer:  lowercase_keyword
                     search_analyzer: search_exonic_allele_function_synonym_keyword
-                    fields:
-                        raw:
-                            type: string
-                            index: not_analyzed
                 referenceCodon:
                     type: string
                     analyzer:  lowercase_keyword
@@ -194,24 +201,40 @@ mappings:
                     include_in_all: false
                 strand:
                     type: string
-                    analyzer: keyword
+                    index: not_analyzed
                     include_in_all: false
                 kgID:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 mRNA:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 spID:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 spDisplayID:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 geneSymbol:
                     type: string
                     analyzer:  keyword_lowercase_autocomplete
@@ -219,47 +242,86 @@ mappings:
                     fields:
                         raw:
                             type: string
-                            index: not_analyzed
+                            index:  not_analyzed
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 refseq:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 protAcc:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 description:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 rfamAcc:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 name:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer:  lowercase_keyword
                 nearest:
                     properties:
                         name:
                             type: string
                             analyzer:  autocomplete
                             search_analyzer: search_standard
+                            fields:
+                                exact:
+                                    type: string
+                                    analyzer:  lowercase_keyword
                         geneSymbol:
                             type: string
                             analyzer:  autocomplete
                             search_analyzer: search_standard
+                            fields:
+                                exact:
+                                    type: string
+                                    analyzer:  lowercase_keyword
                 clinvar:
                     properties:
                         PhenotypeIDs:
                             type: string
                             analyzer:  autocomplete
                             search_analyzer: search_standard
+                            fields:
+                                exact:
+                                    type: string
+                                    analyzer:  lowercase_keyword
                         OtherIDs:
                             type: string
                             analyzer:  autocomplete
                             search_analyzer: search_standard
+                            fields:
+                                exact:
+                                    type: string
+                                    analyzer:  lowercase_keyword
         phastCons:
             type: float
             include_in_all: false
@@ -275,9 +337,13 @@ mappings:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 strand:
                     type: string
-                    analyzer: keyword
+                    index: not_analyzed
                     include_in_all: false
                 observed:
                     type: string
@@ -287,10 +353,18 @@ mappings:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 func:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 alleles:
                     type: string
                     analyzer: lowercase_keyword
@@ -307,22 +381,42 @@ mappings:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 Type:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 Origin:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 ReviewStatus:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 OtherIDs:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword
                 ReferenceAllele:
                     type: string
                     analyzer: lowercase_keyword
@@ -335,3 +429,7 @@ mappings:
                     type: string
                     analyzer:  autocomplete
                     search_analyzer: search_standard
+                    fields:
+                        exact:
+                            type: string
+                            analyzer: lowercase_keyword

@@ -117,13 +117,15 @@ sub go {
   }
 
   my $delimiters = Seq::Output::Delimiters->new();
-  my $primaryDelimiter = $delimiters->primaryDelimiter;
-  my $secondaryDelimiter = $delimiters->secondaryDelimiter;
 
-  my $emptyFieldChar = $self->emptyFieldChar;
+  my $alleleDelimiter = $delimiters->alleleDelimiter;
+  my $positionDelimiter = $delimiters->positionDelimiter;
+  my $valueDelimiter = $delimiters->valueDelimiter;
+
+  my $emptyFieldChar = $delimiters->emptyFieldChar;
 
   # Todo implement tain check; default taint check doesn't work for annotated files
-  $taint_check_regex = qr/./;
+  # $taint_check_regex = qr/./;
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1, #Disable on shared storage: parallel_io => 1,
@@ -190,9 +192,11 @@ sub go {
     my @indexed;
     while ( my $line = $MEM_FH->getline() ) {
       $lineCount++;
-      if (! $line =~ /$taint_check_regex/) {
-        next;
-      }
+
+      #TODO: implement; the default taint check regex doesn't work for annotated files
+      # if (! $line =~ /$taint_check_regex/) {
+      #   next;
+      # }
       chomp $line;
 
       my @fields = split $fieldSeparator, $line;
@@ -200,71 +204,63 @@ sub go {
       my %rowDocument;
       my $colIdx = 0;
       my $foundWeird = 0;
+      my $alleleIdx;
+      my $posIdx;
 
       # We use Perl's in-place modification / reference of looped-over variables
       # http://ideone.com/HNgMf7
       OUTER: for (my $i = 0; $i < @fields; $i++) {
         my $field = $fields[$i];
 
-        my $hasSecondary = 0;
-        if( index($field, $secondaryDelimiter) > -1 ) {
-          my @array;
-          $hasSecondary = 1;
+        #Every value is stored @ [alleleIdx][positionIdx]
+        my @out;
 
-          # char | is literally is an error; truncates the entire pattern
-          # /\$secondaryDelimiter/ doesn't work, neither does \\$secondaryDelimiter
-          INNER: for my $fieldValue ( split("\\$secondaryDelimiter", $field) ) {
+        if($field eq $emptyFieldChar) {
+          $out[0][0] = undef;
+        } else {
+          $alleleIdx = 0;
+          ALLELE_LOOP: for my $fieldValue ( split("\\$alleleDelimiter", $field) ) {
             if ($fieldValue eq $emptyFieldChar) {
-              next INNER;
+              # If the value is empty, then this value is for the default/0 index position
+              # Means it's not an indel
+              $out[$alleleIdx][0] = undef;
+
+              $alleleIdx++;
+              next ALLELE_LOOP;
             }
 
-            push @array, $fieldValue;
-          }
+            $posIdx = 0;
+            POS_LOOP: for my $posValue ( split("\\$positionDelimiter", $fieldValue) ) {
+              if ($posValue eq $emptyFieldChar) {
+                $out[$alleleIdx][$posIdx] = undef;
 
-          my @splitField = grep { $_ ne $emptyFieldChar } split("\\$secondaryDelimiter", $field);
+                $posIdx++;
+                next POS_LOOP;
+              }
 
-          # Field may be undef
-          # Modify the field, to be an array, or a scalar
-          if(@splitField > 1) {
-            $field = \@splitField;
-          } elsif(@splitField == 1) {
-            $field = $splitField[0];
-          } else {
-            $field = undef;
+              my @values = map { $_ ne $emptyFieldChar ? $_ : undef } split("\\$valueDelimiter", $posValue);
+
+              if(!@values) {
+                $out[$alleleIdx][$posIdx] = undef;
+              } else {
+                $out[$alleleIdx][$posIdx] = @values > 1 ? \@values : $values[0];
+              }
+              
+              $posIdx++;
+            }
+
+            $alleleIdx++;
           }
         }
 
-        for my $innerField (ref $field ? @$field : $field) {
-          if( index($innerField, $primaryDelimiter) > -1 ) {
-
-            my @splitField = grep { $_ ne $emptyFieldChar } split("\\$primaryDelimiter", $innerField);
-
-            if(@splitField > 1) {
-              $innerField = \@splitField;
-            } elsif(@splitField == 1) {
-              $innerField = $splitField[0];
-            } else {
-              $innerField = undef;
-            }
-
-            # Do nothing if @array is empty
-          } elsif($innerField eq $emptyFieldChar) {
-            $innerField = undef;
-          }
-
-          # Else don't modify the field
-        }
-
-        if(defined $field && $field ne $emptyFieldChar) {
-          _populateHashPath(\%rowDocument, $paths[$i], $field);
+        if(defined $out[0][0]) {
+          _populateHashPath(\%rowDocument, $paths[$i], \@out);
         }
       }
 
+      # p %rowDocument;
       push @indexed, \%rowDocument;
     }
-
-    # say "indexed is";
-    # p @indexed;
 
     $bulk->create_docs(@indexed);
     $bulk->flush;
