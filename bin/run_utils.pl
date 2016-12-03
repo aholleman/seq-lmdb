@@ -43,7 +43,7 @@ GetOptions(
   'to_bed'   => \$toBed,
   'liftOver_path=s' => \$liftOver_path,
   'liftOver_chain_path=s' => \$liftOver_chain_path,
-  'rename_track_to=s' => \$renameTrackTo,
+  'rename_to=s' => \$renameTrackTo,
   'verbose=i' => \$verbose,
   'dry_run_insertions' => \$dryRunInsertions,
 );

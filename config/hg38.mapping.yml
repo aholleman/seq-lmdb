@@ -7,8 +7,8 @@ numericalFields:
     phastCons : 1
     phyloP : 1
     Position : 1
-    dbSNP146.alleleNs : 1
-    dbSNP146.alleleFreqs : 1
+    dbSNP.alleleNs : 1
+    dbSNP.alleleFreqs : 1
 hasExactFields:
     refSeq.mRNA : 1
     refSeq.kgID : 1
@@ -23,9 +23,9 @@ hasExactFields:
     refSeq.nearest.name : 1
     refSeq.nearest.geneSymbol : 1
     refSeq.clinvar.PhenotypIDs : 1
-    dbSNP146.name : 1
-    dbSNP146.class : 1
-    dbSNP146.func : 1
+    dbSNP.name : 1
+    dbSNP.class : 1
+    dbSNP.func : 1
     clinvar.ClinicalSignificance : 1
     clinvar.Type : 1
     clinvar.Origin : 1
@@ -163,7 +163,7 @@ mappings:
             type: string
             include_in_all: false
             analyzer: lowercase_keyword
-        hg38:
+        reference:
             type: string
             include_in_all: false
             analyzer: lowercase_keyword
@@ -331,7 +331,7 @@ mappings:
         cadd:
             type: float
             include_in_all: false
-        dbSNP146:
+        dbSNP:
             properties:
                 name:
                     type: string
