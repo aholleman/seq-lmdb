@@ -1,37 +1,37 @@
 #Our own, special field, tells an interface which fields to run prefix queries on
 prefixQueryFields:
-    heterozygotes: 1
-    homozygotes: 1
+   - heterozygotes
+   - homozygotes
 numericalFields:
-    cadd : 1
-    phastCons : 1
-    phyloP : 1
-    Position : 1
-    dbSNP.alleleNs : 1
-    dbSNP.alleleFreqs : 1
+   - cadd
+   - phastCons
+   - phyloP
+   - Position
+   - dbSNP.alleleNs
+   - dbSNP.alleleFreqs
 hasExactFields:
-    refSeq.mRNA : 1
-    refSeq.kgID : 1
-    refSeq.spID : 1
-    refSeq.spDisplayID : 1
-    refSeq.geneSymbol : 1
-    refSeq.refseq : 1
-    refSeq.protAcc : 1
-    refSeq.description : 1
-    refSeq.rfamAcc : 1
-    refSeq.name : 1
-    refSeq.nearest.name : 1
-    refSeq.nearest.geneSymbol : 1
-    refSeq.clinvar.PhenotypIDs : 1
-    dbSNP.name : 1
-    dbSNP.class : 1
-    dbSNP.func : 1
-    clinvar.ClinicalSignificance : 1
-    clinvar.Type : 1
-    clinvar.Origin : 1
-    clinvar.ReviewStatus : 1
-    clinvar.OtherIDs : 1
-    clinvar.PhenotypIDs : 1
+   - refSeq.mRNA
+   - refSeq.kgID
+   - refSeq.spID
+   - refSeq.spDisplayID
+   - refSeq.geneSymbol
+   - refSeq.refseq
+   - refSeq.protAcc
+   - refSeq.description
+   - refSeq.rfamAcc
+   - refSeq.name
+   - refSeq.nearest.name
+   - refSeq.nearest.geneSymbol
+   - refSeq.clinvar.PhenotypIDs
+   - dbSNP.name
+   - dbSNP.class
+   - dbSNP.func
+   - clinvar.ClinicalSignificance
+   - clinvar.Type
+   - clinvar.Origin
+   - clinvar.ReviewStatus
+   - clinvar.OtherIDs
+   - clinvar.PhenotypIDs
 
 settings:
     analysis:
