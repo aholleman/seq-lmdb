@@ -691,9 +691,11 @@ sub finishAnnotatingLines {
         # Indel hets are never bi-allelic, limitation of PECaller merge script
         if($indels{$geno}) {
           $alleleIdx = index($strAlleles, $geno eq 'E' ? '-' : '+');
+          
           if($alleleIdx == -1) {
             $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
           } else {
+            # Heterozygote
             push @{$out[4][$alleleIdx][0]}, $self->{_genoNames}[$y];
           }
         } else {
@@ -704,7 +706,8 @@ sub finishAnnotatingLines {
               if($alleleIdx == -1) {
                 $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
               } else {
-                push @{$out[5][ index($strAlleles, $genoAllele) ][0]}, $self->{_genoNames}[$y];
+                # Heterozygote
+                push @{$out[4][ index($strAlleles, $genoAllele) ][0]}, $self->{_genoNames}[$y];
               }
             }
           }
@@ -713,6 +716,7 @@ sub finishAnnotatingLines {
       } elsif($homs{$geno}) {
         if($indels{$geno}) {
           $alleleIdx = index($strAlleles, $geno eq 'D' ? '-' : '+');
+          
           if($alleleIdx == -1) {
             $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
           } else {
