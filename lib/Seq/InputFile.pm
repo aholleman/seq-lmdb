@@ -79,20 +79,41 @@ has lastSnpFileFieldIdx => ( is => 'ro', init_arg => undef, writer => '_setLastS
 # Set in checkInputFileHeader
 # has firstSampleIdx => (is => 'ro', init_arg => undef, writer => '_setFirstSampleIdx');
 
-sub getSampleNamesIdx {
+# TODO: Remove. Currently depracated
+# sub getSampleNamesIdx {
+#   my ($self, $fAref) = @_;
+#   my $strt = $self->lastSnpFileFieldIdx + 1;
+
+#   # every other field column name is blank, holds genotype probability 
+#   # for preceeding column's sample;
+#   # don't just check for ne '', to avoid simple header issues
+#   my %data;
+  
+#   for(my $i = $strt; $i <= $#$fAref; $i += 2) {
+#     $data{$fAref->[$i] } = $i;
+#   }
+  
+#   return %data;
+# }
+
+sub getSampleNameConfidenceIndexes {
   my ($self, $fAref) = @_;
   my $strt = $self->lastSnpFileFieldIdx + 1;
 
   # every other field column name is blank, holds genotype probability 
   # for preceeding column's sample;
   # don't just check for ne '', to avoid simple header issues
-  my %data;
+  my @sampleIdx;
+  my @sampleNames;
+  my @confidenceIdx;
   
   for(my $i = $strt; $i <= $#$fAref; $i += 2) {
-    $data{$fAref->[$i] } = $i;
+    push @sampleNames, $fAref->[$i];
+    push @sampleIdx, $i;
+    push @confidenceIdx, $i + 1;
   }
-  
-  return %data;
+    
+  return (\@sampleNames, \@sampleIdx, \@confidenceIdx);
 }
 
 #uses the input file headers to figure out what the file type is

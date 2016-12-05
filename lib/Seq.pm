@@ -303,8 +303,8 @@ sub annotate {
   }
 
   ############# Set the sample ids ###############
-  $self->{_sampleIDsToIndexesMap} = { $inputFileProcessor->getSampleNamesIdx(\@firstLine) };
-  $self->{_sampleIDaref} =  [ sort keys %{ $self->{_sampleIDsToIndexesMap} } ];
+  ($self->{_genoNames}, $self->{_genosIdx}, $self->{_confIdx}) = $inputFileProcessor->getSampleNameConfidenceIndexes(\@firstLine);
+  $self->{_genosIdxRange} = [0 .. $#{$self->{_genosIdx}} ];
 
   my $abortErr;  
   MCE::Loop::init {
@@ -582,8 +582,10 @@ sub annotateLinesAndPrint {
 ###Private genotypes: used to decide whether sample is het, hom, or compound###
 my %hets = (K => 1,M => 1,R => 1,S => 1,W => 1,Y => 1,E => 1,H => 1);
 my %homs = (A => 1,C => 1,G => 1,T => 1,D => 1,I => 1);
-my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T',D => '-',I => '+', R => 'AG',
-  Y => 'CT',S => 'GC',W => 'AT',K => 'GT',M => 'AC',E => '-*',H => '+*');
+my %iupac = (A => 'A', C => 'C', G => 'G',T => 'T', R => 'AG', Y => 'CT',S => 'GC',
+  W => 'AT',K => 'GT',M => 'AC');
+my %iupacArray = (A => ['A'], C => ['C'], G => ['G'], T => ['T'], R => ['A','G'],
+  Y => ['C','T'],S => ['G','C'],W => ['A','T'],K => ['G','T'],M => ['A','C']);
 my %indels = (E => 1,H => 1,D => 1,I => 1);
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
@@ -598,6 +600,7 @@ sub finishAnnotatingLines {
   # long-running environment
   # ONLY WORKS IF WE ARE COMPARING INPUT'S Ref & Alleles columns
   state $cached = {};
+  state $strCache = {};
 
   # We store data for each indel
   my @indelDbData;
@@ -608,9 +611,10 @@ sub finishAnnotatingLines {
   # to keep track of whether or not an array represents multiple alleles
   # or one allele's values for a particular field
   my $alleleIdx;
-  my $ref;
+  my $inputRef;
   my $alleles;
-
+  my $strAlleles;
+  # my $multiple;
   POSITION_LOOP: for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
       return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] not found. Wrong assembly?");
@@ -627,69 +631,106 @@ sub finishAnnotatingLines {
     $out[1][0][0] = $inputAref->[$i][$self->{_positionFieldIdx}];
     $out[2][0][0] = $inputAref->[$i][$self->{_typeFieldIdx}];
     
-    # Take a temporary reference to the current position
-    # We will store one or more references at the $out[$refTrackIdx]
-    # Depending on # of alleles, # of positions (indels may have > 1 position)
-    $ref = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]);
-
+    $inputRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
     # Record discordant sites
-    $out[3][0][0] = $ref ne $inputAref->[$i][$self->{_referenceFieldIdx}] ? 1 : 0;
+    $out[3][0][0] = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]) ne $inputRef ? 1 : 0;
 
     ############### Get the minor alleles, cached to avoid re-work ###############
     # Calculate the minor alleles from the user's reference
     # It's kind of hard to know exactly what to do in discordant cases
-    if( !defined $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }{ $inputAref->[$i][$self->{_alleleFieldIdx}] } ) {
+    if( !defined $cached->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] } ) {
       my @alleles;
+      
       for my $allele ( split(',', $inputAref->[$i][$self->{_alleleFieldIdx}]) ) {
-        if( $allele ne $inputAref->[$i][$self->{_referenceFieldIdx}] ) {
+        if( $allele ne $inputRef ) {
           push @alleles, $allele;
         }
       }
 
       if(@alleles == 1) {
-        $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }
-        ->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = $alleles[0];
+        $cached->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = $alleles[0];
+        $strCache->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = length $alleles[0] > 1 ? substr($alleles[0], 0, 1) : $alleles[0];
       } else {
-        $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }
-        ->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = \@alleles;
+        $cached->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = \@alleles;
+        $strCache->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = join('', map{
+          length($_) > 1 ? substr($_, 0, 1) : $_
+        } @alleles);
       }
     }
 
-    $alleles = $cached->{ $inputAref->[$i][$self->{_referenceFieldIdx}] }{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    $alleles = $cached->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    $strAlleles = $strCache->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+    # $multiple = !!ref $alleles;
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
     # Homozygotes are index 4, heterozygotes 5
     
     my $geno;
-    SAMPLE_LOOP: for my $id (@{ $self->{_sampleIDaref}}) {
-      $geno = $inputAref->[$i][$self->{_sampleIDsToIndexesMap}{$id}];
+    my $alleleIdx;
+
+    #TODO: Inline -C. Also, we do not need the alleleIdx == -1 check if 
+    #we always have the relationship that those genotypes with confidence < .95
+    #are excluded from the list of Alleles
+    #This may not be true for some vcf files we choose to annotate.
+    SAMPLE_LOOP: for my $y (@{$self->{_genosIdxRange}}) {
+      #Exclude low confidence calls
+      #This takes a LOT of time when many samples, eats up 50% of loop time
+      if($inputAref->[$i][ $self->{_confIdx}[$y] ] < .95) {
+        next SAMPLE_LOOP;
+      }
+
+      $geno = $inputAref->[$i][ $self->{_genosIdx}[$y] ];
 
       #Does the sample genotype equal "N" or our assembly's reference?
-      if($geno eq $ref || $geno eq 'N') {
+      if($geno eq $inputRef || $geno eq 'N') {
         next SAMPLE_LOOP;
       }
 
       if ($hets{$geno}) {
         # Is this a bi-allelic sample? if so, call that homozygous
-        # None of our fake IUPAC indel codes contain a reference disambiguated
-        if(!defined $indels{$geno}) {
-          if(index($iupac{$geno}, $ref) == -1) {
-            # If both alleles are non-reference, call that a homozygote
-            push @{$out[4][0][0]}, $id;
+        # Indel hets are never bi-allelic, limitation of PECaller merge script
+        if($indels{$geno}) {
+          $alleleIdx = index($strAlleles, $geno eq 'E' ? '-' : '+');
+          if($alleleIdx == -1) {
+            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
           } else {
-            # Heterozygote
-            push @{$out[5][0][0]}, $id;
+            push @{$out[4][$alleleIdx][0]}, $self->{_genoNames}[$y];
           }
         } else {
-          # Heterozygote
-          push @{$out[5][0][0]}, $id;
+          for my $genoAllele ( @{$iupacArray{$geno}} ) {
+            if($genoAllele ne $inputRef) {
+              $alleleIdx = index($strAlleles, $genoAllele);
+
+              if($alleleIdx == -1) {
+                $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
+              } else {
+                push @{$out[5][ index($strAlleles, $genoAllele) ][0]}, $self->{_genoNames}[$y];
+              }
+            }
+          }
         }
         # Check if the sample looks like a homozygote
       } elsif($homs{$geno}) {
-        # Homozygote
-        push @{$out[4][0][0]}, $id;
+        if($indels{$geno}) {
+          $alleleIdx = index($strAlleles, $geno eq 'D' ? '-' : '+');
+          if($alleleIdx == -1) {
+            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
+          } else {
+            # Homozygote
+            push @{$out[5][$alleleIdx][0]}, $self->{_genoNames}[$y];
+          }
+        } else {
+          $alleleIdx = index($strAlleles, $geno);
+
+          if($alleleIdx == -1) {
+            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
+          } else {
+            # Homozygote
+            push @{$out[5][$alleleIdx][0]}, $self->{_genoNames}[$y];
+          }
+        }
       } else {
-        $self->log( 'warn', "$id wasn't homozygous or heterozygote" );
+        $self->log( 'warn', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
       }
     }
     
@@ -699,8 +740,14 @@ sub finishAnnotatingLines {
       undef @indelRef;
     }
 
+    # p $out[5];
+    # p $out[4];
+
     $alleleIdx = 0;
     for my $allele (ref $alleles ? @$alleles : $alleles) {
+      # If any alleles have no genotypes:
+      $out[4][$alleleIdx] //= [undef];
+      $out[5][$alleleIdx] //= [undef];
       # The minorAlleles column
       $out[6][$alleleIdx][0] = $allele;
 
@@ -730,7 +777,7 @@ sub finishAnnotatingLines {
           # which itself is + 1 from the db position, so we read  $out[1][0][0] to get the + 1 base
           @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0]) );
           
-          @indelRef =  ( $ref, $self->{_refTrackGetter}->get($indelDbData[1]) );
+          @indelRef =  ( $inputRef, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }
       }
 
@@ -750,11 +797,11 @@ sub finishAnnotatingLines {
         for my $track (@{ $self->{_trackGettersExceptReference} }) {
           $out[$self->{_trackIdx}{$track->name}] //= [];
 
-          $track->get($dataFromDbAref->[$i], $chr, $ref, $allele,
+          $track->get($dataFromDbAref->[$i], $chr, $inputRef, $allele,
             $alleleIdx, 0, $out[$self->{_trackIdx}{$track->name}])
         }
 
-        $out[$refTrackIdx][$alleleIdx][0] = $ref;
+        $out[$refTrackIdx][$alleleIdx][0] = $inputRef;
       }
 
       $alleleIdx++;
