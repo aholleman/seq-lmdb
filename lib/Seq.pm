@@ -717,7 +717,8 @@ sub finishAnnotatingLines {
               @indelDbData = (
                 $dataFromDbAref->[$i],
                 # From position + 1 to position + abs(allele) - 1 == position - (-allele + 1)
-                @{$self->{_db}->dbRead( $chr, [$out[1][0][0] + 1 .. $out[1][0][0]  - (int($allele) + 1)] )}
+                # Since positions are 1 based, equivalent to saying: $out[1][0][0] - 1 - (int($allele) + 1)]
+                @{$self->{_db}->dbRead( $chr, [$out[1][0][0] .. $out[1][0][0] - (int($allele) + 2)] )}
               );
             }
             
@@ -725,8 +726,9 @@ sub finishAnnotatingLines {
             @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;
           }
         } else {
-          #It's an insertion
-          @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0] + 1));
+          #It's an insertion, we always read + 1 to the position being annotated
+          # which itself is + 1 from the db position, so we read  $out[1][0][0] to get the + 1 base
+          @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0]) );
           
           @indelRef =  ( $ref, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }
