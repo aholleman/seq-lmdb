@@ -690,48 +690,25 @@ sub finishAnnotatingLines {
         # Is this a bi-allelic sample? if so, call that homozygous
         # Indel hets are never bi-allelic, limitation of PECaller merge script
         if($indels{$geno}) {
-          $alleleIdx = index($strAlleles, $geno eq 'E' ? '-' : '+');
-          
-          if($alleleIdx == -1) {
-            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
-          } else {
-            # Heterozygote
-            push @{$out[4][$alleleIdx][0]}, $self->{_genoNames}[$y];
-          }
+          # Heterozygote is column 4
+          push @{$out[4][ index($strAlleles, $geno eq 'E' ? '-' : '+') ][0]}, $self->{_genoNames}[$y];
         } else {
+          #There can be bi-allelic SNPs, where both calls in a het are non-reference
           for my $genoAllele ( @{$iupacArray{$geno}} ) {
             if($genoAllele ne $inputRef) {
-              $alleleIdx = index($strAlleles, $genoAllele);
-
-              if($alleleIdx == -1) {
-                $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
-              } else {
-                # Heterozygote
-                push @{$out[4][ index($strAlleles, $genoAllele) ][0]}, $self->{_genoNames}[$y];
-              }
+              # Heterozygote is column 4
+              push @{ $out[4][ index($strAlleles, $genoAllele) ][0] }, $self->{_genoNames}[$y];
             }
           }
         }
         # Check if the sample looks like a homozygote
       } elsif($homs{$geno}) {
         if($indels{$geno}) {
-          $alleleIdx = index($strAlleles, $geno eq 'D' ? '-' : '+');
-          
-          if($alleleIdx == -1) {
-            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
-          } else {
-            # Homozygote
-            push @{$out[5][$alleleIdx][0]}, $self->{_genoNames}[$y];
-          }
+          # Homozygote is column 5
+          push @{ $out[5][ index($strAlleles, $geno eq 'D' ? '-' : '+') ][0] }, $self->{_genoNames}[$y];
         } else {
-          $alleleIdx = index($strAlleles, $geno);
-
-          if($alleleIdx == -1) {
-            $self->log('warn', "$self->{_genoNames}[$y] geno not found in minorAlleles: \@ $out[0][0][0]:$out[1][0][0]. Could be low confidence");
-          } else {
-            # Homozygote
-            push @{$out[5][$alleleIdx][0]}, $self->{_genoNames}[$y];
-          }
+          # Homozygote is column 5
+          push @{$out[5][ index($strAlleles, $geno) ][0]}, $self->{_genoNames}[$y];
         }
       } else {
         $self->log( 'warn', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
@@ -743,9 +720,6 @@ sub finishAnnotatingLines {
       undef @indelDbData;
       undef @indelRef;
     }
-
-    # p $out[5];
-    # p $out[4];
 
     $alleleIdx = 0;
     for my $allele (ref $alleles ? @$alleles : $alleles) {
