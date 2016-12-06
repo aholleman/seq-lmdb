@@ -673,16 +673,16 @@ sub finishAnnotatingLines {
     #are excluded from the list of Alleles
     #This may not be true for some vcf files we choose to annotate.
     SAMPLE_LOOP: for my $y (@{$self->{_genosIdxRange}}) {
-      #Exclude low confidence calls
-      #This takes a LOT of time when many samples, eats up 50% of loop time
-      if($inputAref->[$i][ $self->{_confIdx}[$y] ] < .95) {
-        next SAMPLE_LOOP;
-      }
-
       $geno = $inputAref->[$i][ $self->{_genosIdx}[$y] ];
 
       #Does the sample genotype equal "N" or our assembly's reference?
       if($geno eq $inputRef || $geno eq 'N') {
+        next SAMPLE_LOOP;
+      }
+
+      #Exclude low confidence calls
+      #This takes a LOT of time when many samples, eats up 50% of loop time
+      if($inputAref->[$i][ $self->{_confIdx}[$y] ] < .95) {
         next SAMPLE_LOOP;
       }
 
