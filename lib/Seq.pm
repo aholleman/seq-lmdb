@@ -256,9 +256,12 @@ sub annotate {
     $inputFileProcessor->positionFieldName,
     $inputFileProcessor->typeFieldName,
     $self->discordantKey,
+    #index 4
+    $self->minorAllelesKey,
+    #index 5
     $self->heterozygoteIdsKey,
-    $self->homozygoteIdsKey,
-    $self->minorAllelesKey ], undef, 1);
+    #index 6
+    $self->homozygoteIdsKey], undef, 1);
 
   my @headers = @{$headers->get()};
   $self->{_numHeaders} = $#headers;
@@ -614,6 +617,7 @@ sub finishAnnotatingLines {
   my $inputRef;
   my $alleles;
   my $strAlleles;
+  my $pos;
   # my $multiple;
   POSITION_LOOP: for (my $i = 0; $i < @$inputAref; $i++) {
     if(!defined $dataFromDbAref->[$i] ) {
@@ -628,7 +632,9 @@ sub finishAnnotatingLines {
 
     ############# Store chr, position, alleles, type, and discordant status ###############
     $out[0][0][0] = $inputAref->[$i][$self->{_chrFieldIdx}];
-    $out[1][0][0] = $inputAref->[$i][$self->{_positionFieldIdx}];
+    
+    $out[1][0][0] = $pos = $inputAref->[$i][$self->{_positionFieldIdx}];
+    
     $out[2][0][0] = $inputAref->[$i][$self->{_typeFieldIdx}];
     
     $inputRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
@@ -690,25 +696,25 @@ sub finishAnnotatingLines {
         # Is this a bi-allelic sample? if so, call that homozygous
         # Indel hets are never bi-allelic, limitation of PECaller merge script
         if($indels{$geno}) {
-          # Heterozygote is column 4
-          push @{$out[4][ index($strAlleles, $geno eq 'E' ? '-' : '+') ][0]}, $self->{_genoNames}[$y];
+          # Heterozygote is column 5
+          push @{$out[5][ index($strAlleles, $geno eq 'E' ? '-' : '+') ][0]}, $self->{_genoNames}[$y];
         } else {
           #There can be bi-allelic SNPs, where both calls in a het are non-reference
           for my $genoAllele ( @{$iupacArray{$geno}} ) {
             if($genoAllele ne $inputRef) {
-              # Heterozygote is column 4
-              push @{ $out[4][ index($strAlleles, $genoAllele) ][0] }, $self->{_genoNames}[$y];
+              # Heterozygote is column 5
+              push @{ $out[5][ index($strAlleles, $genoAllele) ][0] }, $self->{_genoNames}[$y];
             }
           }
         }
         # Check if the sample looks like a homozygote
       } elsif($homs{$geno}) {
         if($indels{$geno}) {
-          # Homozygote is column 5
-          push @{ $out[5][ index($strAlleles, $geno eq 'D' ? '-' : '+') ][0] }, $self->{_genoNames}[$y];
+          # Homozygote is column 6
+          push @{ $out[6][ index($strAlleles, $geno eq 'D' ? '-' : '+') ][0] }, $self->{_genoNames}[$y];
         } else {
-          # Homozygote is column 5
-          push @{$out[5][ index($strAlleles, $geno) ][0]}, $self->{_genoNames}[$y];
+          # Homozygote is column 6
+          push @{$out[6][ index($strAlleles, $geno) ][0]}, $self->{_genoNames}[$y];
         }
       } else {
         $self->log( 'warn', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
@@ -723,11 +729,13 @@ sub finishAnnotatingLines {
 
     $alleleIdx = 0;
     for my $allele (ref $alleles ? @$alleles : $alleles) {
-      # If any alleles have no genotypes:
-      $out[4][$alleleIdx] //= [undef];
-      $out[5][$alleleIdx] //= [undef];
       # The minorAlleles column
-      $out[6][$alleleIdx][0] = $allele;
+      $out[4][$alleleIdx][0] = $allele;
+      # If any alleles have no genotypes:
+      # Hets
+      $out[5][$alleleIdx] //= [undef];
+      # Homozygotes
+      $out[6][$alleleIdx] //= [undef];
 
       if(length($allele) > 1) {
         # It's a deletion
@@ -737,13 +745,13 @@ sub finishAnnotatingLines {
           if($allele < -1)  {
             # If deletion is -2, position 100, deleted bases are 100, 101
             if($allele == -2) {
-              @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0] + 1));
+              @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $pos + 1));
             } else {
               @indelDbData = (
                 $dataFromDbAref->[$i],
                 # From position + 1 to position + abs(allele) - 1 == position - (-allele + 1)
-                # Since positions are 1 based, equivalent to saying: $out[1][0][0] - 1 - (int($allele) + 1)]
-                @{$self->{_db}->dbRead( $chr, [$out[1][0][0] .. $out[1][0][0] - (int($allele) + 2)] )}
+                # Since positions are 1 based, equivalent to saying: $pos - 1 - (int($allele) + 1)]
+                @{$self->{_db}->dbRead( $chr, [$pos .. $pos - (int($allele) + 2)] )}
               );
             }
             
@@ -753,7 +761,7 @@ sub finishAnnotatingLines {
         } else {
           #It's an insertion, we always read + 1 to the position being annotated
           # which itself is + 1 from the db position, so we read  $out[1][0][0] to get the + 1 base
-          @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $out[1][0][0]) );
+          @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $pos) );
           
           @indelRef =  ( $inputRef, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }

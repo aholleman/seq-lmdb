@@ -36,14 +36,6 @@ use Cpanel::JSON::XS qw/decode_json encode_json/;
 
 with 'Seq::Role::IO', 'Seq::Role::Message', 'Seq::Role::ConfigFromFile';
 
-# We  add a few of our own annotation attributes
-# These will be re-used in the body of the annotation processor below
-# Users may configure these
-has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
-has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
-has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
-has discordantKey => (is => 'ro', default => 'discordant');
-
 # The statistics package config options
 # This is by default the go program we use to calculate statistics
 has statisticsProgramPath => (is => 'ro', default => 'seqant-statistics');
@@ -118,6 +110,11 @@ has _outputFileBaseName => (is => 'ro', init_arg => undef);
 # Allows us to use all to to extract just the file we're interested from the compressed tarball
 has outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
 
+has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
+has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
+has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
+has discordantKey => (is => 'ro', default => 'discordant');
+
 sub BUILDARGS {
   my ($self, $data) = @_;
 
@@ -145,7 +142,6 @@ sub BUILDARGS {
 sub BUILD {
   my $self = shift;
 
-  say "running build";
   $self->{_outDir} = $self->output_file_base->parent();
 
   ############################# Handle Temp Dir ################################
@@ -187,12 +183,20 @@ sub BUILD {
     };
   }
 
+
+
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
   # We separate out the reference track getter so that we can check for discordant
   # bases, and pass the true reference base to other getters that may want it (like CADD)
   $self->{_refTrackGetter} = $tracks->getRefTrackGetter();
 
+  my %trackNamesMap;
+  for my $track (@{ $tracks->trackGetters }) {
+    $trackNamesMap{$track->name} = 1;
+  }
+
+  $self->{_trackNames} = \%trackNamesMap;
   ################### Creates the output file handler #################
   $self->{_outputter} = Seq::Output->new();
 }
@@ -204,40 +208,37 @@ sub annotate {
 
   $self->log( 'info', 'Input query is: ' . encode_json($self->inputQueryBody) );
 
-  my $headers = Seq::Headers->new();
+  my $alleleDelimiter = $self->{_outputter}->delimiters->alleleDelimiter;
+  my $positionDelimiter = $self->{_outputter}->delimiters->positionDelimiter;
+  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
+  my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
+  my $emptyFieldChar = $self->{_outputter}->delimiters->emptyFieldChar;
 
-  # $headers->clearHeaders();
+  my @fieldNames = @{$self->fieldNames};;
 
-  $self->{_chrKey} = $self->fieldNames->[0];
-  $self->{_positionKey} = $self->fieldNames->[1];
-  $self->{_typeKey} = $self->fieldNames->[2];
+  my @childrenOrOnly;
+  $#childrenOrOnly = $#fieldNames;
 
-  # Avoid accessor lookup penalty
-  $self->{_heterozygoteIdsKey} = $self->heterozygoteIdsKey;
-  $self->{_homozygoteIdsKey} = $self->homozygoteIdsKey;
-  $self->{_minorAllelesKey} = $self->minorAllelesKey;
-  $self->{_discordantKey} = $self->discordantKey;
+  # Elastic top level of { parent => child } is parent.
+  my @parentNames;
+  $#parentNames = $#fieldNames;
 
+  for my $i (0 .. $#fieldNames) {
+    if( index($fieldNames[$i], '.') > -1 ) {
+      my @path = split(/\./, $fieldNames[$i]);
+      $parentNames[$i] = $path[0];
 
-  # my @fieldNamesSplit = @{$self->fieldNames};
-  
-  # for my $field (@fieldNamesSplit) {
-  #   if(index($field, ".") > -1) {
-  #     $field = split(".", $field);
-  #   }
-  # }
-
-  # say "$fields are";
-  # p @fieldNamesSplit;
-
-
-  # Prepend these fields to the header
-  $headers->addFeaturesToHeader( [ @{$self->fieldNames}[0 .. 6] ], undef, 1);
-
-  say "headers";
-  p $headers->get();
-  # Outputter needs to know which fields we're going to pass it
-  $self->{_outputter}->setOutputDataFieldsWanted( $headers->get() );
+      if(@path == 2) {
+        $childrenOrOnly[$i] = [ $path[1] ];
+      } elsif(@path > 2) {
+        $childrenOrOnly[$i] = [ @path[ 1 .. $#path] ];
+      }
+      
+    } else {
+      $parentNames[$i] = $fieldNames[$i];
+      $childrenOrOnly[$i] = $fieldNames[$i];
+    }
+  }
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
@@ -272,14 +273,13 @@ sub annotate {
 
   # Stats may or may not be provided
   my $statsFh;
+  my $outputHeader = join($fieldSeparator, @fieldNames);
 
   # Write the header
-  my $outputHeader = $headers->getString();
 
-  say "outheaders are";
-  p $outputHeader;
+  say $outFh $outputHeader;
 
-  say $outFh $headers->getString();
+  # my @headers = @{ $self->{_headers}->getOrderedHeaderNoMap() };
 
   my $statsDir;
   if($self->run_statistics) {
@@ -296,22 +296,33 @@ sub annotate {
     say $statsFh $outputHeader;
   }
 
-  my $fieldSeparator = $self->delimiter;
-
-  my $taint_check_regex = $self->taint_check_regex; 
-  
   $self->log('info', "finished indexing");
 
   my $progressHandler = $self->makeLogProgress();
 
   while(my @docs = $scroll->next(1000)) {
     my @sourceData;
+    $#sourceData = $#docs;
 
+    my $i = 0;
     for my $doc (@docs) {
-      push @sourceData, $doc->{_source};
+      my @rowData;
+      # Initialize all values to undef
+      # Output.pm requires a sparse array for any missing values
+      # To preserve output order
+      $#rowData = $#fieldNames;
+
+      for my $y (0 .. $#fieldNames) {
+        $rowData[$y] = _populateArrayPathFromHash($childrenOrOnly[$y], $doc->{_source}{$parentNames[$y]});
+      }
+
+      $sourceData[$i] = \@rowData;
+
+      $i++;
     }
 
-    my $outputString = $self->{_outputter}->makeOutputString(\@sourceData);
+    my $outputString = _makeOutputString(\@sourceData, 
+      $emptyFieldChar, $valueDelimiter, $positionDelimiter, $alleleDelimiter, $fieldSeparator);
 
     print $outFh $outputString;
     print $statsFh $outputString;
@@ -345,6 +356,57 @@ sub annotate {
   return (undef, $statsHref, $self->outputFilesInfo);
 }
 
+sub _populateArrayPathFromHash {
+  my ($pathAref, $dataForEndOfPath) = @_;
+  #     $_[0]  , $_[1]    , $_[2]
+  if(!ref $pathAref) {
+    return $dataForEndOfPath;
+  }
+
+  for my $i (0 .. $#$pathAref) {
+    $dataForEndOfPath = $dataForEndOfPath->{$pathAref->[$i]};
+  }
+
+  return $dataForEndOfPath;
+}
+
+sub _makeOutputString {
+  my ($arrayRef, $emptyFieldChar, $valueDelimiter, $positionDelimiter, $alleleDelimiter, $fieldSeparator) = @_;
+
+  # Expects an array of row arrays, which contain an for each column, or an undefined value
+  for my $row (@$arrayRef) {
+    COLUMN_LOOP: for my $column (@$row) {
+      # Some fields may just be missing
+      if(!defined $column) {
+        $column = $emptyFieldChar;
+        next COLUMN_LOOP;
+      }
+
+      for my $alleleData (@$column) {
+        POS_LOOP: for my $positionData (@$alleleData) {
+          if(!defined $positionData) {
+            $positionData = $emptyFieldChar;
+            next POS_LOOP;
+          }
+
+          if(ref $positionData) {
+            $positionData = join($valueDelimiter, map { $_ || $emptyFieldChar } @$positionData);
+            next POS_LOOP;
+          }
+        }
+
+        $alleleData = join($positionDelimiter, @$alleleData);
+      }
+
+      $column = join($alleleDelimiter, @$column);
+    }
+
+    $row = join($fieldSeparator, @$row);
+  }
+
+  return join("\n", @$arrayRef);
+}
+
 sub makeLogProgress {
   my $self = shift;
 
@@ -369,31 +431,6 @@ sub makeLogProgress {
       return;
     }
   }
-}
-
-sub _populateHashPath {
-  my ($hashRef, $pathAref, $dataForEndOfPath) = @_;
-  #     $_[0]  , $_[1]    , $_[2]
-
-  if(!ref $pathAref) {
-    $hashRef->{$pathAref} = $dataForEndOfPath;
-    return $hashRef;
-  }
-
-  my $href = $hashRef;
-  for (my $i = 0; $i < @$pathAref; $i++) {
-    if($i + 1 == @$pathAref) {
-      $href->{$pathAref->[$i]} = $dataForEndOfPath;
-    } else {
-      if(!defined  $href->{$pathAref->[$i]} ) {
-        $href->{$pathAref->[$i]} = {};
-      }
-      
-      $href = $href->{$pathAref->[$i]};
-    }
-  }
-
-  return $href;
 }
 
 sub _moveFilesToFinalDestinationAndDeleteTemp {
@@ -462,56 +499,44 @@ sub _prepareStatsArguments {
     return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
   }
 
-  my $assembly = $self->assembly;
+  # Accumulate the delimiters: Note that $alleleDelimiter isn't necessary
+  # because the seqant_statistics scrip never operates on multiallelic sites
+  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
 
-  my $primaryDelimiter = $self->{_outputter}->delimiters->primaryDelimiter;
-  my $secondaryDelimiter = $self->{_outputter}->delimiters->secondaryDelimiter;
   my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
-
-  my $numberHeaderLines = 1;
+  my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
 
   my $refColumnName = $self->{_refTrackGetter}->name;
-  my $alleleColumnName = $self->{_minorAllelesKey};
+  my $alleleColumnName = $self->minorAllelesKey;
   my $siteTypeColumnName = $self->statistics->{site_type_column_name};
-
-  my $homozygotesColumnName = $self->{_homozygoteIdsKey};
-  my $heterozygotesColumnName = $self->{_heterozygoteIdsKey};
+  
+  my $homozygotesColumnName = $self->homozygoteIdsKey;
+  my $heterozygotesColumnName = $self->heterozygoteIdsKey;
 
   my $dir = $self->temp_dir || $self->output_file_base->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
   my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
 
-  # These two are optional
-  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name} || "";
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name} || "";
+  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
+  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
 
-  if (! ($refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-    && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath && $numberHeaderLines == 1) ) {
+  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
+  && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
+  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath)) {
     return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
       . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
-      . "primaryDelimiter, secondaryDelimiter, fieldSeparator, and "
+      . "primaryDelimiter, fieldSeparator, and "
       . "numberHeaderLines must equal 1 for statistics", undef, undef);
   }
-
-  # say "stats args are";
-  # p "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
-  #   . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
-  #   . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
-  #   . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
-  #   . "-dbSNPnameColumnName $snpNameColumnName "
-  #   . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-  #   . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
-  #   . "-numberInputHeaderLines $numberHeaderLines";
-
   return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
     . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
     . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
     . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
     . "-dbSNPnameColumnName $snpNameColumnName "
+    . "-emptyFieldString \$\"$emptyFieldString\" "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$primaryDelimiter\" -fieldSeparator \$\"$fieldSeparator\" "
-    . "-numberInputHeaderLines $numberHeaderLines", $dir);
+    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ", $dir);
 }
 __PACKAGE__->meta->make_immutable;
 

@@ -91,26 +91,26 @@ sub get_read_fh {
 
       say "opening file using tar command";
       say "$tar -O -xzf $filePath $innerFile";
-      open ($fh, '-|', "$tar -O -xf $filePath $innerFile");
+      open ($fh, '-|', "$tar -O -xf \"$filePath\" \"$innerFile\"");
     }
     # If an innerFile is passed, we assume that $file is a path to a tarball
   } elsif($filePath =~ /\.gz$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$gzip -d -c $filePath");
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
 
     # open($fh, "<:gzip", $filePath);
   } elsif($filePath =~ /\.zip$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$gzip -d -c $filePath");
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
     
     # open($fh, "<:gzip(none)", $filePath);
   } else {
     # open($fh, '<:unix', "$filePath");
-    open ($fh, '-|', "cat $filePath");
+    open ($fh, '-|', "cat \"$filePath\"");
   };
 
   if(!$fh) {
