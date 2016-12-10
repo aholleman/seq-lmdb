@@ -669,9 +669,16 @@ sub finishAnnotatingLines {
           length($_) > 1 ? substr($_, 0, 1) : $_
         } @alleles);
       } else {
-        # Will die if we're given a row with no alleles
+        # Skip sites that have no alleles. Alternative: we could die
+        # Reasons not to die: File could have a small number of discordant sites
+        # Reasons not to cache: don't run an if statement for 99.9% of cases that
+        # are not: (discordant + ref == alt)
         # TODO: decide if this is optimal
-        return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] doesn't have any alleles. Wrong assembly?");
+        $self->log('warn', "$chr: $inputAref->[$i][1] doesn't have any alleles. Wrong assembly?");
+        # Assign the reference here, rather than in the allele loop below, which won't be reached
+        # so that people get most output we can reasonably provide
+        $out[$refTrackIdx] = $inputRef;
+        next POSITION_LOOP;
       }
     }
 
