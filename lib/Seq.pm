@@ -127,6 +127,7 @@ sub BUILD {
   
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
+  # Disable this if need to rebuild one of the meta tracks, for one run
   $self->{_db}->setReadOnly(1);
 
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
@@ -309,14 +310,20 @@ sub annotate {
   ($self->{_genoNames}, $self->{_genosIdx}, $self->{_confIdx}) = $inputFileProcessor->getSampleNameConfidenceIndexes(\@firstLine);
   $self->{_genosIdxRange} = [0 .. $#{$self->{_genosIdx}} ];
 
-  my $abortErr;  
+  my $abortErr;
+
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1,
     #Disable on shared storage: 
     # parallel_io => 1,
     # auto may be faster for small files, bigger ones seem to incure
     # larger system overhead, due to more LMDB driver calls perhaps?
-    # chunk_size => 8192,
+    # Unfortunately, if we don't use a large chunk size, progress messages
+    # End up taking a large portion of the web server's/recipient's run time
+    # Causing jobs to appear to take much longer to complete.
+    # So in the end, we optimize for files at least ~65k lines in size, which
+    # is of course a very small file size
+    chunk_size => 8192,
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -347,7 +354,7 @@ sub annotate {
   # https://github.com/marioroy/mce-perl/issues/5
   # We want to check whether the program has any errors. An easy way is to
   # Return any error within the mce_loop_f
-  # Doesn't work nicely if you need to return a scalard value (no export)
+  # Doesn't work nicely if you need to return a scalar value (no export)
   # and need to call MCE::Shared::stop() to exit 
 
   my $m1 = MCE::Mutex->new;
@@ -449,6 +456,7 @@ sub annotate {
   if($self->run_statistics) {
     # Force the stats program to write its outputs
     close $statsFh;
+    system('sync');
 
     $self->log('info', "Gathering statistics");
 
@@ -476,7 +484,6 @@ sub makeLogProgressAndPrint {
   my $totalAnnotated = 0;
   my $totalSkipped = 0;
 
-  my $totalChange = 0;
   my $hasPublisher = $self->hasPublisher;
 
   if(!$hasPublisher) {
@@ -508,8 +515,8 @@ sub makeLogProgressAndPrint {
     $totalAnnotated += $_[0];
     $totalSkipped += $_[1];
     $self->publishProgress($totalAnnotated, $totalSkipped);
-    
-    if($statsFh) {
+
+   if($statsFh) {
       print $statsFh $_[3];
     }
     
@@ -618,8 +625,8 @@ sub finishAnnotatingLines {
   my $alleles;
   my $strAlleles;
   my $pos;
-  # my $multiple;
-  POSITION_LOOP: for (my $i = 0; $i < @$inputAref; $i++) {
+
+  POSITION_LOOP: for my $i ( 0 .. $#$inputAref ) {
     if(!defined $dataFromDbAref->[$i] ) {
       return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] not found. Wrong assembly?");
     }
@@ -656,17 +663,21 @@ sub finishAnnotatingLines {
       if(@alleles == 1) {
         $cached->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = $alleles[0];
         $strCache->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = length $alleles[0] > 1 ? substr($alleles[0], 0, 1) : $alleles[0];
-      } else {
+      } elsif(@alleles) {
         $cached->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = \@alleles;
         $strCache->{$inputRef}->{ $inputAref->[$i][$self->{_alleleFieldIdx}] } = join('', map{
           length($_) > 1 ? substr($_, 0, 1) : $_
         } @alleles);
+      } else {
+        # Will die if we're given a row with no alleles
+        # TODO: decide if this is optimal
+        return $self->_errorWithCleanup("$chr: $inputAref->[$i][1] doesn't have any alleles. Wrong assembly?");
       }
     }
 
     $alleles = $cached->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
+
     $strAlleles = $strCache->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] };
-    # $multiple = !!ref $alleles;
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
     # Homozygotes are index 4, heterozygotes 5
