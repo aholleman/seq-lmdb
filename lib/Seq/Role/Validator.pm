@@ -128,7 +128,7 @@ sub validateInputFile {
     my ($err, $convertBaseAbsPath) = $self->convertToPed($convertDir, $inputFileAbsPath);
 
     if ($err) {
-      $self->log('warn', "Vcf->ped conversion failed with '$err'");
+      $self->log('error', "Vcf->ped conversion failed with '$err'");
 
       return ($err, undef);
     }  
@@ -138,7 +138,7 @@ sub validateInputFile {
     ($err, my $updatedSnpFileName) = $self->convertToSnp($convertBaseAbsPath);
 
     if ($err) {
-      $self->log('warn', "Binary plink -> Snp conversion failed with '$err'");
+      $self->log('error', "Binary plink -> Snp conversion failed with '$err'");
 
       return ($err, undef);
     }
@@ -164,8 +164,6 @@ sub convertToPed {
   my $outBaseName = $inputFileAbsPath->basename(qr/\.vcf.*/);
 
   my $convertBaseAbsPath = $convertDir->child($outBaseName)->stringify;
-
-  $self->log('debug', "convert base path is $convertBaseAbsPath");
     
   my $err = system($self->_vcf2ped . " --vcf " . $inputFileAbsPath->stringify
     . " --out $convertBaseAbsPath --allow-extra-chr");
@@ -208,7 +206,7 @@ sub convertToSnp {
   my $snpPath = path($convertBaseAbsPath . '.snp');
 
   if(!$snpPath->is_file) {
-    $self->log('warn', 'convertToSnp failed to make snp file');
+    $self->log('error', 'convertToSnp failed to make snp file');
     return ('convertToSnp failed to make snp file', undef);
   }
 
@@ -232,9 +230,9 @@ sub _findBinaryPlinkFiles {
     return (undef, { bed => $bed, bim => $bim, fam => $fam} );
   }
 
-  $self->log('warn', "Bed, bim, and/or fam don\'t exist for base path $convertBasePath");
+  $self->log('error', "Bed, bim, and/or fam don\'t exist");
 
-  return ("Bed, bim, and/or fam don\'t exist for base path $convertBasePath", undef); 
+  return ("Bed, bim, and/or fam don\'t exist", undef); 
 }
 
 1;

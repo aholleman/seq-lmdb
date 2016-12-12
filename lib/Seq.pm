@@ -297,7 +297,7 @@ sub annotate {
     (my $err, my $statsArgs, $statsDir) = $self->_prepareStatsArguments();
 
     if($err) {
-      $self->log('warn', $err);
+      $self->log('error', $err);
       return ($err, undef, undef);
     }
 
@@ -337,7 +337,8 @@ sub annotate {
 
   # Store a reference; Moose/Mouse accessors aren't terribly fast
   # And this is used millions of times
-  my $chromosomesHref = $self->{_refTrackGetter}->chromosomes;
+  my %wantedChromosomes = %{ $self->{_refTrackGetter}->chromosomes };
+
   # Avoid hash lookups when possible, those are slow too
   my $typeFieldIdx = $self->{_typeFieldIdx};
 
@@ -374,7 +375,7 @@ sub annotate {
     # If the file isn't compressed, we pass the file path to 
     # MCE, because it is faster that way...
     # Howver, when we do that, we need to skip the header
-    # Reads:                && chunk_id == 1 && $readFirstLine == 0) {
+    # Reads:                                        && chunk_id == 1) {
     if(!$inputFileCompressed && $readFirstLine == 0 && $_[2] == 1) {
       #skip first line
       my $firstLine = <$MEM_FH>;
@@ -384,31 +385,32 @@ sub annotate {
     my $annotatedCount = 0;
     my $skipCount = 0;
     while ( my $line = $MEM_FH->getline() ) {
-      if ($line =~ $taint_check_regex) {
-        $annotatedCount++;
-        
-        chomp $line;
-        #Splitting on literal character is much,much faster
-        #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split('\t', $string) }'
-        #vs
-        #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split("\t", $string) }'
-        my @fields = split '\t', $line;
-
-        if ( !defined $chromosomesHref->{ $fields[0] } ) {
-          $skipCount++;
-          next;
-        }
-
-        # Don't annotate unreliable sites, no need to notify user, standard behavior
-        if($fields[$typeFieldIdx] eq "LOW" || $fields[$typeFieldIdx] eq "MESS") {
-          $skipCount++;
-          next;
-        }
-
-        push @lines, \@fields;
-      } else {
+      if ($line !~ $taint_check_regex) {
         $skipCount++;
+        next;
       }
+
+      $annotatedCount++;
+      
+      chomp $line;
+      #Splitting on literal character is much,much faster
+      #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split('\t', $string) }'
+      #vs
+      #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split("\t", $string) }'
+      my @fields = split '\t', $line;
+
+      if ( !$wantedChromosomes{ $fields[0] } ) {
+        $skipCount++;
+        next;
+      }
+
+      # Don't annotate unreliable sites, no need to notify user, standard behavior
+      if($fields[$typeFieldIdx] eq "LOW" || $fields[$typeFieldIdx] eq "MESS") {
+        $skipCount++;
+        next;
+      }
+
+      push @lines, \@fields;
     }
 
     close  $MEM_FH;
@@ -465,7 +467,7 @@ sub annotate {
     );
 
     if($status) {
-      $self->log('warn', $!);
+      $self->log('error', $!);
     } else {
       my $jsonStr = <$jsonFh>;
       $statsHref = decode_json($jsonStr);
@@ -735,7 +737,7 @@ sub finishAnnotatingLines {
           push @{$out[6][ index($strAlleles, $geno) ][0]}, $self->{_genoNames}[$y];
         }
       } else {
-        $self->log( 'warn', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
+        $self->log( 'error', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
       }
     }
     
@@ -867,7 +869,7 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
 sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
-  $self->log('warn', $msg);
+  $self->log('error', $msg);
   return $msg;
 }
 
