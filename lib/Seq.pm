@@ -105,7 +105,7 @@ sub BUILDARGS {
       $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
     }
   }
-  
+
   if( !$data->{logPath} ) {
     if(!ref $data->{output_file_base}) {
       $data->{output_file_base} = path($data->{output_file_base});
@@ -124,7 +124,7 @@ sub BUILD {
   # Must come before statistics, which relies on a configured Seq::Tracks
   #Expects DBManager to have been given a database_dir
   $self->{_db} = Seq::DBManager->new();
-  
+
   # Set the lmdb database to read only, remove locking
   # We MUST make sure everything is written to the database by this point
   # Disable this if need to rebuild one of the meta tracks, for one run
@@ -151,18 +151,20 @@ sub BUILD {
   $self->{_outDir} = $self->output_file_base->parent();
 
   ############################# Handle Temp Dir ################################
-  
+
   # If we specify temp_dir, user data will be written here first, then moved to the
   # final destination
   # If we're given a temp_dir, then we need to make temporary out paths and log paths
   if($self->temp_dir) {
     # Provided by Seq::Base
-    my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
-    
-    unlink $self->logPath;
+    if (defined $self->logPath) {
+      my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
 
-    # Updates the log path held by Seq::Role::Message static variable
-    $self->setLogPath($logPath);
+      unlink $self->logPath;
+
+      # Updates the log path held by Seq::Role::Message static variable
+      $self->setLogPath($logPath);
+    }
 
     $self->{_tempOutPath} = $self->temp_dir->child( $self->output_file_base->basename )->stringify;
   }
@@ -170,7 +172,7 @@ sub BUILD {
   ############### Set log, annotation, statistics output basenames #####################
   my $outputFileBaseName = $self->output_file_base->basename;
 
-  $self->outputFilesInfo->{log} = path($self->logPath)->basename;
+  $self->outputFilesInfo->{log} = $self->logPath ? path($self->logPath)->basename : undef;
   $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
 
   if($self->compress) {
@@ -186,14 +188,7 @@ sub BUILD {
   }
 
   ################### Creates the output file handler #################
-  $self->{_outputter} = Seq::Output->new();  
-
-  #################### Validate the input file ################################
-  # Converts the input file if necessary
-  my ($err, $updatedOrOriginalInputFilePath) = $self->validateInputFile(
-    $self->temp_dir || $self->{_outDir}, $self->input_file );
-
-  $self->setInputFile($updatedOrOriginalInputFilePath);
+  $self->{_outputter} = Seq::Output->new();
 }
 
 # TODO: maybe clarify interface; do we really want to return stats and outputFilesInfo
@@ -202,15 +197,27 @@ sub annotate {
   my $self = shift;
 
   $self->log( 'info', 'Beginning annotation' );
-    
+
+  #################### Validate the input file ################################
+  # Converts the input file if necessary
+  my ($err, $updatedOrOriginalInputFilePath) = $self->validateInputFile(
+    $self->temp_dir || $self->{_outDir}, $self->input_file );
+
+  if($err) {
+    $self->_errorWithCleanup($err);
+    return ($err, undef, undef);
+  }
+
+  $self->setInputFile($updatedOrOriginalInputFilePath);
+
   # File size is available to logProgressAndStatistics
-  (my $err, my $inputFileCompressed, my $fh) = $self->get_read_fh($self->inputFilePath);
+  ($err, my $inputFileCompressed, my $fh) = $self->get_read_fh($self->inputFilePath);
 
   if($err) {
     $self->_errorWithCleanup($!);
     return ($!, undef, undef);
   }
-  
+
   # Copy once to avoid accessor penalty
   my $taint_check_regex = $self->taint_check_regex;
 
@@ -218,7 +225,7 @@ sub annotate {
   my $firstLine = <$fh>;
 
   chomp $firstLine;
-  
+
   my @firstLine;
   if ( $firstLine =~ $taint_check_regex ) {
     #Splitting on literal character is much,much faster
@@ -235,7 +242,7 @@ sub annotate {
 
   my $inputFileProcessor = Seq::InputFile->new();
 
-  $inputFileProcessor->checkInputFileHeader(\@firstLine);  
+  $inputFileProcessor->checkInputFileHeader(\@firstLine);
 
   ########## Gather the input fields we want to use ################
   # Names and indices of input fields that will be added as the first few output fields
@@ -314,12 +321,7 @@ sub annotate {
 
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1,
-    #Disable on shared storage: 
-    # parallel_io => 1,
-    # auto may be faster for small files, bigger ones seem to incure
-    # larger system overhead, due to more LMDB driver calls perhaps?
-    # Unfortunately, if we don't use a large chunk size, progress messages
-    # End up taking a large portion of the web server's/recipient's run time
+    # Small chunk_size progress messages take large portion of recipient's run time
     # Causing jobs to appear to take much longer to complete.
     # So in the end, we optimize for files at least ~65k lines in size, which
     # is of course a very small file size
@@ -390,8 +392,6 @@ sub annotate {
         next;
       }
 
-      $annotatedCount++;
-      
       chomp $line;
       #Splitting on literal character is much,much faster
       #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split('\t', $string) }'
@@ -411,18 +411,20 @@ sub annotate {
       }
 
       push @lines, \@fields;
+
+      $annotatedCount++;
     }
 
     close  $MEM_FH;
 
     my $err = '';
     my $outString;
-    
+
     if(@lines) {
       #TODO: implement better error handling
       ($err, $outString) = $self->annotateLinesAndPrint(\@lines);
     }
-    
+
     # Write progress
     MCE->gather($annotatedCount, $skipCount, $err, $outString);
 
@@ -500,7 +502,7 @@ sub makeLogProgressAndPrint {
       if($statsFh) {
         print $statsFh $_[3];
       }
-      
+
       print $outFh $_[3];
     }
   }
@@ -521,7 +523,7 @@ sub makeLogProgressAndPrint {
    if($statsFh) {
       print $statsFh $_[3];
     }
-    
+
     print $outFh $_[3];
   }
 }
@@ -566,7 +568,7 @@ sub annotateLinesAndPrint {
     #store the position of 0-based, because our database is 0-based
     #will be given to the dbRead function to bulk-get database records
     push @positions, $fieldsAref->[$self->{_positionFieldIdx}] - 1;
-    
+
     #store a reference to the current input line
     #so that we can use whatever fields we need
     push @inputData, $fieldsAref; 
@@ -582,7 +584,7 @@ sub annotateLinesAndPrint {
     if($err ne '') {
       return ($err, undef);
     }
-    
+
     undef @positions; undef @inputData;
   }
 
@@ -641,11 +643,11 @@ sub finishAnnotatingLines {
 
     ############# Store chr, position, alleles, type, and discordant status ###############
     $out[0][0][0] = $inputAref->[$i][$self->{_chrFieldIdx}];
-    
+
     $out[1][0][0] = $pos = $inputAref->[$i][$self->{_positionFieldIdx}];
-    
+
     $out[2][0][0] = $inputAref->[$i][$self->{_typeFieldIdx}];
-    
+
     $inputRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
     # Record discordant sites
     $out[3][0][0] = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]) ne $inputRef ? 1 : 0;
@@ -655,7 +657,7 @@ sub finishAnnotatingLines {
     # It's kind of hard to know exactly what to do in discordant cases
     if( !defined $cached->{$inputRef}{ $inputAref->[$i][$self->{_alleleFieldIdx}] } ) {
       my @alleles;
-      
+
       for my $allele ( split(',', $inputAref->[$i][$self->{_alleleFieldIdx}]) ) {
         if( $allele ne $inputRef ) {
           push @alleles, $allele;
@@ -690,7 +692,7 @@ sub finishAnnotatingLines {
 
     ############ Store homozygotes, heterozygotes, compoundHeterozygotes ########
     # Homozygotes are index 4, heterozygotes 5
-    
+
     my $geno;
     my $alleleIdx;
 
@@ -740,7 +742,7 @@ sub finishAnnotatingLines {
         $self->log( 'error', "$self->{_genoNames}[$y] wasn't homozygous or heterozygote" );
       }
     }
-    
+
     # http://ideone.com/NbvlF5
     if(@indelDbData) {
       undef @indelDbData;
@@ -774,7 +776,7 @@ sub finishAnnotatingLines {
                 @{$self->{_db}->dbRead( $chr, [$pos .. $pos - (int($allele) + 2)] )}
               );
             }
-            
+
             #faster than perl-style loop (much faster than c-style)
             @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;
           }
@@ -782,7 +784,7 @@ sub finishAnnotatingLines {
           #It's an insertion, we always read + 1 to the position being annotated
           # which itself is + 1 from the db position, so we read  $out[1][0][0] to get the + 1 base
           @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $pos) );
-          
+
           @indelRef =  ( $inputRef, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }
       }
@@ -796,7 +798,7 @@ sub finishAnnotatingLines {
             $track->get($indelDbData[$posIdx], $chr, $indelRef[$posIdx], $allele,
               $alleleIdx, $posIdx, $out[$self->{_trackIdx}{$track->name}]);
           }
-          
+
           $out[$refTrackIdx][$alleleIdx][$posIdx] = $indelRef[$posIdx];
         }
       } else {
@@ -843,7 +845,7 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
     if($self->compress) {
       my $sourcePath = $self->temp_dir->child( $self->outputFilesInfo->{compressed} )->stringify;
       $result = system("$mvCommand $sourcePath $finalDestination");
-      
+
     } else {
       $result = system("$mvCommand " . $self->tempPath . "/* $finalDestination");
     }
@@ -851,7 +853,7 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
     if($self->delete_temp) {
       $self->temp_dir->remove_tree;
     }
-  
+
     # System returns 0 unless error
     if($result) {
       return $self->_errorWithCleanup("Failed to $mvCommand file to final destination");
