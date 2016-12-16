@@ -71,7 +71,11 @@ sub sort {
       my $chr = substr($l, 0, index($l, $self->delimiter) );
 
       if(!exists $wantedChrs{$chr}) {
-        next;
+        if($chr ne 'chrMT') {
+          next;
+        }
+
+        $chr = 'chrM';
       }
 
       my $fh = $outFhs{$chr};

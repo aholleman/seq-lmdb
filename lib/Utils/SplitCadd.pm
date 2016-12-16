@@ -94,11 +94,19 @@ sub split {
       $chrIdPart = $line[0];
     }
 
+    if($chrIdPart eq 'MT') {
+      $chrIdPart = 'M';
+    }
+
     my $chr = "chr$chrIdPart";
 
     if(!exists $wantedChrs{$chr}) {
-      $self->log('warn', "Chromosome $chr not recognized (from $chrIdPart)");
-      next;
+      if($chrIdPart ne 'MT') {
+        $self->log('warn', "Chromosome $chr not recognized (from $chrIdPart)");
+        next;
+      }
+      
+      $chrIdPart = 'M';
     }
 
     if(exists $skippedBecauseExists{$chr}) {
