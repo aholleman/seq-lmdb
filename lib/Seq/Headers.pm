@@ -16,7 +16,7 @@ state $orderedHeaderFeaturesAref = [];
 state $orderedHeaderFeaturesArefNoMap;
 # { $parent => [ $child1, $child2 ] }
 state $parentChild = {};
-
+# { childFeature1 => idx, childFeature2 => idx;
 state $orderMap;
 
 sub initialize() {
@@ -32,7 +32,46 @@ sub getParentFeatures {
   return $parentChild->{$parentName};
 }
 
-# sub getHeaderL
+sub getChildFeaturesMap {
+  my ($self, $parentName) = @_;
+
+  if(exists $parentChild->{$parentName}) {
+    return $parentChild->{$parentName};
+  }
+
+  my %map;
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    # say "trackName is $orderedHeaderFeaturesAref->[$i]";
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      my $trackName = (keys %{$orderedHeaderFeaturesAref->[$i]})[0];
+
+      # say "trackName is $trackName, parentName is $parentName";
+      if($trackName eq $parentName) {
+        my $y = 0;
+        for my $child (@{ $orderedHeaderFeaturesAref->[$i]{$trackName} }) {
+          # say "child is $child, id is $y";
+          $map{$child} = $y;
+          $y++;
+        }
+      }
+      
+      next;
+    }
+
+    if($orderedHeaderFeaturesAref->[$i] eq $parentName) {
+      # This parent has no children
+      $parentChild->{$parentName} = undef;
+
+      return undef;
+    }
+  }
+
+  $parentChild->{$parentName} = \%map;
+
+  return $parentChild->{$parentName}; 
+}
+
+# Memoized, should be called only after all features of interest are added
 
 sub getOrderedHeaderNoMap() {
   if($orderedHeaderFeaturesArefNoMap) {
@@ -52,6 +91,7 @@ sub getOrderedHeaderNoMap() {
   return $orderedHeaderFeaturesArefNoMap; 
 }
 
+# Memoized, should be called only after all features of interest are added
 sub getParentFeaturesMap() {
   if($orderMap) {
     return $orderMap;

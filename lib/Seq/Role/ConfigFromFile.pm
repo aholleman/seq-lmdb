@@ -76,6 +76,8 @@ sub new_with_config {
     p %opts;
   }
 
+  say "opts are";
+  p %opts;
   $class->new( \%opts );
 }
 
