@@ -335,7 +335,8 @@ sub annotate {
   if($self->run_statistics) {
     # Force the stats program to write its outputs
     close $statsFh;
-
+    system('sync');
+    
     $self->log('info', "Gathering statistics");
 
     (my $status, undef, my $jsonFh) = $self->get_read_fh(

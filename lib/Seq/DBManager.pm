@@ -117,12 +117,12 @@ sub dbReadOne {
 
   $txn->get($db->{dbi}, $_[2], my $json);
       
-  my $err;
-  if($dbReadOnly) {
-    $err = $txn->reset();
-  } else {
-    $err = $txn->abort();
-  }
+  # my $err;
+  # if($dbReadOnly) {
+  #   $err = $txn->reset();
+  # } else {
+  #   $err = $txn->abort();
+  # }
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
     $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
@@ -173,15 +173,15 @@ sub dbRead {
     $pos = $mp->unpack($json);
   }
   
-  my $err;
-  if($dbReadOnly) {
-    $err = $txn->reset();
-  } else {
-    $err = $txn->abort();
-  }
+  # my $err;
+  # if($dbReadOnly) {
+  #   $err = $txn->reset();
+  # } else {
+  #   $err = $txn->abort();
+  # }
 
-  if($err) {
-    $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $err");
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $LMDB_File::last_err");
     return;
   }
   
@@ -498,15 +498,15 @@ sub dbReadAll {
     $out{$key} = $mp->unpack($value);
   }
 
-  my $err;
-  if($dbReadOnly) {
-    $err = $db->{DB}->Txn->reset();
-  } else {
-    $err = $db->{DB}->Txn->abort();
-  }
+  # my $err;
+  # if($dbReadOnly) {
+  #   $err = $db->{DB}->Txn->reset();
+  # } else {
+  #   $err = $db->{DB}->Txn->abort();
+  # }
   
-  if($err) {
-    $_[0]->_errorWithCleanup("dbReadAll LMDB error at end: $err");
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    $_[0]->_errorWithCleanup("dbReadAll LMDB error at end: $LMDB_File::last_err");
     return;
   }
 
@@ -708,6 +708,10 @@ sub _errorWithCleanup {
   $internalLog->ERR($msg);
   # Reset error message, not sure if this is the best way
   $LMDB_File::last_err = 0;
+
+  # Make it easier to track errors
+  say STDERR "LMDB error: $msg";
+
   $self->log('fatal', $msg);
 }
 

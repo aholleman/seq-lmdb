@@ -18,6 +18,8 @@ our $VERSION = '0.001';
 
 =cut
 
+## TODO: remove the if(nearestGeneNumber) check. Right now needed because
+## we have no chrM refSeq stuff
 use Mouse 2;
 
 use namespace::autoclean;
@@ -219,12 +221,18 @@ sub get {
       ? $txNumbers 
       : $href->[$cachedDbNames->{$self->nearestTrackName}];
 
-    # Reads:         ($self->allNearestFeatureNames) {
-    for my $nFeature (@{$self->{_flatNearestFeatures}}) {
-      $out[ $idxMap->{$nFeature} ] =
-        ref $nearestGeneNumber
-        ? [map { $geneDb->{$_}{$cachedDbNames->{$nFeature}} } @$nearestGeneNumber]
-        : $geneDb->{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
+    if($nearestGeneNumber) {
+      # Reads:         ($self->allNearestFeatureNames) {
+      for my $nFeature (@{$self->{_flatNearestFeatures}}) {
+        $out[ $idxMap->{$nFeature} ] =
+          ref $nearestGeneNumber
+          ? [map { $geneDb->{$_}{$cachedDbNames->{$nFeature}} } @$nearestGeneNumber]
+          : $geneDb->{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
+      }
+    } else {
+      if($chr ne 'chrM') {
+        $self->log('error', "$chr missing nearest gene data");
+      }
     }
   }
   

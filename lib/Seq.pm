@@ -446,7 +446,8 @@ sub annotate {
 
     $self->temp_dir->remove_tree;
 
-    $self->{_db}->cleanUp();
+    # Seems to occasionally cause issue?
+    # $self->{_db}->cleanUp();
 
     return ($abortErr, undef, undef);
   }
