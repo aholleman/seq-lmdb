@@ -177,6 +177,10 @@ mappings:
                     type: string
                     analyzer:  lowercase_keyword
                     search_analyzer: search_exonic_allele_function_synonym_keyword
+                    fields:
+                        raw:
+                            type: string
+                            index: not_analyzed
                 referenceCodon:
                     type: string
                     analyzer:  lowercase_keyword
