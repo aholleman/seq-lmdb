@@ -110,10 +110,10 @@ has _outputFileBaseName => (is => 'ro', init_arg => undef);
 # Allows us to use all to to extract just the file we're interested from the compressed tarball
 has outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
 
-has heterozygoteIdsKey => (is => 'ro', default => 'heterozygotes');
-has homozygoteIdsKey => (is => 'ro', default => 'homozygotes');
-has minorAllelesKey => (is => 'ro', default => 'minorAlleles');
-has discordantKey => (is => 'ro', default => 'discordant');
+# TODO: factor this stuff out; this is only used for statistics here
+has altField => (is => 'ro', default => 'alt');
+has heterozygotesField => (is => 'ro', default => 'heterozygotes');
+has homozygotesField => (is => 'ro', default => 'homozygotes');
 
 sub BUILDARGS {
   my ($self, $data) = @_;
@@ -508,11 +508,11 @@ sub _prepareStatsArguments {
   my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
 
   my $refColumnName = $self->{_refTrackGetter}->name;
-  my $alleleColumnName = $self->minorAllelesKey;
+  my $alleleColumnName = $self->altField;
   my $siteTypeColumnName = $self->statistics->{site_type_column_name};
   
-  my $homozygotesColumnName = $self->homozygoteIdsKey;
-  my $heterozygotesColumnName = $self->heterozygoteIdsKey;
+  my $homozygotesColumnName = $self->homozygotesField;
+  my $heterozygotesColumnName = $self->heterozygotesField;
 
   my $dir = $self->temp_dir || $self->output_file_base->parent;
   my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});

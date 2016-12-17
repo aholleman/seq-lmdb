@@ -6,7 +6,7 @@ numericalFields:
    - cadd
    - phastCons
    - phyloP
-   - Position
+   - pos
    - dbSNP.alleleNs
    - dbSNP.alleleFreqs
 hasExactFields:
@@ -126,15 +126,15 @@ mappings:
         # analyzer: autocomplete
         # search_analyzer: search_standard
     properties:
-        Fragment:
+        chrom:
             type: string
             analyzer: lowercase_keyword
             # chr's are very short, and the "prefix" is a completely valid value
             # so, don't include in all, because many false positivies with ngrams
             include_in_all: false
-        Position:
+        pos:
             type: integer
-        Type:
+        type:
             type: string
             analyzer: lowercase_keyword
             search_analyzer: search_type_synonym_keyword
@@ -159,11 +159,11 @@ mappings:
                 raw:
                     type: string
                     index: not_analyzed
-        minorAlleles:
+        alt:
             type: string
             include_in_all: false
             analyzer: lowercase_keyword
-        reference:
+        ref:
             type: string
             include_in_all: false
             analyzer: lowercase_keyword
