@@ -135,7 +135,7 @@ sub BUILD {
 
     $self->{_hasNearest} = 1;
 
-    $self->{_allCachedDbNames}{ $self->nearestTrackName } = $self->nearestDbName;
+    $self->{_nearestDbName} = $self->nearestDbName;
     
     $self->{_flatNearestFeatures} = [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ];
     $self->addFeaturesToHeader($self->{_flatNearestFeatures}, $self->name);
@@ -219,9 +219,9 @@ sub get {
     my $nearestGeneNumber =
       defined $txNumbers
       ? $txNumbers 
-      : $href->[$cachedDbNames->{$self->nearestTrackName}];
+      : $href->[$self->{_nearestDbName}];
 
-    if($nearestGeneNumber) {
+    if(defined $nearestGeneNumber) {
       # Reads:         ($self->allNearestFeatureNames) {
       for my $nFeature (@{$self->{_flatNearestFeatures}}) {
         $out[ $idxMap->{$nFeature} ] =
