@@ -16,6 +16,8 @@ state $orderedHeaderFeaturesAref = [];
 state $orderedHeaderFeaturesArefNoMap;
 # { $parent => [ $child1, $child2 ] }
 state $parentChild = {};
+# { $parent => {childName => childIdx}}
+state $parentChildHashRef = {};
 # { childFeature1 => idx, childFeature2 => idx;
 state $orderMap;
 
@@ -35,8 +37,8 @@ sub getParentFeatures {
 sub getChildFeaturesMap {
   my ($self, $parentName) = @_;
 
-  if(exists $parentChild->{$parentName}) {
-    return $parentChild->{$parentName};
+  if($parentChildHashRef->{$parentName}) {
+    return $parentChildHashRef->{$parentName};
   }
 
   my %map;
@@ -57,18 +59,11 @@ sub getChildFeaturesMap {
       
       next;
     }
-
-    if($orderedHeaderFeaturesAref->[$i] eq $parentName) {
-      # This parent has no children
-      $parentChild->{$parentName} = undef;
-
-      return undef;
-    }
   }
 
-  $parentChild->{$parentName} = \%map;
+  $parentChildHashRef->{$parentName} = %map ? \%map : undef;
 
-  return $parentChild->{$parentName}; 
+  return $parentChildHashRef->{$parentName}; 
 }
 
 # Memoized, should be called only after all features of interest are added

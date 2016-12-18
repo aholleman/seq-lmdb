@@ -113,16 +113,14 @@ sub dbReadOne {
   }
 
   # my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  # my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  }
+
+  my $txn = $db->{db}->Txn;
 
   $txn->get($db->{dbi}, $_[2], my $json);
-      
-  # my $err;
-  # if($dbReadOnly) {
-  #   $err = $txn->reset();
-  # } else {
-  #   $err = $txn->abort();
-  # }
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
     $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
@@ -149,7 +147,12 @@ sub dbRead {
   }
 
   # my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  # my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  }
+
+  my $txn = $db->{db}->Txn;
 
   my $json;
 
@@ -173,13 +176,6 @@ sub dbRead {
     $pos = $mp->unpack($json);
   }
   
-  # my $err;
-  # if($dbReadOnly) {
-  #   $err = $txn->reset();
-  # } else {
-  #   $err = $txn->abort();
-  # }
-
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $LMDB_File::last_err");
     return;
@@ -468,15 +464,12 @@ sub dbReadAll {
     return {};
   }
 
-  $db->{DB}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+  }
 
-  #unfortunately if we close the transaction, cursors stop working
-  #a limitation of the current API
-  #and since dbi wouldn't be available to the rest of this package unless
-  #that transaction was comitted
-  #we need to re-open the database for dbReadAll transactions
-
-  my $cursor = $db->{DB}->Cursor;
+  # LMDB::Cursor::open($txn, $db->{dbi}, my $cursor);
+  my $cursor = $db->{db}->Cursor;
 
   my ($key, $value, %out);
   while(1) {
@@ -498,13 +491,6 @@ sub dbReadAll {
     $out{$key} = $mp->unpack($value);
   }
 
-  # my $err;
-  # if($dbReadOnly) {
-  #   $err = $db->{DB}->Txn->reset();
-  # } else {
-  #   $err = $db->{DB}->Txn->abort();
-  # }
-  
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $_[0]->_errorWithCleanup("dbReadAll LMDB error at end: $LMDB_File::last_err");
     return;
@@ -622,7 +608,7 @@ sub _getDbi {
       return $envs->{$name};
     } elsif ($dontCreate) {
       # dontCreate does not imply the database will never be created,
-      # so we don't want to update $self-_envs
+      # so we don't want to update $self->_envs
       return; 
     } else {
       $dbPath->mkpath;
@@ -674,7 +660,7 @@ sub _getDbi {
     return;
   }
 
-  $envs->{$name} = {env => $env, dbi => $DB->dbi, DB => $DB};
+  $envs->{$name} = {env => $env, dbi => $DB->dbi, db => $DB};
 
   #say "made database $name for " .$databaseDir;
 
