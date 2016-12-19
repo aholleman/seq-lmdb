@@ -13,16 +13,21 @@ with 'Seq::Role::Message';
 # [ { $parent => [ $child1, $child2 ] }, $feature2, $feature3, etc ]
 state $orderedHeaderFeaturesAref = [];
 # [ [ $child1, $child2 ], $feature2, $feature3, etc ]
-state $orderedHeaderFeaturesArefNoMap;
+state $orderedHeaderFeaturesArefNoMap = [];
 # { $parent => [ $child1, $child2 ] }
 state $parentChild = {};
 # { $parent => {childName => childIdx}}
 state $parentChildHashRef = {};
 # { childFeature1 => idx, childFeature2 => idx;
-state $orderMap;
+state $orderMap = {};
 
+# All singleton tracks have an initialize method, which clears 
 sub initialize() {
   $orderedHeaderFeaturesAref = [];
+  $orderedHeaderFeaturesArefNoMap = [];
+  $parentChild = {};
+  $parentChildHashRef = {};
+  $orderMap = {};
 }
 
 sub get() {
@@ -69,7 +74,7 @@ sub getChildFeaturesMap {
 # Memoized, should be called only after all features of interest are added
 
 sub getOrderedHeaderNoMap() {
-  if($orderedHeaderFeaturesArefNoMap) {
+  if(@$orderedHeaderFeaturesArefNoMap) {
     return $orderedHeaderFeaturesArefNoMap;
   }
 
@@ -88,7 +93,7 @@ sub getOrderedHeaderNoMap() {
 
 # Memoized, should be called only after all features of interest are added
 sub getParentFeaturesMap() {
-  if($orderMap) {
+  if(%$orderMap) {
     return $orderMap;
   }
 

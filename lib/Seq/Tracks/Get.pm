@@ -18,10 +18,6 @@ has headers => (
   init_arg => undef,
   lazy => 1,
   default => sub { Seq::Headers->new() },
-  handles => {
-    addFeaturesToHeader => 'addFeaturesToHeader',
-    getParentFeatures => 'getParentFeatures',
-  }
 );
 
 sub BUILD {
@@ -36,11 +32,13 @@ sub BUILD {
   #if this class has no features, then the track's name is also its only feature
   if($self->noFeatures) {
     $self->{_noFeatures} = 1;
-    return $self->addFeaturesToHeader($self->name);
+    $self->headers->addFeaturesToHeader($self->name);
+    return;
   }
 
-  $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
-  $self->{_fieldDbNames} = [ map { $self->getFieldDbName($_) } $self->allFeatureNames ];
+  $self->headers->addFeaturesToHeader([$self->allFeatureNames], $self->name);
+
+  $self->{_fieldDbNames} = [map { $self->getFieldDbName($_) } $self->allFeatureNames];
   $self->{_fieldIdxRange} = [ 0 .. $#{$self->{_fieldDbNames}} ];
 }
 
@@ -69,8 +67,10 @@ sub get {
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->{_noFeatures}) {
+    #$outAccum->[$alleleIdx][$positionIdx] = $href->[ $self->{_dbName} ]
     $_[7]->[$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
 
+    #      $outAccum;
     return $_[7];
   }
 
@@ -81,10 +81,10 @@ sub get {
   # #http://ideone.com/WD3Ele
   # return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
   for my $idx (@{$_[0]->{_fieldIdxRange}}) {
-    #$outAref->[$idx][$alleleIdx][$positionIdx] = $href->[$self->{_dbName}][$self->{_fieldDbNames}[$idx]] }
+    #$outAccum->[$idx][$alleleIdx][$positionIdx] = $href->[$self->{_dbName}][$self->{_fieldDbNames}[$idx]] }
     $_[7]->[$idx][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][$_[0]->{_fieldDbNames}[$idx]];
   }
-  
+        #$outAccum;
   return $_[7];
 }
 __PACKAGE__->meta->make_immutable;

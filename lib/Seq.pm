@@ -119,6 +119,7 @@ sub BUILDARGS {
 
 sub BUILD {
   my $self = shift;
+
   ########### Create DBManager instance, and instantiate track singletons #########
   # Must come before statistics, which relies on a configured Seq::Tracks
   #Expects DBManager to have been given a database_dir
@@ -187,9 +188,11 @@ sub BUILD {
    ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
-  # Prepend these fields to the header
+  # Seq.pm contains a pseudo-track, having its own header fields
+  # Adding them to Seq::Headers must come after Seq::Tracks->new(), which runs Seq::Headers::initialize
   # Order here is important, we expect the first 7 keys to be in this order,
-  # or need to modify below in finishAnnotatingLines
+  # or need to modify below in addTrackData
+  # TODO: Move the annotation stuff to a separate track, say called Tracks::Input?
   $headers->addFeaturesToHeader( [
     $self->chromField,
     $self->posField,
@@ -202,8 +205,7 @@ sub BUILD {
     #index 6
     $self->homozygotesField], undef, 1);
 
-  my @headerNames = @{$headers->get()};
-  $self->{_numHeaders} = $#headerNames;
+  $self->{_lastHeaderIdx} = $#{$headers->get()};
 
   $self->{_trackIdx} = $headers->getParentFeaturesMap();
 
@@ -418,7 +420,7 @@ sub annotate {
 
     if(@lines) {
       #TODO: implement better error handling
-      ($err, $outString) = $self->annotateLinesAndPrint(\@lines);
+      ($err, $outString) = $self->annotateLines(\@lines);
     }
 
     # Write progress
@@ -487,23 +489,6 @@ sub makeLogProgressAndPrint {
 
   my $hasPublisher = $self->hasPublisher;
 
-  if(!$hasPublisher) {
-    return sub {
-      #my $annotatedCount, $skipCount, $err, $outputLines = @_;
-      ##    $_[0],          $_[1],     $_[2], $_[3]
-      if(defined $_[2]) {
-        $$abortErrRef = $_[2];
-        return;
-      }
-
-      if($statsFh) {
-        print $statsFh $_[3];
-      }
-
-      print $outFh $_[3];
-    }
-  }
-
   return sub {
     #my $annotatedCount, $skipCount, $err, $outputLines = @_;
     ##    $_[0],          $_[1],     $_[2], $_[3]
@@ -513,11 +498,13 @@ sub makeLogProgressAndPrint {
       return;
     }
 
-    $totalAnnotated += $_[0];
-    $totalSkipped += $_[1];
-    $self->publishProgress($totalAnnotated, $totalSkipped);
+    if($hasPublisher) {
+      $totalAnnotated += $_[0];
+      $totalSkipped += $_[1];
+      $self->publishProgress($totalAnnotated, $totalSkipped);
+    }
 
-   if($statsFh) {
+    if($statsFh) {
       print $statsFh $_[3];
     }
 
@@ -525,8 +512,8 @@ sub makeLogProgressAndPrint {
   }
 }
 
-# Accumulates data from the database, and writes an output string
-sub annotateLinesAndPrint {
+# Accumulates data from the database, and returns an output string
+sub annotateLines {
   my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
@@ -546,7 +533,7 @@ sub annotateLinesAndPrint {
         $self->{_db}->dbRead($wantedChr, \@positions); 
 
         # accumulate results in @output
-        my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
+        my $err = $self->addTrackData($wantedChr, \@positions, \@inputData, \@output);
 
         if($err ne '') {
           return ($err, undef);
@@ -576,7 +563,7 @@ sub annotateLinesAndPrint {
     # Positions will be fille with data
     $self->{_db}->dbRead($wantedChr, \@positions, 1); 
 
-    my $err = $self->finishAnnotatingLines($wantedChr, \@positions, \@inputData, \@output);
+    my $err = $self->addTrackData($wantedChr, \@positions, \@inputData, \@output);
 
     if($err ne '') {
       return ($err, undef);
@@ -600,7 +587,7 @@ my %iupacArray = (A => ['A'], C => ['C'], G => ['G'], T => ['T'], R => ['A','G']
 my %indels = (E => 1,H => 1,D => 1,I => 1);
 #This iterates over some database data, and gets all of the associated track info
 #it also modifies the correspoding input lines where necessary by the Indel package
-sub finishAnnotatingLines {
+sub addTrackData {
   my ($self, $chr, $dataFromDbAref, $inputAref, $outAref) = @_;
 
   my $refTrackIdx = $self->{_trackIdx}{$self->{_refTrackGetter}->name};
@@ -633,8 +620,8 @@ sub finishAnnotatingLines {
     }
 
     my @out;
-    # Set array size
-    $#out = $self->{_numHeaders};
+    # Set array size, initializing every value to undef
+    $#out = $self->{_lastHeaderIdx};
 
     $outAref->[$i] = \@out;
 
@@ -646,7 +633,8 @@ sub finishAnnotatingLines {
     $out[2][0][0] = $inputAref->[$i][$self->{_typeFieldIdx}];
 
     $inputRef = $inputAref->[$i][$self->{_referenceFieldIdx}];
-    # Record discordant sites
+
+    # Record whether discordant
     $out[3][0][0] = $self->{_refTrackGetter}->get($dataFromDbAref->[$i]) ne $inputRef ? 1 : 0;
 
     ############### Get the minor alleles, cached to avoid re-work ###############
@@ -762,17 +750,12 @@ sub finishAnnotatingLines {
           # If the allele is == -1, it's a single base deletion, treat like a snp
           # with a weird genotype
           if($allele < -1)  {
-            # If deletion is -2, position 100, deleted bases are 100, 101
-            if($allele == -2) {
-              @indelDbData = ($dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $pos + 1));
-            } else {
-              @indelDbData = (
-                $dataFromDbAref->[$i],
-                # From position + 1 to position + abs(allele) - 1 == position - (-allele + 1)
-                # Since positions are 1 based, equivalent to saying: $pos - 1 - (int($allele) + 1)]
-                @{$self->{_db}->dbRead( $chr, [$pos .. $pos - (int($allele) + 2)] )}
-              );
-            }
+            # Grab everything from + 1 the already fetched position to the $pos + number of deleted bases - 1
+            @indelDbData = ($pos .. $pos - (int($allele) + 2));
+
+            $self->{_db}->dbRead($chr, \@indelDbData);
+
+            unshift @indelDbData, $dataFromDbAref->[$i];
 
             #faster than perl-style loop (much faster than c-style)
             @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;

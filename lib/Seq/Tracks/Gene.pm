@@ -40,6 +40,7 @@ use Seq::DBManager;
 
 # These are features defined by Gene::Site, but we name them in Seq::Tracks::Gene
 # Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
+# TODO: rename these siteTypeField to match the interface used by Seq.pm (TODO: and Seq::Tracks::Sparse::Build)
 has siteTypeKey => (is => 'ro', default => 'siteType');
 has strandKey => (is => 'ro', default => 'strand');
 has codonNumberKey => (is => 'ro', default => 'codonNumber');
@@ -57,6 +58,7 @@ has exonicAlleleFunctionKey => (is => 'ro', default => 'exonicAlleleFunction');
 state $intergenic = 'intergenic';
 
 ### txEffect possible values ###
+# TODO: export these, and make them configurable
 state $silent = 'synonymous';
 state $replacement = 'nonSynonymous';
 state $frameshift = 'indel-frameshift';
@@ -65,6 +67,8 @@ state $indelBoundary = 'indel-exonBoundary';
 state $startLoss = 'startLoss';
 state $stopLoss = 'stopLoss';
 state $stopGain = 'stopGain';
+
+# TODO: implement the truncated annotation
 state $truncated = 'truncatedCodon';
 
 
@@ -125,10 +129,12 @@ sub BUILD {
   #  Prepend some internal seqant features
   #  Providing 1 as the last argument means "prepend" instead of append
   #  So these features will come before any other refSeq.* features
-  $self->addFeaturesToHeader([$self->siteTypeKey, $self->exonicAlleleFunctionKey,
+  $self->headers->addFeaturesToHeader([
+    $self->siteTypeKey, $self->exonicAlleleFunctionKey,
     $self->codonSequenceKey, $self->newCodonKey, $self->refAminoAcidKey,
     $self->newAminoAcidKey, $self->codonPositionKey,
-    $self->codonNumberKey, $self->strandKey], $self->name, 1);
+    $self->codonNumberKey, $self->strandKey,
+  ], $self->name, 1);
 
   if(!$self->noNearestFeatures) {
     my $nTrackPrefix = $self->nearestTrackName;
@@ -138,7 +144,7 @@ sub BUILD {
     $self->{_nearestDbName} = $self->nearestDbName;
     
     $self->{_flatNearestFeatures} = [ map { "$nTrackPrefix.$_" } $self->allNearestFeatureNames ];
-    $self->addFeaturesToHeader($self->{_flatNearestFeatures}, $self->name);
+    $self->headers->addFeaturesToHeader($self->{_flatNearestFeatures}, $self->name);
 
     #the features specified in the region database which we want for nearest gene records
     my $i = 0;
@@ -154,9 +160,9 @@ sub BUILD {
     $self->{_hasJoin} = 1;
     
     $self->{_flatJoinFeatures} = [map{ "$joinTrackName.$_" } @{$self->joinTrackFeatures}];
-    $self->addFeaturesToHeader($self->{_flatJoinFeatures}, $self->name);
+    $self->headers->addFeaturesToHeader($self->{_flatJoinFeatures}, $self->name);
 
-    # TODO: ould theoretically be overwritten by line 114
+    # TODO: Could theoretically be overwritten by line 114
     #the features specified in the region database which we want for nearest gene records
     my $i = 0;
     for my $fName ( @{$self->joinTrackFeatures} ) {
@@ -169,7 +175,7 @@ sub BUILD {
     $self->{_allCachedDbNames}{$fName} = $self->getFieldDbName($fName);
   }
 
-  my @allGeneTrackFeatures = @{ $self->getParentFeatures($self->name) };
+  my @allGeneTrackFeatures = @{ $self->headers->getParentFeatures($self->name) };
   
   # This includes features added to header, using addFeatureToHeader 
   # such as the modified nearest feature names ($nTrackPrefix.$_) and join track names
@@ -186,10 +192,10 @@ sub get {
   my ($self, $href, $chr, $refBase, $allele, $alleleIdx, $positionIdx, $outAccum) = @_;
   
   my @out;
+  # Set the out array to the size we need; undef for any indices we don't add here
   $#out = $self->{_lastFeatureIdx};
 
   # Cached field names to make things easier to read
-  # Reads:            $self->{_allCachedDbNames};
   my $cachedDbNames = $self->{_allCachedDbNames};
   my $idxMap = $self->{_featureIdxMap};
 
@@ -206,7 +212,6 @@ sub get {
   #Reads:
   # ( $href->[$self->{_dbName}] ) {
   if( $href->[$self->{_dbName}] ) {
-    #Reads:                   $siteUnpacker->unpack($href->[$self->{_dbName}]);
     ($txNumbers, $siteData) = $siteUnpacker->unpack($href->[$self->{_dbName}]);
     $multiple = ref $txNumbers ? $#$txNumbers : 0;
   }
@@ -216,18 +221,15 @@ sub get {
     # Nearest genes are sub tracks, stored under their own key, based on $self->name
     # <Int|ArrayRef[Int]>
     # If we're in a gene, we won't have a nearest gene reference, but will have a txNumber
-    my $nearestGeneNumber =
-      defined $txNumbers
-      ? $txNumbers 
-      : $href->[$self->{_nearestDbName}];
+    my $nGeneNumber = defined $txNumbers ? $txNumbers : $href->[$self->{_nearestDbName}];
 
-    if(defined $nearestGeneNumber) {
+    if(defined $nGeneNumber) {
       # Reads:         ($self->allNearestFeatureNames) {
       for my $nFeature (@{$self->{_flatNearestFeatures}}) {
         $out[ $idxMap->{$nFeature} ] =
-          ref $nearestGeneNumber
-          ? [map { $geneDb->{$_}{$cachedDbNames->{$nFeature}} } @$nearestGeneNumber]
-          : $geneDb->{$nearestGeneNumber}{$cachedDbNames->{$nFeature}};
+          ref $nGeneNumber
+          ? [map { $geneDb->{$_}{$cachedDbNames->{$nFeature}} } @$nGeneNumber]
+          : $geneDb->{$nGeneNumber}{$cachedDbNames->{$nFeature}};
       }
     } else {
       if($chr ne 'chrM') {
@@ -237,18 +239,16 @@ sub get {
   }
   
   if( !$txNumbers ) {
-    #Reads:
-    #$out[ $idxMap->{$self->{_siteTypeKey}} ] = $intergenic;
     $out[ $idxMap->{$self->{_siteTypeKey}} ] = $intergenic;
     
     return accumOut($alleleIdx, $positionIdx, $outAccum, \@out);
   }
 
   if($self->{_hasJoin}) {
+    # For join tracks, use only the entry for the first of multiple transcripts
+    # Because the data stored is always identical at one position
     my $num = $multiple ? $txNumbers->[0] : $txNumbers;
     # http://ideone.com/jlImGA
-    #The features specified in the region database which we want for nearest gene records
-    #Reads:         @{$self->{_flatJoinFeatures} }
     for my $fName ( @{$self->{_flatJoinFeatures}} ) {
       $out[ $idxMap->{$fName} ] = $geneDb->{$num}{$cachedDbNames->{$fName}};
     }
@@ -318,7 +318,7 @@ sub get {
         $funcAccum[$i] = $indelAllele;
         
         # Codon position only exists (and always does) when codonSequence does
-        # We store as 0-based, users probably expect 1 based
+        # We store codonPosition as 0-based, users probably expect 1 based
         $codonPos[$i] = $site->[$codonPositionIdx] + 1;
 
         if(length($site->[$codonSequenceIdx]) == 3) {
@@ -356,6 +356,7 @@ sub get {
       $alleleCodonSequence = $site->[$codonSequenceIdx];
 
       # If codon is on the opposite strand, invert the allele
+      # Note that $site->[$codonPositionIdx] MUST be 0-based for this to work
       if( $site->[$strandIdx] eq '-' ) {
         substr($alleleCodonSequence, $site->[$codonPositionIdx], 1) = $negativeStrandTranslation->{$allele};
       } else {

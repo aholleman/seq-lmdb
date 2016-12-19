@@ -162,7 +162,9 @@ sub BUILD {
   # Cache for future calls to Seq::Tracks
   my $tracks = $self->tracks;
 
-  # Clear existing headers
+  # Each track getter adds its own features to Seq::Headers, which is a singleton
+  # Since instantiating Seq::Tracks also instantiates getters at this point
+  # We must clear Seq::Headers here to ensure our tracks can properly do this
   Seq::Headers::initialize();
 
   $self->_buildTrackGetters($tracks);
