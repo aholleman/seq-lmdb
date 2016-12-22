@@ -85,20 +85,21 @@ sub BUILD {
   # Seq::Role::Message is meant to be consumed globally, but configured once
   # Treating publisher, logPath, verbose, debug as instance variables
   # would result in having to configure this class in every consuming class
-  if($self->publisher) {
+  if(defined $self->publisher) {
     $self->setPublisher($self->publisher);
   }
 
-  if ($self->logPath) {
+  if(defined $self->logPath) {
     $self->setLogPath($self->logPath);
   }
 
-  if($self->verbose) {
+  if(defined $self->verbose) {
+    say "is verbose";
     $self->setVerbosity($self->verbose);
   }
 
   #todo: finisih ;for now we have only one level
-  if ( $self->debug) {
+  if ($self->debug) {
     $self->setLogLevel('DEBUG');
   } else {
     $self->setLogLevel('INFO');
