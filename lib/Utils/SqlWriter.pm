@@ -42,9 +42,13 @@ sub BUILD {
   my $self = shift;
 
   if($self->connection_config) {
-    $self->_setSqlClient( Utils::SqlWriter::Connection->new($self->connection_config) );
+    $self->_setSqlClient( Utils::SqlWriter::Connection->new({
+      connection_config => $self->connection_config
+    }) );
   } else {
-    $self->_setSqlClient( Utils::SqlWriter::Connection->new($self->connection_config) );
+    $self->_setSqlClient( Utils::SqlWriter::Connection->new({
+      connectino_config => $self->connection_config
+    }) );
   }
 }
 =method @public sub fetchAndWriteSQLData

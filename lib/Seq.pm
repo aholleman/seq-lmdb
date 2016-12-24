@@ -179,9 +179,9 @@ sub BUILD {
 
   if($self->run_statistics) {
     $self->_outputFilesInfo->{statistics} = {
-      json => $outputFileBaseName . '.statistics.json',
-      tab => $outputFileBaseName . '.statistics.tab',
-      qc => $outputFileBaseName . '.statistics.qc.tab',
+      json => $outputFileBaseName . $self->{statistics}{outputExtensions}{json},
+      tab => $outputFileBaseName . $self->{statistics}{outputExtensions}{tab},
+      qc => $outputFileBaseName . $self->{statistics}{outputExtensions}{qc},
     };
   }
 
@@ -881,18 +881,18 @@ sub _prepareStatsArguments {
 
   my $refColumnName = $self->{_refTrackGetter}->name;
   my $alleleColumnName = $self->altField;
-  my $siteTypeColumnName = $self->statistics->{site_type_column_name};
+  my $siteTypeColumnName = $self->statistics->{siteTypeField};
 
   my $homozygotesColumnName = $self->homozygotesField;
   my $heterozygotesColumnName = $self->heterozygotesField;
 
   my $dir = $self->temp_dir || $self->output_file_base->parent;
-  my $jsonOutPath = $dir->child($self->_outputFilesInfo->{statistics}{json});
-  my $tabOutPath = $dir->child($self->_outputFilesInfo->{statistics}{tab});
-  my $qcOutPath = $dir->child($self->_outputFilesInfo->{statistics}{qc});
+  my $jsonOutPath = $dir->child($self->{statistics}{outputExtensions}{json});
+  my $tabOutPath = $dir->child($self->{statistics}{outputExtensions}{tab});
+  my $qcOutPath = $dir->child($self->{statistics}{outputExtensions}{qc});
 
-  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
+  my $snpNameColumnName = $self->statistics->{dbSNPnameField};
+  my $exonicAlleleFuncColumnName = $self->statistics->{exonicAlleleFunctionField};
 
   if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
   && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName

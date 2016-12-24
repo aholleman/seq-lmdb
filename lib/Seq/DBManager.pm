@@ -80,7 +80,6 @@ sub initialize {
   cleanUp();
 
   $databaseDir = undef;
-  $envs = {};
   $dbReadOnly = undef;
 }
 
@@ -115,12 +114,11 @@ sub dbReadOne {
   # my $dbi = $db->{dbi};
   # my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
   if(!$db->{db}->Alive) {
-    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+    $db->{db}->Txn = $db->{env}->BeginTxn();
   }
 
-  my $txn = $db->{db}->Txn;
-
-  $txn->get($db->{dbi}, $_[2], my $json);
+  # my $txn = $db->{db}->Txn;
+  $db->{db}->Txn->get($db->{dbi}, $_[2], my $json);
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND ) {
     $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
@@ -146,10 +144,10 @@ sub dbRead {
     return [];
   }
 
-  # my $dbi = $db->{dbi};
+  my $dbi = $db->{dbi};
   # my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
   if(!$db->{db}->Alive) {
-    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+    $db->{db}->Txn = $db->{env}->BeginTxn();
   }
 
   my $txn = $db->{db}->Txn;
@@ -160,8 +158,8 @@ sub dbRead {
   #or an array of values, in order
   #CAREFUL: modifies the array
   for my $pos (@{ $_[2] }) {
-    $txn->get($db->{dbi}, $pos, $json);
-    
+    $txn->get($dbi, $pos, $json);
+
     if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
       $_[0]->_errorWithCleanup("dbRead LMDB error $LMDB_File::last_err");
       return;
@@ -175,12 +173,12 @@ sub dbRead {
 
     $pos = $mp->unpack($json);
   }
-  
+
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
     $_[0]->_errorWithCleanup("dbRead LMDB error after loop: $LMDB_File::last_err");
     return;
   }
-  
+
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
@@ -211,7 +209,12 @@ sub dbPatchHash {
   my $db = $self->_getDbi($chr);
 
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn();
+  }
+
+  my $txn = $db->{db}->Txn;
 
   my $overwrite = $overrideOverwrite || $self->overwrite;
   my $delete = $deleteOverride || $self->delete;
@@ -227,18 +230,18 @@ sub dbPatchHash {
     return;
   }
 
-  my $err = $txn->abort();
+  # my $err = $txn->abort();
 
-  if($err) {
-    $self->_errorWithCleanup("dbPatchHash LMDB error during get: $err");
-  }
+  # if($err) {
+  #   $self->_errorWithCleanup("dbPatchHash LMDB error during get: $err");
+  # }
 
   # If deleting, and there is no existing data, nothing to do
   if(!$json && $delete) { return; }
 
   if($json) {
     my $href = $mp->unpack($json);
-    
+
     my ($trackKey, $trackValue) = %{$dataHref};
 
     if(!defined $trackKey || ref $trackKey ) {
@@ -256,7 +259,13 @@ sub dbPatchHash {
       if($delete) {
         delete $href->{$trackKey};
       } elsif(defined $mergeFunc) {
-        $href->{$trackKey} = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
+        (my $err, $href->{$trackKey}) = &$mergeFunc($chr, $pos, $href->{$trackKey}, $trackValue);
+
+        if($err) {
+          $self->_errorWithCleanup($err);
+          return;
+        }
+
       } else {
         # If not overwriting, nothing to do, return from function
         if(!$overwrite) { return; }
@@ -273,13 +282,13 @@ sub dbPatchHash {
   }
 
   #Else we don't modify dataHref, and it gets passed on as is to dbPut
-  
+
   #reset the calls error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
-  
+
   return &dbPut;
 }
-  
+
 # Method to write multiple positions in the database, as arrays
 # The behavior of dbPatchBulkArray is as follows:
 # 1. If no data at all is found at a position, some data is added
@@ -293,7 +302,12 @@ sub dbPatchBulkArray {
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn(MDB_RDONLY);
+
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn();
+  }
+
+  my $txn = $db->{db}->Txn;
 
   #https://ideone.com/Y0C4tX
   my $overwrite = $overrideOverwrite || $self->overwrite;
@@ -309,14 +323,14 @@ sub dbPatchBulkArray {
     }
 
     my ($trackIndex, $trackValue) = %{ $posHref->{$pos} };
-    
+
     if(!defined $trackIndex || ! looks_like_number($trackIndex) ) {
       $self->_errorWithCleanup("dbPatchBulkAsArray requies numeric trackIndex");
       return;
     }
 
     # Undefined values allowed
-    
+
     #zero-copy
     $txn->get($dbi, $pos, my $json);
 
@@ -355,10 +369,14 @@ sub dbPatchBulkArray {
     }
   }
 
-  my $err = $txn->abort();
+  # my $err = $txn->abort();
 
-  if($err) {
-    $self->_errorWithCleanup("dbPatchBulkArray LMDB error at end: $err");
+  # if($err) {
+  #   $self->_errorWithCleanup("dbPatchBulkArray LMDB error at end: $err");
+  #   return;
+  # }
+  if($LMDB_File::last_err && $LMDB_File::last_err != MDB_NOTFOUND) {
+    $self->_errorWithCleanup("dbPatchBulk LMDB error $LMDB_File::last_err");
     return;
   }
 
@@ -387,21 +405,22 @@ sub dbPut {
   }
 
   my $db = $self->_getDbi($chr);
-  my $txn = $db->{env}->BeginTxn();
+
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn();
+  }
+
+  my $txn = $db->{db}->Txn;
 
   $txn->put($db->{dbi}, $pos, $mp->pack( $data ) );
+
+  $txn->commit();
 
   if($LMDB_File::last_err && $LMDB_File::last_err != MDB_KEYEXIST) {
     $self->_errorWithCleanup("dbPut LMDB error: $LMDB_File::last_err");
     return;
   }
 
-  my $err = $txn->commit();
-
-  if($err) {
-    $self->_errorWithCleanup("dbPut LMDB error at end: $err");
-  }
-  
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 }
@@ -416,11 +435,16 @@ sub dbPutBulk {
 
   my $db = $self->_getDbi($chr);
   my $dbi = $db->{dbi};
-  my $txn = $db->{env}->BeginTxn();
+
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn();
+  }
+
+  my $txn = $db->{db}->Txn;
 
   #Enforce putting in ascending lexical or numerical order
   my $sortedPosAref = $passedSortedPosAref || xsort( [keys %{$posHref} ] );
-  
+
   for my $pos (@$sortedPosAref) {
     # User may have passed a sortedPosAref that has more values than the 
     # $posHref, to avoid a second (large) sort
@@ -465,7 +489,7 @@ sub dbReadAll {
   }
 
   if(!$db->{db}->Alive) {
-    $db->{db}->Txn = $db->{env}->BeginTxn(MDB_RDONLY);
+    $db->{db}->Txn = $db->{env}->BeginTxn();
   }
 
   # LMDB::Cursor::open($txn, $db->{dbi}, my $cursor);
@@ -473,8 +497,8 @@ sub dbReadAll {
 
   my ($key, $value, %out);
   while(1) {
-    $cursor->get($key, $value, MDB_NEXT);
-      
+    $cursor->_get($key, $value, MDB_NEXT);
+
     #because this error is generated right after the get
     #we want to capture it before the next iteration 
     #hence this is not inside while( )
@@ -516,7 +540,11 @@ sub dbDelete {
   }
 
   my $db = $self->_getDbi($chr);
-  my $txn = $db->{env}->BeginTxn();
+  if(!$db->{db}->Alive) {
+    $db->{db}->Txn = $db->{env}->BeginTxn();
+  }
+
+  my $txn = $db->{db}->Txn;
 
   # Error with LMDB_File api, means $data is required as 3rd argument,
   # even if it is undef
@@ -533,7 +561,7 @@ sub dbDelete {
     $self->_errorWithCleanup("dbDelete error at end: $err");
     return;
   }
-  
+
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 }
@@ -551,7 +579,7 @@ state $metaDbNamePart = '_meta';
 #whether building the database was a success, and more
 sub dbReadMeta {
   my ( $self, $databaseName, $metaKey ) = @_;
-  
+
   #dbGet returns an array only when it's given an array
   #so for a single "position"/key (in our case $metaKey)
   #only a single value should be returned (whether a hash, or something else
@@ -565,7 +593,7 @@ sub dbReadMeta {
 #@param <HashRef|Scalar> $data : {someField => someValue} or a scalar value
 sub dbPatchMeta {
   my ( $self, $databaseName, $metaKey, $data ) = @_;
-  
+
   # If the user treats this metaKey as a scalar value, overwrite whatever was there
   if(!ref $data) {
     $self->dbPut($databaseName . $metaDbNamePart, $metaKey, $data);
@@ -592,7 +620,7 @@ sub _getDbi {
   if ( exists $envs->{$_[1]} ) {
     return $envs->{$_[1]};
   }
-  
+
   #   $_[0]  $_[1], $_[2]
   # Don't create used by dbGetNumberOfEntries
   my ($self, $name, $dontCreate) = @_;
@@ -619,9 +647,9 @@ sub _getDbi {
 
   my $flags;
   if($dbReadOnly) {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
+    $flags = MDB_NOMETASYNC | MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
   } else {
-    $flags = MDB_NOTLS | MDB_NOMETASYNC;
+    $flags = MDB_NOMETASYNC;
   }
 
   my $env = LMDB::Env->new($dbPath, {
@@ -641,7 +669,7 @@ sub _getDbi {
   }
 
   my $txn = $env->BeginTxn();
-  
+
   my $DB = $txn->OpenDB();
 
   # ReadMode 1 gives memory pointer for perf reasons, not safe
@@ -667,7 +695,6 @@ sub _getDbi {
   return $envs->{$name};
 }
 
-
 sub cleanUp {
   if(!%$envs) {
     return;
@@ -676,6 +703,10 @@ sub cleanUp {
   foreach (keys %$envs ) {
     # Check defined because database may be empty (and will be stored as undef)
     if(defined $envs->{$_} ) {
+      if($envs->{$_}{db}->Alive) {
+        $envs->{$_}{db}->Txn->commit();
+      }
+
       $envs->{$_}{env}->Clean();
     }
   }
@@ -698,26 +729,8 @@ sub _errorWithCleanup {
   # Make it easier to track errors
   say STDERR "LMDB error: $msg";
 
-  $self->log('fatal', $msg);
-}
-
-# Get a transaction for dbRead; often we may use the database in read-only
-# mode
-sub _getDbReadTx {
-  # my ($self, $env) = @_;
-  #    $_[0], $_[1];
-
-  if($dbReadOnly) {
-    if(defined $_[1]->{readOnlyTx}) {
-      $_[1]->{readOnlyTx}->renew();
-    } else {
-      $_[1]->{readOnlyTx} = $_[1]->BeginTxn(MDB_RDONLY);
-      # probably unnecessary
-      $_[1]->{readOnlyTx}->reset();
-    }
-
-    return $_[1]->{readOnlyTx};
-  }
+  $self->log('error', $msg);
+  exit(255);
 }
 
 __PACKAGE__->meta->make_immutable;

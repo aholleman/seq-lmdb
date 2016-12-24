@@ -10,20 +10,18 @@ use Getopt::Long;
 use Path::Tiny qw/path/;
 use Pod::Usage;
 
-use Utils::SplitCadd;
+# use Utils::CaddToBed;
 use Utils::Fetch;
 use Utils::LiftOverCadd;
 use Utils::SortCadd;
 use Utils::RenameTrack;
 
-use DDP;
-
 use Seq::Build;
 
 my (
-  $yaml_config, $wantedName, $sort, $renameTrack,
-  $help,        $liftOver, $liftOver_path, $liftOver_chain_path, 
-  $debug,       $overwrite, $fetch, $split, $compress, $toBed,
+  $yaml_config, $wantedName, $sortCadd, $renameTrack,
+  $help,        $liftOverCadd, $liftOverCadd_path, $liftOverChainPath,
+  $debug,       $overwrite, $fetch, $caddToBed, $compress, $toBed,
   $renameTrackTo, $verbose, $dryRunInsertions,
 );
 
@@ -35,20 +33,19 @@ GetOptions(
   'd|debug=i'      => \$debug,
   'o|overwrite'  => \$overwrite,
   'fetch' => \$fetch,
-  'splitCadd' => \$split,
-  'sortCadd'  => \$sort,
+  'caddToBed' => \$caddToBed,
+  'sortCadd'  => \$sortCadd,
   'renameTrack'  => \$renameTrack,
-  'liftOver_cadd' => \$liftOver,
+  'liftOverCadd' => \$liftOverCadd,
   'compress' => \$compress,
-  'to_bed'   => \$toBed,
-  'liftOver_path=s' => \$liftOver_path,
-  'liftOver_chain_path=s' => \$liftOver_chain_path,
-  'rename_to=s' => \$renameTrackTo,
+  'liftOverPath=s' => \$liftOverCadd_path,
+  'liftOverChainPath=s' => \$liftOverChainPath,
+  'renameTo=s' => \$renameTrackTo,
   'verbose=i' => \$verbose,
-  'dry_run_insertions' => \$dryRunInsertions,
+  'dryRun' => \$dryRunInsertions,
 );
 
-if ( (!$fetch && !$split && !$liftOver && !$sort && !$renameTrack) || $help) {
+if ( (!$fetch && !$caddToBed && !$liftOverCadd && !$sortCadd && !$renameTrack) || $help) {
   say $renameTrack;
   Pod::Usage::pod2usage(1);
   exit;
@@ -63,13 +60,12 @@ my %options = (
   name         => $wantedName || undef,
   debug        => $debug,
   overwrite    => $overwrite || 0,
-  to_bed        => $toBed || 0,
   overwrite    => $overwrite || 0,
-  liftOver_path => $liftOver_path || '',
-  liftOver_chain_path => $liftOver_chain_path || '',
-  rename_track_to => $renameTrackTo,
+  liftOverPath => $liftOverCadd_path || '',
+  liftOverChainPath => $liftOverChainPath || '',
+  renameTo => $renameTrackTo,
   verbose => $verbose,
-  dry_run_insertions => $dryRunInsertions,
+  dryRun => $dryRunInsertions,
 );
 
 if($compress) {
@@ -78,9 +74,9 @@ if($compress) {
 
 # If user wants to split their local files, needs to happen before we build
 # So that the YAML config file has a chance to update
-if($split) {
-  my $splitter = Utils::SplitCadd->new(\%options);
-  $splitter->split();
+if($caddToBed) {
+  my $caddToBedRunner = Utils::CaddToBed->new(\%options);
+  $caddToBedRunner->go();
 }
 
 if($fetch) {
@@ -88,14 +84,14 @@ if($fetch) {
   $fetcher->fetch();
 }
 
-if($liftOver) {
-  my $liftOver = Utils::LiftOverCadd->new(\%options);
-  $liftOver->liftOver();
+if($liftOverCadd) {
+  my $liftOverCadd = Utils::LiftOverCadd->new(\%options);
+  $liftOverCadd->liftOver();
 }
 
-if($sort) {
-  my $sorter = Utils::SortCadd->new(\%options);
-  $sorter->sort();
+if($sortCadd) {
+  my $sortCadder = Utils::SortCadd->new(\%options);
+  $sortCadder->sort();
 }
 
 if($renameTrack) {
