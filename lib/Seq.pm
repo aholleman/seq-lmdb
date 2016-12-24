@@ -56,7 +56,7 @@ has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1
   handles => { outputFileBasePath => 'stringify' });
 
 #Don't handle coercion to AbsDir here,
-has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1, handles => { tempPath => 'stringify' });
+has temp_dir => ( is => 'ro', isa => 'Maybe[AbsDir]', coerce => 1, handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
 has tracks => (is => 'ro', required => 1);
@@ -303,6 +303,9 @@ sub annotate {
 
     if($err) {
       $self->log('error', $err);
+
+      $self->{_db}->cleanUp();
+
       return ($err, undef, undef);
     }
 
@@ -323,7 +326,8 @@ sub annotate {
     # Causing jobs to appear to take much longer to complete.
     # So in the end, we optimize for files at least ~65k lines in size, which
     # is of course a very small file size
-    chunk_size => 8192,
+    #parallel_io => 1,
+    chunk_size => '2560k',
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -448,8 +452,8 @@ sub annotate {
 
     $self->temp_dir->remove_tree;
 
-    # Seems to occasionally cause issue?
-    # $self->{_db}->cleanUp();
+    # Database & tx need to be closed
+    $self->{_db}->cleanUp();
 
     return ($abortErr, undef, undef);
   }
@@ -477,6 +481,8 @@ sub annotate {
 
   ################ Compress if wanted ##########
   $self->_moveFilesToFinalDestinationAndDeleteTemp();
+
+  $self->{_db}->cleanUp();
 
   return (undef, $statsHref, $self->_outputFilesInfo);
 }
@@ -663,10 +669,10 @@ sub addTrackData {
         # Reasons not to cache: don't run an if statement for 99.9% of cases that
         # are not: (discordant + ref == alt)
         # TODO: decide if this is optimal
-        $self->log('warn', "$chr: $inputAref->[$i][1] doesn't have any alleles. Wrong assembly?");
+        $self->log('warn', "$chr: $inputAref->[$i][1] doesn't have any alleles");
         # Assign the reference here, rather than in the allele loop below, which won't be reached
         # so that people get most output we can reasonably provide
-        $out[$refTrackIdx] = $inputRef;
+        $out[$refTrackIdx][0][0] = $inputRef;
         next POSITION_LOOP;
       }
     }
@@ -852,6 +858,9 @@ sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
   $self->log('error', $msg);
+
+  $self->{_db}->cleanUp();
+
   return $msg;
 }
 
