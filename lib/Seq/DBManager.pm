@@ -37,7 +37,7 @@ has overwrite => ( is => 'rw', isa => 'Int', default => 0, lazy => 1);
 # Flag for deleting tracks instead of inserting during patch* methods
 has delete => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 
-has dry_run_insertions => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
+has dryRun => (is => 'rw', isa => 'Bool', default => 0, lazy => 1);
 
 # DBManager maintains its own, internal log, so that in a multi-user environment
 # DBA can keep track of key errors
@@ -389,7 +389,7 @@ sub dbPatchBulkArray {
 sub dbPut {
   my ( $self, $chr, $pos, $data) = @_;
 
-  if($self->dry_run_insertions) {
+  if($self->dryRun) {
     $self->log('info', "Received dry run request: chr:pos $chr:$pos");
     return;
   }
@@ -428,7 +428,7 @@ sub dbPut {
 sub dbPutBulk {
   my ( $self, $chr, $posHref, $passedSortedPosAref) = @_;
 
-  if($self->dry_run_insertions) {
+  if($self->dryRun) {
     $self->log('info', "Received dry run request: chr $chr for " . (scalar keys %{$posHref} ) . " positions" );
     return;
   }
@@ -529,7 +529,7 @@ sub dbReadAll {
 sub dbDelete {
   my ( $self, $chr, $pos) = @_;
 
-  if($self->dry_run_insertions) {
+  if($self->dryRun) {
     $self->log('info', "Received dry run request to delete: chr:pos $chr:$pos");
     return;
   }

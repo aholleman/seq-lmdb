@@ -23,7 +23,7 @@ GetOptions(
   'v|verbose'    => \$verbose,
   'd|debug=i'      => \$debug,
   'a|annotated_file_path=s' => \$annotatedFilePath,
-  'd|dry_run_insertions|dry' => \$dryRunInsertions,
+  'd|dry_run_insertions|dry|dryRun' => \$dryRunInsertions,
   'l|log_dir=s' => \$logDir,
   'config|config=s' => \$configPath,
 );
@@ -46,7 +46,7 @@ my $app = SeqElastic->new({
   verbose => $verbose,
   debug => $debug || 0,
   annotatedFilePath => $annotatedFilePath,
-  dryRunInsertions => $dryRunInsertions,
+  dryRun => $dryRunInsertions,
   logPath => $logPath,
   config => $configPath,
 });

@@ -56,7 +56,7 @@ has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1
   handles => { outputFileBasePath => 'stringify' });
 
 #Don't handle coercion to AbsDir here,
-has temp_dir => ( is => 'ro', isa => 'Maybe[AbsDir]', coerce => 1, handles => { tempPath => 'stringify' });
+has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1, handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
 has tracks => (is => 'ro', required => 1);
@@ -94,7 +94,8 @@ sub BUILDARGS {
   my ($self, $data) = @_;
 
   if(exists $data->{temp_dir}) {
-    if(!defined $data->{temp_dir}) {
+    # Missing or undefined
+    if(!$data->{temp_dir}) {
       delete $data->{temp_dir};
     } else {
       # It's a string, convert to path
@@ -178,6 +179,7 @@ sub BUILD {
   }
 
   if($self->run_statistics) {
+    # TODO: Move this as an export of Seq::Statistics
     $self->_outputFilesInfo->{statistics} = {
       json => $outputFileBaseName . $self->{statistics}{outputExtensions}{json},
       tab => $outputFileBaseName . $self->{statistics}{outputExtensions}{tab},

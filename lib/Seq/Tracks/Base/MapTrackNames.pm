@@ -16,14 +16,14 @@ use Seq::DBManager;
 
 with 'Seq::Role::Message';
 
-has dry_run_insertions => (is => 'ro', default => 0);
+has dryRun => (is => 'ro', default => 0);
 
 ############## Private variables ##############
 #_db shouldn't be static, because in long running environment, can lead to 
 # the wrong db config being used in a run
 has _db => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
   my $self = shift;
-  return Seq::DBManager->new({dry_run_insertions => $self->dry_run_insertions});
+  return Seq::DBManager->new({dryRun => $self->dryRun});
 });
 
 # Track names are stroed under a database ('table') called $self->name_$metaKey
