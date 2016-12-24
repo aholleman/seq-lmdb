@@ -95,7 +95,7 @@ sub BUILDARGS {
 
   if(exists $data->{temp_dir}) {
     # Missing or undefined
-    if(!$data->{temp_dir}) {
+    if(!defined $data->{temp_dir}) {
       delete $data->{temp_dir};
     } else {
       # It's a string, convert to path
@@ -165,7 +165,9 @@ sub BUILD {
       $self->setLogPath($logPath);
     }
 
-    $self->{_tempOutPath} = $self->temp_dir->child( $self->output_file_base->basename )->stringify;
+    $self->{_workingDir} = $self->temp_dir;
+  } else {
+    $self->{_workingDir} = $self->output_file_base->parent;
   }
 
   ############### Set log, annotation, statistics output basenames #####################
@@ -279,13 +281,8 @@ sub annotate {
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
-  my $outputPath;
-
-  if($self->temp_dir) {
-    $outputPath = $self->temp_dir->child($self->_outputFilesInfo->{annotation} );
-  } else {
-    $outputPath = $self->output_file_base->parent->child($self->_outputFilesInfo->{annotation} );
-  }
+  my $outputPath = $self->{_workingDir}->child($self->_outputFilesInfo->{annotation});
+  my $outputBasePath = $self->{_workingDir}->child($self->output_file_base->basename)->stringify;
 
   # If user specified a temp output path, use that
   my $outFh = $self->get_write_fh( $outputPath );
@@ -298,10 +295,10 @@ sub annotate {
   my $outputHeader = $headers->getString();
   say $outFh $outputHeader;
 
-  my $statsDir;
   if($self->run_statistics) {
+    # TODO: Move to separate package
     # Output header used to figure out the indices of the fields of interest
-    (my $err, my $statsArgs, $statsDir) = $self->_prepareStatsArguments();
+    (my $err, my $statsArgs) = $self->_prepareStatsArguments($outputBasePath);
 
     if($err) {
       $self->log('error', $err);
@@ -470,7 +467,7 @@ sub annotate {
     $self->log('info', "Gathering statistics");
 
     (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $statsDir->child($self->_outputFilesInfo->{statistics}{json})
+      $self->{_workingDir}->child( $self->_outputFilesInfo->{statistics}{json} )
     );
 
     if($status) {
@@ -868,6 +865,9 @@ sub _errorWithCleanup {
 
 sub _prepareStatsArguments {
   my $self = shift;
+  my $basePath = shift;
+
+  say "base Path is $basePath";
   my $statsProg = which($self->statistics_program);
 
   if (!$statsProg) {
@@ -888,10 +888,9 @@ sub _prepareStatsArguments {
   my $homozygotesColumnName = $self->homozygotesField;
   my $heterozygotesColumnName = $self->heterozygotesField;
 
-  my $dir = $self->temp_dir || $self->output_file_base->parent;
-  my $jsonOutPath = $dir->child($self->{statistics}{outputExtensions}{json});
-  my $tabOutPath = $dir->child($self->{statistics}{outputExtensions}{tab});
-  my $qcOutPath = $dir->child($self->{statistics}{outputExtensions}{qc});
+  my $jsonOutPath = $basePath . $self->{statistics}{outputExtensions}{json};
+  my $tabOutPath = $basePath . $self->{statistics}{outputExtensions}{tab};
+  my $qcOutPath = $basePath . $self->{statistics}{outputExtensions}{qc};
 
   my $snpNameColumnName = $self->statistics->{dbSNPnameField};
   my $exonicAlleleFuncColumnName = $self->statistics->{exonicAlleleFunctionField};
@@ -911,7 +910,7 @@ sub _prepareStatsArguments {
     . "-dbSNPnameColumnName $snpNameColumnName "
     . "-emptyFieldString \$\"$emptyFieldString\" "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ", $dir);
+    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ");
 }
 __PACKAGE__->meta->make_immutable;
 
