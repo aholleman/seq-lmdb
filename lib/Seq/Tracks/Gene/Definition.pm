@@ -3,14 +3,42 @@ use strict;
 use warnings;
 
 package Seq::Tracks::Gene::Definition;
-use Mouse 2;
+use Mouse::Role 2;
 #Defines a few keys common to the build and get functions of Tracks::Gene
 
 #these is features used in the region database
-has txErrorName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
+#can be overwritten if needed in the config file, as described in Tracks::Build
+has txErrorField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
+has hasCdsField => (is => 'ro', init_arg => undef, lazy => 1, default => 'hasCds');
+has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
 
-#these is features used in the region database
-has txSizeName => (is => 'ro', init_arg => undef, lazy => 1, default => 'txSize');
+has txStartField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txStart');
+has txEndField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txEnd');
+
+has chromField => (is => 'ro', lazy => 1, default => 'chrom' );
+
+has txStartField => (is => 'ro', lazy => 1, default => 'txStart' );
+has txEndField => (is => 'ro', lazy => 1, default => 'txEnd' );
+
+# These fields we want to be present in every gene track
+has coreGeneFeatures => (
+  is => 'ro', 
+  init_arg => undef, 
+  lazy => 1, 
+  default => sub { 
+    my $self = shift;
+    return [$self->strandField, $self->txStartField, $self->txEndField];
+  },
+  traits => ['Array'],
+  handles => {
+    allUCSCgeneFeatures => 'elements',
+  }
+);
+
+# has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
+# has txStartField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
+# has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
+# has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
 
 #some default fields, some of which are required
 #TODO: allow people to remap the names of required fields if their source
@@ -50,5 +78,5 @@ has ucscGeneAref => (
   }
 );
 
-__PACKAGE__->meta->make_immutable;
+no Mouse::Role;
 1;

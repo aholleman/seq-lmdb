@@ -163,6 +163,17 @@ sub _fetchFiles {
       }
     }
 
+    my $outFileName = $remoteDir ? $file : substr($file, rindex($file, '/') + 1);
+
+    my $outPath = path($outDir)->child($outFileName)->stringify();
+
+    if(-e $outPath) {
+      my $bakPath = $outPath . "-" . $self->_dateOfRun;
+
+      $self->log('info', "$outPath exists, moving to $bakPath");
+
+      my $status = system("mv $outPath $bakPath ");
+    }
     # Always outputs verbose, capture the arguments
     my $command;
 
@@ -190,7 +201,7 @@ sub _fetchFiles {
       $self->log('fatal', "Failed to fetch $file");
     }
 
-    my $outFileName = $remoteDir ? $file : substr($file, rindex($file, '/'));
+    
 
     push @{ $self->_wantedTrack->{local_files} }, $outFileName;
 

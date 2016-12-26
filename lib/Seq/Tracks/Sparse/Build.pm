@@ -85,25 +85,13 @@ sub makeMergeFunc {
           return;
         }
 
-        say "pushing array";
-        p $newTrackVal->[$i];
-        say "before push";
-        p $updated[$i];
-
         if(!ref $updated[$i]) {
-          say "updated is not a ref";
-
           $updated[$i] = [$updated[$i], @{$newTrackVal->[$i]}];
         } else {
           push @{$updated[$i]}, @{$newTrackVal->[$i]};
         }
-        
-        say "after push";
-        p $updated[$i];
       } else {
         if(!ref $updated[$i]) {
-          say "updated is not a ref";
-
           $updated[$i] = [$updated[$i], $newTrackVal->[$i]];
         } else {
           push @{$updated[$i]}, $newTrackVal->[$i];
@@ -111,22 +99,6 @@ sub makeMergeFunc {
       }
     }
 
-    say "new Track was";
-    p $newTrackVal;
-    say "old track val was";
-    p $oldTrackVal;
-
-    say "after merge";
-    p @updated;
-  
-    # if($self->name eq 'snp146') {
-    #   say "oldVal is";
-    #   p $oldTrackVal;
-    #   say "newTrackVal is";
-    #   p $newTrackVal;
-    #   say "updated is";
-    #   p @updated;
-    # }
     return \@updated;
   }
 }
@@ -298,14 +270,24 @@ sub buildTrack {
 
   my @failed;
   $pm->run_on_finish(sub {
-    my ($pid, $exitCode, $fileName) = @_;
+    my ($pid, $exitCode, $fileName, $exit_signal, $core_dump, $statementRef) = @_;
 
-    $self->log('debug', "Got exitCode $exitCode for $fileName");
-
-    if($exitCode != 0) { $self->log('fatal', "Got exitCode $exitCode for $fileName") }
+    if($exitCode != 0) {
+      my $statement = defined $statementRef ? ${$statementRef} : "";
+      
+      push @failed, "Got exitCode $exitCode for $fileName, due to: $statement";
+      
+      $self->log('error', "Got exitCode $exitCode for $fileName: $statement");
+    } else {
+      $self->log('info', "Got exitCode $exitCode for $fileName");
+    }
   });
 
   $pm->wait_all_children;
+
+  # Prevents weird "Ooops! Destryoing active environment" and Segmentation Faults
+  # after db opened
+  $self->db->cleanUp();
 
   return @failed == 0 ? 0 : (\@failed, 255);
 }

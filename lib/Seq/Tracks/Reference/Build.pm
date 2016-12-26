@@ -151,14 +151,24 @@ sub buildTrack {
   # Check exit codes for succses; 0 indicates success
   my @failed;
   $pm->run_on_finish( sub {
-    my ($pid, $exitCode, $fileName) = @_;
+    my ($pid, $exitCode, $fileName, $exit_signal, $core_dump, $statementRef) = @_;
 
-    $self->log('debug', "Got exit code $exitCode for $fileName");
-
-    if($exitCode != 0) { push @failed, "Exit Code $exitCode for: $fileName"; }
+    if($exitCode != 0) {
+      my $statement = defined $statementRef ? ${$statementRef} : "";
+      
+      push @failed, "Got exitCode $exitCode for $fileName, due to: $statement";
+      
+      $self->log('error', "Got exitCode $exitCode for $fileName: $statement");
+    } else {
+      $self->log('info', "Got exitCode $exitCode for $fileName");
+    }
   });
 
   $pm->wait_all_children;
+  
+  # Prevents weird "Ooops! Destryoing active environment" and Segmentation Faults
+  # after db opened
+  $self->db->cleanUp();
   
   #explicit success
   return @failed == 0 ? 0 : (\@failed, 255);

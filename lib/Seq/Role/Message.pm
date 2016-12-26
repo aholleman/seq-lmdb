@@ -47,7 +47,8 @@ my %mapSeverity = (
   info => 0,
   warn => 1,
   fatal => 2,
-  error => 2
+  error => 2,
+  err => 2,
 );
 
 # Static variables; these need to be cleared by the consuming class
@@ -179,7 +180,7 @@ sub log {
     $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
 
     $_[0]->publishMessage( "[WARN] $_[2]" );
-  } elsif( $_[1] eq 'error' ) {
+  } elsif( $_[1] eq 'error' || $_[1] eq 'err' ) {
     $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
     
     $_[0]->publishMessage( "[ERROR] $_[2]" );

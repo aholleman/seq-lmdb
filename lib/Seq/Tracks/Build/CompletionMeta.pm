@@ -37,8 +37,6 @@ sub okToBuild {
     }
   }
 
-  $self->log('debug', "Ok to build $chr " . $self->name . " db");
-
   return 1;
 }
 

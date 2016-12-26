@@ -411,15 +411,17 @@ sub buildTrack {
 
   ######Record completion status only if the process completed unimpeded ########
   my %visitedChrs;
+  my @failed;
   $pm->run_on_finish(sub {
     my ($pid, $exitCode, $fileName, $exitSignal, $coreDump, $visitedChrsHref) = @_;
     
     if($exitCode != 0) {
-      $self->log('fatal', "Failed to finish with $exitCode");
+      push @failed, $fileName;
+      $self->log('error', "Got exit code $exitCode for $fileName");
+    } else {
+      $self->log('info', "Got exit code $exitCode for $fileName");
     }
-
-    $self->log('info', "Got exit code $exitCode for $fileName");
-
+    
     foreach (keys %$visitedChrsHref) {
       $visitedChrs{$_} = 1;
     }
@@ -432,6 +434,12 @@ sub buildTrack {
   foreach (keys %visitedChrs) {
     $self->completionMeta->recordCompletion($_);
   }
+
+  # Prevents weird "Ooops! Destryoing active environment" and Segmentation Faults
+  # after db opened
+  $self->db->cleanUp();
+
+  return @failed == 0 ? 0 : (\@failed, 255);
 }
 
 sub _accumulateScores {

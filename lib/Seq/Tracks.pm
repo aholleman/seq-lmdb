@@ -35,14 +35,12 @@ use Seq::Headers;
 use Seq::Tracks::Reference;
 use Seq::Tracks::Score;
 use Seq::Tracks::Sparse;
-use Seq::Tracks::Region;
 use Seq::Tracks::Gene;
 use Seq::Tracks::Cadd;
 
 use Seq::Tracks::Reference::Build;
 use Seq::Tracks::Score::Build;
 use Seq::Tracks::Sparse::Build;
-use Seq::Tracks::Region::Build;
 use Seq::Tracks::Gene::Build;
 use Seq::Tracks::Cadd::Build;
 
@@ -111,11 +109,6 @@ my $types = Seq::Tracks::Base::Types->new();
 sub getRefTrackGetter {
   my $self = shift;
   return $trackGettersByType->{$types->refType}[0];
-}
-
-sub allRegionTrackBuilders {
-  my $self = shift;
-  return $trackBuildersByType->{$types->regionType};
 }
 
 sub allScoreTrackBuilders {
@@ -381,11 +374,6 @@ __PACKAGE__->meta->make_immutable;
 # sub getRefTrackGetter {
 #   #my $self = shift;
 #   return $trackGettersByType->{$assembly}{$types->refType}[0];
-# }
-
-# sub allRegionTrackBuilders {
-#   #my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->regionType};
 # }
 
 # sub allScoreTrackBuilders {

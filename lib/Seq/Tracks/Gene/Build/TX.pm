@@ -344,37 +344,6 @@ sub _buildTranscriptAnnotation {
 
   #Then store non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
-    UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
-      # Record exon numbers, even for non-coding exons
-      $exonPosNumHref->{$exonPos} = $i + 1;
-
-      if($nonCoding) {
-        $txAnnotationHref->{$exonPos} = $codonPacker->siteTypeMap->ncRNAsiteType;
-
-        next UTR_LOOP;
-      }
-
-      #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
-      #checking with Thomas
-      #On second thought, it looks fine. codingEnd is treated as closed here
-      if( $exonPos < $codingEnd ) {
-        if( $exonPos >= $codingStart ) {
-          #not 5'UTR,3'UTR, or non-coding
-          #we've already gotten the ref base at this position in $seq
-          #so skip this pos
-          next UTR_LOOP;
-        }  
-        #if we're before cds start, but in an exon we must be in the 5' UTR
-        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->fivePrimeSiteType 
-          : $codonPacker->siteTypeMap->threePrimeSiteType;
-
-        next UTR_LOOP;
-       } 
-      #if we're after cds end, but in an exon we must be in the 3' UTR
-      $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
-        : $codonPacker->siteTypeMap->fivePrimeSiteType;
-    }
-
     # Annotate splice donor/acceptor bp
     #  - i.e., bp within 2 bp of exon start / stop
     #  - what we want to capture is the bp that are within 2 bp of the start or end of
@@ -410,7 +379,10 @@ sub _buildTranscriptAnnotation {
       #coding sites for weirdly tight transcripts
       # >= because EEnd (exonEnds) are open range, aka their actual number is not 
       #to be included, it's 1 past the last base of that exon
-      if ( $exonPos > $codingStart && $exonPos < $codingEnd && $exonPos >= $exonEnds[$i-1] ) {
+      # Note: We're no longer checking $exonPos > $codingStart && $exonPos < $codingEnd && 
+      # Because if an intron is after/before a cdsEnd/Start, we still want to record it
+      # as a splice site, if it falls within our range
+      if ( $exonPos >= $exonEnds[$i-1] ) {
         $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->spliceAcSiteType : 
           $codonPacker->siteTypeMap->spliceDonSiteType;
         next SPLICE_LOOP;
@@ -427,6 +399,39 @@ sub _buildTranscriptAnnotation {
         $txAnnotationHref->{$exonPos} = $posStrand ? 
           $codonPacker->siteTypeMap->spliceDonSiteType : $codonPacker->siteTypeMap->spliceAcSiteType;
       }
+    }
+
+    # Store this last, and check that it's within an exon.
+    # We call an intronic area past a cdsEnd or before a cdsStart "introinc" or "spliceAcceptro" or "spliceDonor"
+    UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
+      # Record exon numbers, even for non-coding exons
+      $exonPosNumHref->{$exonPos} = $i + 1;
+
+      if($nonCoding) {
+        $txAnnotationHref->{$exonPos} = $codonPacker->siteTypeMap->ncRNAsiteType;
+
+        next UTR_LOOP;
+      }
+
+      #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
+      #checking with Thomas
+      #On second thought, it looks fine. codingEnd is treated as closed here
+      if( $exonPos < $codingEnd ) {
+        if( $exonPos >= $codingStart ) {
+          #not 5'UTR,3'UTR, or non-coding
+          #we've already gotten the ref base at this position in $seq
+          #so skip this pos
+          next UTR_LOOP;
+        }  
+        #if we're before cds start, but in an exon we must be in the 5' UTR
+        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->fivePrimeSiteType 
+          : $codonPacker->siteTypeMap->threePrimeSiteType;
+
+        next UTR_LOOP;
+       } 
+      #if we're after cds end, but in an exon we must be in the 3' UTR
+      $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
+        : $codonPacker->siteTypeMap->fivePrimeSiteType;
     }
   }
 

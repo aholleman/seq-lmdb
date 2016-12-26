@@ -56,7 +56,7 @@ has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1
   handles => { outputFileBasePath => 'stringify' });
 
 #Don't handle coercion to AbsDir here,
-has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1, handles => { tempPath => 'stringify' });
+has temp_dir => ( is => 'ro', isa => 'Maybe[AbsDir]', coerce => 1, handles => { tempPath => 'stringify' });
 
 # Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
 has tracks => (is => 'ro', required => 1);
@@ -179,9 +179,9 @@ sub BUILD {
 
   if($self->run_statistics) {
     $self->_outputFilesInfo->{statistics} = {
-      json => $outputFileBaseName . $self->{statistics}{outputExtensions}{json},
-      tab => $outputFileBaseName . $self->{statistics}{outputExtensions}{tab},
-      qc => $outputFileBaseName . $self->{statistics}{outputExtensions}{qc},
+      json => $outputFileBaseName . '.statistics.json',
+      tab => $outputFileBaseName . '.statistics.tab',
+      qc => $outputFileBaseName . '.statistics.qc.tab',
     };
   }
 
@@ -303,6 +303,9 @@ sub annotate {
 
     if($err) {
       $self->log('error', $err);
+
+      $self->{_db}->cleanUp();
+
       return ($err, undef, undef);
     }
 
@@ -323,7 +326,7 @@ sub annotate {
     # Causing jobs to appear to take much longer to complete.
     # So in the end, we optimize for files at least ~65k lines in size, which
     # is of course a very small file size
-    chunk_size => 8192,
+    chunk_size => '1M',
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -449,7 +452,7 @@ sub annotate {
     $self->temp_dir->remove_tree;
 
     # Seems to occasionally cause issue?
-    # $self->{_db}->cleanUp();
+    $self->{_db}->cleanUp();
 
     return ($abortErr, undef, undef);
   }
@@ -477,6 +480,8 @@ sub annotate {
 
   ################ Compress if wanted ##########
   $self->_moveFilesToFinalDestinationAndDeleteTemp();
+
+  $self->{_db}->cleanUp();
 
   return (undef, $statsHref, $self->_outputFilesInfo);
 }
@@ -852,6 +857,9 @@ sub _errorWithCleanup {
   my ($self, $msg) = @_;
 
   $self->log('error', $msg);
+
+  $self->{_db}->cleanUp();
+
   return $msg;
 }
 
@@ -872,18 +880,18 @@ sub _prepareStatsArguments {
 
   my $refColumnName = $self->{_refTrackGetter}->name;
   my $alleleColumnName = $self->altField;
-  my $siteTypeColumnName = $self->statistics->{siteTypeField};
+  my $siteTypeColumnName = $self->statistics->{site_type_column_name};
 
   my $homozygotesColumnName = $self->homozygotesField;
   my $heterozygotesColumnName = $self->heterozygotesField;
 
   my $dir = $self->temp_dir || $self->output_file_base->parent;
-  my $jsonOutPath = $dir->child($self->{statistics}{outputExtensions}{json});
-  my $tabOutPath = $dir->child($self->{statistics}{outputExtensions}{tab});
-  my $qcOutPath = $dir->child($self->{statistics}{outputExtensions}{qc});
+  my $jsonOutPath = $dir->child($self->_outputFilesInfo->{statistics}{json});
+  my $tabOutPath = $dir->child($self->_outputFilesInfo->{statistics}{tab});
+  my $qcOutPath = $dir->child($self->_outputFilesInfo->{statistics}{qc});
 
-  my $snpNameColumnName = $self->statistics->{dbSNPnameField};
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonicAlleleFunctionField};
+  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
+  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
 
   if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
   && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName

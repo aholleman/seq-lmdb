@@ -19,46 +19,62 @@ use namespace::autoclean;
 use Parallel::ForkManager;
 
 use Seq::Tracks::Gene::Build::TX;
-use Seq::Tracks::Gene::Definition;
 use Seq::Tracks;
 
 extends 'Seq::Tracks::Build';
 #exports regionTrackPath
-with 'Seq::Tracks::Region::RegionTrackPath';
+with 'Seq::Tracks::Gene::Definition', 'Seq::Tracks::Region::RegionTrackPath';
 
 use DDP;
 use List::Util qw/first/;
-my $geneDef = Seq::Tracks::Gene::Definition->new();
 
 # Unlike original GeneTrack, we don't remap field names
 # It's easier to remember the real names than real names + our domain-specific names
-
-#can be overwritten if needed in the config file, as described in Tracks::Build
-has chrom_field_name => (is => 'ro', lazy => 1, default => 'chrom' );
-has txStart_field_name => (is => 'ro', lazy => 1, default => 'txStart' );
-has txEnd_field_name => (is => 'ro', lazy => 1, default => 'txEnd' );
-
-has build_region_track_only => (is => 'ro', lazy => 1, default => 0);
-has join => (is => 'ro', isa => 'HashRef');
+has buildRegionTrackOnly => (is => 'ro', lazy => 1, default => 0);
 
 # These are the features stored in the Gene track's region database
-# Does not include $geneDef->txErrorName here, because that is something
+# Does not include $geneDef->txErrorField here, because that is something
 # that is not actually present in UCSC refSeq or knownGene records, we add ourselves
 has '+features' => (default => sub{ $geneDef->allUCSCgeneFeatures; });
 
 my $txNumberKey = 'txNumber';
 my $joinTrack;
+
+sub BUILDARGS {
+  my ($self, $data) = @_;
+
+  my $featuresAref = $data->{features};
+  my @coreFeatures = $self->allUCSCgeneFeatures;
+
+  for my $coreFeature (@coreFeatures) {
+    if(! first { $coreFeature eq $_ } @featureAref) {
+      push @$featureAref, $coreFeature;
+    }
+  }
+
+  say "features are";
+  p $data->{features};
+
+}
+
 sub BUILD {
   my $self = shift;
 
-  # txErrorName isn't a default feature, initializing here to make sure 
+  # txErrorField isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
-  $self->getFieldDbName($geneDef->txErrorName);
+  $self->getFieldDbName($geneDef->txErrorField);
 
-  #similarly for $txSize
-  $self->getFieldDbName($geneDef->txSizeName);
+  if($self->nearest && $self->noNearestFeatures) {
+    $self->log('fatal', "Nearest gene track must specify at least one feature");
+    return;
+  }
 
-  if($self->hasNearest && $self->noNearestFeatures) {
+  if($self->nearest && ! first $_$self->nearest) {
+    $self->log('fatal', "Nearest gene track must specify at least one feature");
+    return;
+  }
+
+  if($self->flanking && $self->noNearestFeatures) {
     $self->log('fatal', "Nearest gene track must specify at least one feature");
     return;
   }
@@ -120,10 +136,20 @@ sub buildTrack {
       REGION_FEATS: for my $field ($self->allFeatureNames) {
         if(exists $allIdx{$field} ) {
           $regionIdx{$field} = $allIdx{$field};
-          next REGION_FEATS;
+        } else {
+          $pm->finish(255, \"Required $field missing in $file header: $firstLine");
+          return;
         }
+      }
 
-        $pm->finish(1, \"Required $field missing in $file header: $firstLine");
+      # Region database features; as defined by user in the YAML config, or our default
+      REGION_FEATS: for my $field ($self->allFeatureNames) {
+        if(exists $allIdx{$field} ) {
+          $regionIdx{$field} = $allIdx{$field};
+        } else {
+          $pm->finish(255, \"Required $field missing in $file header: $firstLine");
+          return;
+        }
       }
 
       # Every row (besides header) describes a transcript
@@ -211,6 +237,7 @@ sub buildTrack {
 
         #a field added by Seqant
         $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($geneDef->txSizeName)} = $txEnd + 1 - $txStart; 
+        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($geneDef->txSizeName)} = $txEnd + 1 - $txStart; 
 
         if(defined $txStartData{$wantedChr}{$txStart} ) {
           push @{ $txStartData{$wantedChr}{$txStart} }, [$txNumber, $txEnd];
@@ -239,7 +266,7 @@ sub buildTrack {
 
       my $pm2 = Parallel::ForkManager->new(scalar @allChrs);
 
-      my $txErrorDbname = $self->getFieldDbName($geneDef->txErrorName);
+      my $txErrorDbname = $self->getFieldDbName($geneDef->txErrorField);
 
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;
@@ -252,7 +279,12 @@ sub buildTrack {
             $self->_writeRegionData( $chr, $regionData{$chr});
             
             if($self->join) {
-              $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+              my $err = $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+
+              if($err) {
+                $pm2->finish(255, \$err);
+                return;
+              }
             }
 
             return $pm2->finish(0);
@@ -317,7 +349,12 @@ sub buildTrack {
           $self->_writeRegionData( $chr, $regionData{$chr});
 
           if($self->join) {
-            $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+            my $err = $self->_joinTracksToGeneTrackRegionDb($chr, $txStartData{$chr} );
+
+            if($err) {
+              $pm->finish(255, \$err);
+              return;
+            }
           }
 
           if(%siteData) {
@@ -368,13 +405,15 @@ sub buildTrack {
       
       push @failed, "Got exitCode $exitCode for $fileName, due to: $statement";
       
-      $self->log('warn', "Got exitCode $exitCode for $fileName: $statement");
+      $self->log('error', "Got exitCode $exitCode for $fileName: $statement");
     } else {
       $self->log('info', "Got exitCode $exitCode for $fileName");
     }
   });
 
   $pm->wait_all_children;
+
+  $self->db->cleanUp();
 
   return @failed == 0 ? 0 : (\@failed, 255);
 }
@@ -477,7 +516,7 @@ sub _joinTracksToGeneTrackRegionDb {
 
   my $dbName = $self->regionTrackPath($chr);
 
-  $joinTrack->joinTrack($chr, \@positionRanges, $self->joinTrackFeatures, sub {
+  my $err = $joinTrack->joinTrack($chr, \@positionRanges, $self->joinTrackFeatures, sub {
     # Called every time a match is found
     # Index is the index of @ranges that this update belongs to
     my ($hrefToAdd, $index) = @_;
@@ -505,6 +544,11 @@ sub _joinTracksToGeneTrackRegionDb {
     my $txNumber = $txNumbers[$index];
     $self->db->dbPatchHash($dbName, $txNumber, \%out, undef, $mergeFunc);
   });
+
+  if($err) {
+    $self->log('error', $err);
+    return $err;
+  }
 
   $self->log('debug', "Finished _joinTracksToGeneTrackRegionDb for $chr");
 }

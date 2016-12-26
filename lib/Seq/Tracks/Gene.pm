@@ -137,7 +137,7 @@ sub BUILD {
   ], $self->name, 1);
 
   if(!$self->noNearestFeatures) {
-    my $nTrackPrefix = $self->nearestTrackName;
+    my $nTrackPrefix = $self->nearestInfix;
 
     $self->{_hasNearest} = 1;
 
