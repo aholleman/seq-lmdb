@@ -47,7 +47,7 @@ has indexName => (is => 'ro', required => 1);
 # The index type; probably the job id
 has indexType => (is => 'ro', required => 1);
 
-has dryRunInsertions => (is => 'ro');
+has dryRun => (is => 'ro');
 
 has commitEvery => (is => 'ro', default => 5000);
 

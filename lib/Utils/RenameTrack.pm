@@ -54,8 +54,8 @@ sub BUILD {
 sub go {
   my $self= shift;
 
-  #TODO: rename dry_run_insertions to dryRun in main package
-  my $trackNameMapper = Seq::Tracks::Base::MapTrackNames->new({dry_run_insertions => $self->dryRun});
+  #TODO: rename dryRun to dryRun in main package
+  my $trackNameMapper = Seq::Tracks::Base::MapTrackNames->new({dryRun => $self->dryRun});
     
   my $err = $trackNameMapper->renameTrack($self->name, $self->renameTo);
 

@@ -37,7 +37,7 @@ GetOptions(
   'd|delete' => \$delete,
   'build_region_track_only|buildRegionTrackOnly' => \$regionTrackOnly,
   'skip_completion_check' => \$skipCompletionCheck,
-  'dry_run_insertions|dry' => \$dryRunInsertions,
+  'dry_run_insertions|dry|dryRun' => \$dryRunInsertions,
   'log_dir=s' => \$logDir,
   'max_threads=i' => \$maxThreads,
   'meta_only' => \$metaOnly,
@@ -80,7 +80,7 @@ my $builder_options_href = {
   delete       => !!$delete,
   buildRegionTrackOnly => !!$regionTrackOnly,
   skip_completion_check => !!$skipCompletionCheck,
-  dry_run_insertions => !!$dryRunInsertions,
+  dryRun => !!$dryRunInsertions,
   meta_only => !!$metaOnly,
   verbose => $verbose,
 };

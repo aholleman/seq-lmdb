@@ -94,6 +94,7 @@ sub BUILDARGS {
   my ($self, $data) = @_;
 
   if(exists $data->{temp_dir}) {
+    # Missing or undefined
     if(!defined $data->{temp_dir}) {
       delete $data->{temp_dir};
     } else {
@@ -164,7 +165,9 @@ sub BUILD {
       $self->setLogPath($logPath);
     }
 
-    $self->{_tempOutPath} = $self->temp_dir->child( $self->output_file_base->basename )->stringify;
+    $self->{_workingDir} = $self->temp_dir;
+  } else {
+    $self->{_workingDir} = $self->output_file_base->parent;
   }
 
   ############### Set log, annotation, statistics output basenames #####################
@@ -178,6 +181,7 @@ sub BUILD {
   }
 
   if($self->run_statistics) {
+    # TODO: Move this as an export of Seq::Statistics
     $self->_outputFilesInfo->{statistics} = {
       json => $outputFileBaseName . '.statistics.json',
       tab => $outputFileBaseName . '.statistics.tab',
@@ -277,13 +281,8 @@ sub annotate {
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
-  my $outputPath;
-
-  if($self->temp_dir) {
-    $outputPath = $self->temp_dir->child($self->_outputFilesInfo->{annotation} );
-  } else {
-    $outputPath = $self->output_file_base->parent->child($self->_outputFilesInfo->{annotation} );
-  }
+  my $outputPath = $self->{_workingDir}->child($self->_outputFilesInfo->{annotation});
+  my $outputBasePath = $self->{_workingDir}->child($self->output_file_base->basename)->stringify;
 
   # If user specified a temp output path, use that
   my $outFh = $self->get_write_fh( $outputPath );
@@ -296,10 +295,10 @@ sub annotate {
   my $outputHeader = $headers->getString();
   say $outFh $outputHeader;
 
-  my $statsDir;
   if($self->run_statistics) {
+    # TODO: Move to separate package
     # Output header used to figure out the indices of the fields of interest
-    (my $err, my $statsArgs, $statsDir) = $self->_prepareStatsArguments();
+    (my $err, my $statsArgs) = $self->_prepareStatsArguments($outputBasePath);
 
     if($err) {
       $self->log('error', $err);
@@ -326,7 +325,8 @@ sub annotate {
     # Causing jobs to appear to take much longer to complete.
     # So in the end, we optimize for files at least ~65k lines in size, which
     # is of course a very small file size
-    chunk_size => '1M',
+    #parallel_io => 1,
+    chunk_size => '2560k',
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
 
@@ -451,7 +451,7 @@ sub annotate {
 
     $self->temp_dir->remove_tree;
 
-    # Seems to occasionally cause issue?
+    # Database & tx need to be closed
     $self->{_db}->cleanUp();
 
     return ($abortErr, undef, undef);
@@ -467,7 +467,7 @@ sub annotate {
     $self->log('info', "Gathering statistics");
 
     (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $statsDir->child($self->_outputFilesInfo->{statistics}{json})
+      $self->{_workingDir}->child( $self->_outputFilesInfo->{statistics}{json} )
     );
 
     if($status) {
@@ -668,10 +668,10 @@ sub addTrackData {
         # Reasons not to cache: don't run an if statement for 99.9% of cases that
         # are not: (discordant + ref == alt)
         # TODO: decide if this is optimal
-        $self->log('warn', "$chr: $inputAref->[$i][1] doesn't have any alleles. Wrong assembly?");
+        $self->log('warn', "$chr: $inputAref->[$i][1] doesn't have any alleles");
         # Assign the reference here, rather than in the allele loop below, which won't be reached
         # so that people get most output we can reasonably provide
-        $out[$refTrackIdx] = $inputRef;
+        $out[$refTrackIdx][0][0] = $inputRef;
         next POSITION_LOOP;
       }
     }
@@ -865,6 +865,9 @@ sub _errorWithCleanup {
 
 sub _prepareStatsArguments {
   my $self = shift;
+  my $basePath = shift;
+
+  say "base Path is $basePath";
   my $statsProg = which($self->statistics_program);
 
   if (!$statsProg) {
@@ -889,6 +892,9 @@ sub _prepareStatsArguments {
   my $jsonOutPath = $dir->child($self->_outputFilesInfo->{statistics}{json});
   my $tabOutPath = $dir->child($self->_outputFilesInfo->{statistics}{tab});
   my $qcOutPath = $dir->child($self->_outputFilesInfo->{statistics}{qc});
+  my $jsonOutPath = $basePath . $self->{statistics}{outputExtensions}{json};
+  my $tabOutPath = $basePath . $self->{statistics}{outputExtensions}{tab};
+  my $qcOutPath = $basePath . $self->{statistics}{outputExtensions}{qc};
 
   my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
   my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
@@ -908,7 +914,7 @@ sub _prepareStatsArguments {
     . "-dbSNPnameColumnName $snpNameColumnName "
     . "-emptyFieldString \$\"$emptyFieldString\" "
     . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ", $dir);
+    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ");
 }
 __PACKAGE__->meta->make_immutable;
 

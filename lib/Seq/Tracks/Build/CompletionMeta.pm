@@ -32,7 +32,7 @@ sub okToBuild {
         " not ok to build $chr " . $self->name . " db");
     }
     # Else we're either erasing or re-creating the db; need to erase completion status
-    if(!$self->db->dry_run_insertions) {
+    if(!$self->db->dryRun) {
       $self->_eraseCompletionMeta($chr);
     }
   }
@@ -50,8 +50,8 @@ sub recordCompletion {
     return $self->log('debug', "Delete set, not recording completion of $chr for ". $self->name);
   }
 
-  if($self->db->dry_run_insertions) {
-    return $self->log('debug', "dry_run_insertions set, not recording completion of $chr for ". $self->name);
+  if($self->db->dryRun) {
+    return $self->log('debug', "dryRun set, not recording completion of $chr for ". $self->name);
   }
 
   # overwrite any existing entry for $chr

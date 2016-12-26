@@ -26,35 +26,21 @@ chromosomes:
 - chrM
 - chrX
 - chrY
-database_dir: null
-files_dir: null
-temp_dir: null
-output:
-  order:
-  - reference
-  - refSeq
-  - dbSNP
-  - clinvar
-  - cadd
-  - phastCons
-  - phyloP
-seqant_feature_names:
-  discordant: discordant
-  heterozygotes: heterozygotes
-  homozygotes: homozygotes
-  minor_alleles: minorAlleles
+database_dir: ~
+files_dir: ~
 statistics:
-  dbSNP_name_column_name: dbSNP.name
-  exonic_allele_function_column_name: refSeq.exonicAlleleFunction
-  output_extensions:
+  dbSNPnameField: dbSNP.name
+  exonicAlleleFunctionField: refSeq.exonicAlleleFunction
+  outputExtensions:
     json: .statistics.json
     qc: .statistics.qc.tab
     tab: .statistics.tab
-  site_type_column_name: refSeq.siteType
+  siteTypeField: refSeq.siteType
+temp_dir: ~
 tracks:
 - local_files:
   - chr*.fa.gz
-  name: reference
+  name: ref
   remote_dir: http://hgdownload.soe.ucsc.edu/goldenPath/hg19/chromosomes/
   remote_files:
   - chr1.fa.gz
