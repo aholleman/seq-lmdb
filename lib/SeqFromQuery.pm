@@ -8,15 +8,9 @@ package SeqFromQuery;
 use Mouse 2;
 our $VERSION = '0.001';
 
-
-
-extends 'Seq::Base';
-
 use Search::Elasticsearch;
 
 use Path::Tiny;
-use Types::Path::Tiny qw/AbsFile AbsPath AbsDir/;
-
 
 
 use namespace::autoclean;
@@ -34,26 +28,15 @@ use YAML::XS qw/LoadFile/;
 use Try::Tiny;
 use Cpanel::JSON::XS qw/decode_json encode_json/;
 
-with 'Seq::Role::IO', 'Seq::Role::Message', 'Seq::Role::ConfigFromFile';
+# Defines basic things needed in builder and annotator, like logPath,
+extends 'Seq::Base';
 
-# The statistics package config options
-# This is by default the go program we use to calculate statistics
-has statisticsProgramPath => (is => 'ro', default => 'seqant-statistics');
+# Defines most of the properties that can be configured at run time
+# Needed because there are variations of Seq.pm, ilke SeqFromQuery.pm
+with 'Seq::Definition';
 
 # An archive, containing an "annotation" file
 has inputQueryBody => (is => 'ro', isa => 'HashRef', required => 1);
-
-has config => (is => 'ro', isa=> AbsFile, coerce => 1, required => 1, handles => {
-  configPath => 'stringify',
-});
-
-has publisher => (is => 'ro');
-
-has logPath => (is => 'ro', isa => AbsPath, coerce => 1);
-
-has debug => (is => 'ro');
-
-has verbose => (is => 'ro');
 
 # Probably the user id
 has indexName => (is => 'ro', required => 1);
@@ -64,57 +47,12 @@ has indexType => (is => 'ro', required => 1);
 has assembly => (is => 'ro', isa => 'Str', required => 1);
 # has commitEvery => (is => 'ro', default => 5000);
 
-# If inputFileNames provided, inputDir is required
-# has inputDir => (is => 'ro', isa => AbsDir, coerce => 1);
-
 # The user may have given some header fields already
 # If so, this is a re-indexing job, and we will want to append the header fields
 has fieldNames => (is => 'ro', isa => 'ArrayRef', required => 1);
 
-# output_file_base contains the absolute path to a file base name
-# Ex: /dir/child/BaseName ; BaseName is appended with .annotated.tab , .annotated-log.txt, etc
-# for the various outputs
-has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
-  handles => { outputFileBasePath => 'stringify' });
 
-has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1,
-  handles => { tempPath => 'stringify' });
-
-# Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
-has tracks => (is => 'ro', required => 1);
-
-# The statistics configuration options, usually defined in a YAML config file
-has statistics => (is => 'ro');
-
-# Users may not need statistics
-has run_statistics => (is => 'ro', isa => 'Bool', default => 1);
-
-# Do we want to compress?
-has compress => (is => 'ro', default => 1);
-
-# We may not want to delete our temp files
-has delete_temp => (is => 'ro', default => 1);
-
-############################ Private ###################################
-# Constructed at build time from the out_file; this is given to other packages
-# Like the statistics package to make its output paths
-has _outputFileBaseName => (is => 'ro', init_arg => undef);
-
-#@ params
-# <Object> filePaths @params:
-  # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
-  # <String> converted : the name of the converted folder
-  # <String> annnotation : the name of the annotation file
-  # <String> log : the name of the log file
-  # <Object> stats : the { statType => statFileName } object
-# Allows us to use all to to extract just the file we're interested from the compressed tarball
-has outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
-
-# TODO: factor this stuff out; this is only used for statistics here
-has altField => (is => 'ro', default => 'alt');
-has heterozygotesField => (is => 'ro', default => 'heterozygotes');
-has homozygotesField => (is => 'ro', default => 'homozygotes');
-
+# TODO: TOO DRY-improper (shared with Seq.pm)
 sub BUILDARGS {
   my ($self, $data) = @_;
 
@@ -139,13 +77,15 @@ sub BUILDARGS {
   return $data;
 };
 
+
+# TODO: This is too complicated, shared with Seq.pm for the most part
 sub BUILD {
   my $self = shift;
 
   $self->{_outDir} = $self->output_file_base->parent();
 
   ############################# Handle Temp Dir ################################
-  
+  # TODO: TOO DRY-nonconformant (shared with Seq.pm)
   # If we specify temp_dir, user data will be written here first, then moved to the
   # final destination
   # If we're given a temp_dir, then we need to make temporary out paths and log paths
@@ -175,16 +115,6 @@ sub BUILD {
     $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
   }
 
-  if($self->run_statistics) {
-    $self->outputFilesInfo->{statistics} = {
-      json => $outputFileBaseName . '.statistics.json',
-      tab => $outputFileBaseName . '.statistics.tab',
-      qc => $outputFileBaseName . '.statistics.qc.tab',
-    };
-  }
-
-
-
   my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
 
   # We separate out the reference track getter so that we can check for discordant
@@ -199,6 +129,32 @@ sub BUILD {
   $self->{_trackNames} = \%trackNamesMap;
   ################### Creates the output file handler #################
   $self->{_outputter} = Seq::Output->new();
+
+  if($self->run_statistics) {
+    my %args = (
+      refTrackName => $self->{_refTrackGetter}->name,
+      altField => $self->altField,
+      homozygotesField => $self->homozygotesField,
+      heterozygotesField => $self->heterozygotesField,
+      outputBasePath => $self->output_file_base->stringify,
+    );
+
+    if($self->statistics) {
+      %args = (%args, %{$self->statistics});
+    }
+
+    # TODO : use go-style ($err, $statisticRunner)
+    my $statisticsRunner  = Seq::Statistics->new(\%args);
+    
+    # TODO: Move this as an export of Seq::Statistics
+    $self->outputFilesInfo->{statistics} = {
+      json => $statisticsRunner->jsonFilePath,
+      tab => $statisticsRunner->tabFilePath,
+      qc => $statisticsRunner->qcFilePath,
+    };
+
+    $self->{_statsArgs} = $statisticsRunner->getStatsArguments();
+  }
 }
 
 sub annotate {
@@ -279,19 +235,9 @@ sub annotate {
 
   say $outFh $outputHeader;
 
-  # my @headers = @{ $self->{_headers}->getOrderedHeaderNoMap() };
-
-  my $statsDir;
-  if($self->run_statistics) {
-    # Output header used to figure out the indices of the fields of interest
-    (my $err, my $statsArgs, $statsDir) = $self->_prepareStatsArguments();
-
-    if($err) {
-      $self->log('warn', $err);
-      return ($err, undef, undef);
-    }
-
-    open($statsFh, "|-", $statsArgs);
+  # TODO: error handling if fh fails to open
+  if($self->{_statsArgs}) {
+    open($statsFh, "|-", $self->{_statsArgs});
 
     say $statsFh $outputHeader;
   }
@@ -330,21 +276,20 @@ sub annotate {
     &{$progressHandler}(scalar @docs);
   }
 
+  # TODO: Too DRY, put into Statistics.pm
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
-  if($self->run_statistics) {
+  if($self->{_statsArgs}) {
     # Force the stats program to write its outputs
     close $statsFh;
     system('sync');
-    
+
     $self->log('info', "Gathering statistics");
 
-    (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $statsDir->child($self->outputFilesInfo->{statistics}{json})
-    );
+    (my $status, undef, my $jsonFh) = $self->get_read_fh($self->outputFilesInfo->{statistics}{json});
 
     if($status) {
-      $self->log('warn', $!);
+      $self->log('error', $!);
     } else {
       my $jsonStr = <$jsonFh>;
       $statsHref = decode_json($jsonStr);
@@ -492,53 +437,6 @@ sub _errorWithCleanup {
   return $msg;
 }
 
-sub _prepareStatsArguments {
-  my $self = shift;
-  my $statsProg = which($self->statisticsProgramPath);
-
-  if (!$statsProg) {
-    return ("Couldn't find statistics program at " . $self->statisticsProgramPath)
-  }
-
-  # Accumulate the delimiters: Note that $alleleDelimiter isn't necessary
-  # because the seqant_statistics scrip never operates on multiallelic sites
-  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
-
-  my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
-  my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
-
-  my $refColumnName = $self->{_refTrackGetter}->name;
-  my $alleleColumnName = $self->altField;
-  my $siteTypeColumnName = $self->statistics->{site_type_column_name};
-  
-  my $homozygotesColumnName = $self->homozygotesField;
-  my $heterozygotesColumnName = $self->heterozygotesField;
-
-  my $dir = $self->temp_dir || $self->output_file_base->parent;
-  my $jsonOutPath = $dir->child($self->outputFilesInfo->{statistics}{json});
-  my $tabOutPath = $dir->child($self->outputFilesInfo->{statistics}{tab});
-  my $qcOutPath = $dir->child($self->outputFilesInfo->{statistics}{qc});
-
-  my $snpNameColumnName = $self->statistics->{dbSNP_name_column_name};
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonic_allele_function_column_name};
-
-  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
-  && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath)) {
-    return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
-      . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
-      . "primaryDelimiter, fieldSeparator, and "
-      . "numberHeaderLines must equal 1 for statistics", undef, undef);
-  }
-  return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
-    . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
-    . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
-    . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
-    . "-dbSNPnameColumnName $snpNameColumnName "
-    . "-emptyFieldString \$\"$emptyFieldString\" "
-    . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ", $dir);
-}
 __PACKAGE__->meta->make_immutable;
 
 1;

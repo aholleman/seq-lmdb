@@ -8,8 +8,10 @@ our $VERSION = '0.001';
 
 # ABSTRACT: Annotate a snp file
 
+# TODO: make temp_dir handling more transparent
 use Mouse 2;
 use Types::Path::Tiny qw/AbsPath AbsFile AbsDir/;
+
 use namespace::autoclean;
 
 use DDP;
@@ -24,7 +26,7 @@ use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
 use Seq::Tracks;
-# use Seq::Statistics;
+use Seq::Statistics;
 use Seq::DBManager;
 use Path::Tiny;
 use File::Which qw/which/;
@@ -35,61 +37,20 @@ use Cpanel::JSON::XS;
 
 extends 'Seq::Base';
 
+# Defines most of the properties that can be configured at run time
+# Needed because there are variations of Seq.pm, ilke SeqFromQuery.pm
+with 'Seq::Definition';
+
 # We  add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 # Users may configure these
-has chromField => (is => 'ro', default => 'chrom');
-has posField => (is => 'ro', default => 'pos');
-has typeField => (is => 'ro', default => 'type');
-has discordantField => (is => 'ro', default => 'discordant');
-has altField => (is => 'ro', default => 'alt');
-has heterozygotesField => (is => 'ro', default => 'heterozygotes');
-has homozygotesField => (is => 'ro', default => 'homozygotes');
-
 has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
   handles  => { inputFilePath => 'stringify' }, writer => 'setInputFile');
 
-# output_file_base contains the absolute path to a file base name
-# Ex: /dir/child/BaseName ; BaseName is appended with .annotated.tab , .annotated-log.txt, etc
-# for the various outputs
-has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1, 
-  handles => { outputFileBasePath => 'stringify' });
-
-#Don't handle coercion to AbsDir here,
-has temp_dir => ( is => 'ro', isa => AbsDir, coerce => 1, handles => { tempPath => 'stringify' });
-
-# Tracks configuration hash. This usually comes from a YAML config file (i.e hg38.yml)
-has tracks => (is => 'ro', required => 1);
-
-# The statistics package config options
-# This is by default the go program we use to calculate statistics
-has statistics_program => (is => 'ro', default => 'seqant-statistics');
-
-# The statistics configuration options, usually defined in a YAML config file
-has statistics => (is => 'ro');
-
-# Users may not need statistics
-has run_statistics => (is => 'ro', isa => 'Bool');
-
-# Do we want to compress?
-has compress => (is => 'ro');
-
-# We may not want to delete our temp files
-has delete_temp => (is => 'ro', default => 1);
-
-############################ Private ###################################
-#@ params
-# <Object> filePaths @params:
-  # <String> compressed : the name of the compressed folder holding annotation, stats, etc (only if $self->compress)
-  # <String> converted : the name of the converted folder
-  # <String> annnotation : the name of the annotation file
-  # <String> log : the name of the log file
-  # <Object> stats : the { statType => statFileName } object
-# Allows us to use all to to extract just the file we're interested from the compressed tarball
-has _outputFilesInfo => (is => 'ro', init_arg => undef, default => sub{ {} } );
-
 with 'Seq::Role::Validator';
 
+
+# TODO: TOO DRY-improper (shared with SeqFromQuery.pm)
 sub BUILDARGS {
   my ($self, $data) = @_;
 
@@ -150,7 +111,7 @@ sub BUILD {
   $self->{_outDir} = $self->output_file_base->parent();
 
   ############################# Handle Temp Dir ################################
-
+  # TODO: TOO DRY-nonconformant (shared with Seq.pm)
   # If we specify temp_dir, user data will be written here first, then moved to the
   # final destination
   # If we're given a temp_dir, then we need to make temporary out paths and log paths
@@ -173,20 +134,37 @@ sub BUILD {
   ############### Set log, annotation, statistics output basenames #####################
   my $outputFileBaseName = $self->output_file_base->basename;
 
-  $self->_outputFilesInfo->{log} = $self->logPath ? path($self->logPath)->basename : undef;
-  $self->_outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
+  $self->outputFilesInfo->{log} = $self->logPath ? path($self->logPath)->basename : undef;
+  $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
 
   if($self->compress) {
-    $self->_outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
+    $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
   }
 
   if($self->run_statistics) {
+    my %args = (
+      refTrackName => $self->{_refTrackGetter}->name,
+      altField => $self->altField,
+      homozygotesField => $self->homozygotesField,
+      heterozygotesField => $self->heterozygotesField,
+      outputBasePath => $self->output_file_base->stringify,
+    );
+
+    if($self->statistics) {
+      %args = (%args, %{$self->statistics});
+    }
+
+    # TODO : use go-style ($err, $statisticRunner)
+    my $statisticsRunner  = Seq::Statistics->new(\%args);
+    
     # TODO: Move this as an export of Seq::Statistics
-    $self->_outputFilesInfo->{statistics} = {
-      json => $outputFileBaseName . $self->{statistics}{outputExtensions}{json},
-      tab => $outputFileBaseName . $self->{statistics}{outputExtensions}{tab},
-      qc => $outputFileBaseName . $self->{statistics}{outputExtensions}{qc},
+    $self->outputFilesInfo->{statistics} = {
+      json => $statisticsRunner->jsonFilePath,
+      tab => $statisticsRunner->tabFilePath,
+      qc => $statisticsRunner->qcFilePath,
     };
+
+    $self->{_statsArgs} = $statisticsRunner->getStatsArguments();
   }
 
    ######### Build the header, and write it as the first line #############
@@ -281,7 +259,7 @@ sub annotate {
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
-  my $outputPath = $self->{_workingDir}->child($self->_outputFilesInfo->{annotation});
+  my $outputPath = $self->{_workingDir}->child($self->outputFilesInfo->{annotation});
   my $outputBasePath = $self->{_workingDir}->child($self->output_file_base->basename)->stringify;
 
   # If user specified a temp output path, use that
@@ -295,20 +273,9 @@ sub annotate {
   my $outputHeader = $headers->getString();
   say $outFh $outputHeader;
 
-  if($self->run_statistics) {
-    # TODO: Move to separate package
-    # Output header used to figure out the indices of the fields of interest
-    (my $err, my $statsArgs) = $self->_prepareStatsArguments($outputBasePath);
-
-    if($err) {
-      $self->log('error', $err);
-
-      $self->{_db}->cleanUp();
-
-      return ($err, undef, undef);
-    }
-
-    open($statsFh, "|-", $statsArgs);
+  # TODO: error handling if fh fails to open
+  if($self->{_statsArgs}) {
+    open($statsFh, "|-", $self->{_statsArgs});
 
     say $statsFh $outputHeader;
   }
@@ -457,18 +424,17 @@ sub annotate {
     return ($abortErr, undef, undef);
   }
 
+  # TODO: Too DRY, put into Statistics.pm
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
-  if($self->run_statistics) {
+  if($self->{_statsArgs}) {
     # Force the stats program to write its outputs
     close $statsFh;
     system('sync');
 
     $self->log('info', "Gathering statistics");
 
-    (my $status, undef, my $jsonFh) = $self->get_read_fh(
-      $self->{_workingDir}->child( $self->_outputFilesInfo->{statistics}{json} )
-    );
+    (my $status, undef, my $jsonFh) = $self->get_read_fh($self->outputFilesInfo->{statistics}{json});
 
     if($status) {
       $self->log('error', $!);
@@ -483,7 +449,7 @@ sub annotate {
 
   $self->{_db}->cleanUp();
 
-  return (undef, $statsHref, $self->_outputFilesInfo);
+  return (undef, $statsHref, $self->outputFilesInfo);
 }
 
 sub makeLogProgressAndPrint {
@@ -812,7 +778,7 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
 
   if($self->compress) {
     $compressErr = $self->compressDirIntoTarball(
-      $self->temp_dir || $self->{_outDir}, $self->_outputFilesInfo->{compressed} );
+      $self->temp_dir || $self->{_outDir}, $self->outputFilesInfo->{compressed} );
 
     if($compressErr) {
       return $self->_errorWithCleanup("Failed to compress output files because: $compressErr");
@@ -828,7 +794,7 @@ sub _moveFilesToFinalDestinationAndDeleteTemp {
     my $result;
 
     if($self->compress) {
-      my $sourcePath = $self->temp_dir->child( $self->_outputFilesInfo->{compressed} )->stringify;
+      my $sourcePath = $self->temp_dir->child( $self->outputFilesInfo->{compressed} )->stringify;
       $result = system("$mvCommand $sourcePath $finalDestination");
 
     } else {
@@ -863,55 +829,6 @@ sub _errorWithCleanup {
   return $msg;
 }
 
-sub _prepareStatsArguments {
-  my $self = shift;
-  my $basePath = shift;
-
-  say "base Path is $basePath";
-  my $statsProg = which($self->statistics_program);
-
-  if (!$statsProg) {
-    return ("Couldn't find statistics program at " . $self->statistics_program);
-  }
-
-  # Accumulate the delimiters: Note that $alleleDelimiter isn't necessary
-  # because the seqant_statistics scrip never operates on multiallelic sites
-  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
-
-  my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
-  my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
-
-  my $refColumnName = $self->{_refTrackGetter}->name;
-  my $alleleColumnName = $self->altField;
-  my $siteTypeColumnName = $self->statistics->{siteTypeField};
-
-  my $homozygotesColumnName = $self->homozygotesField;
-  my $heterozygotesColumnName = $self->heterozygotesField;
-
-  my $jsonOutPath = $basePath . $self->{statistics}{outputExtensions}{json};
-  my $tabOutPath = $basePath . $self->{statistics}{outputExtensions}{tab};
-  my $qcOutPath = $basePath . $self->{statistics}{outputExtensions}{qc};
-
-  my $snpNameColumnName = $self->statistics->{dbSNPnameField};
-  my $exonicAlleleFuncColumnName = $self->statistics->{exonicAlleleFunctionField};
-
-  if (!($snpNameColumnName && $exonicAlleleFuncColumnName && $emptyFieldString && $valueDelimiter
-  && $refColumnName && $alleleColumnName && $siteTypeColumnName && $homozygotesColumnName
-  && $heterozygotesColumnName && $jsonOutPath && $tabOutPath && $qcOutPath)) {
-    return ("Need, refColumnName, alleleColumnName, siteTypeColumnName, homozygotesColumnName,"
-      . "heterozygotesColumnName, jsonOutPath, tabOutPath, qcOutPath, "
-      . "primaryDelimiter, fieldSeparator, and "
-      . "numberHeaderLines must equal 1 for statistics", undef, undef);
-  }
-  return (undef, "$statsProg -outputJSONPath $jsonOutPath -outputTabPath $tabOutPath "
-    . "-outputQcTabPath $qcOutPath -referenceColumnName $refColumnName "
-    . "-alleleColumnName $alleleColumnName -homozygotesColumnName $homozygotesColumnName "
-    . "-heterozygotesColumnName $heterozygotesColumnName -siteTypeColumnName $siteTypeColumnName "
-    . "-dbSNPnameColumnName $snpNameColumnName "
-    . "-emptyFieldString \$\"$emptyFieldString\" "
-    . "-exonicAlleleFunctionColumnName $exonicAlleleFuncColumnName "
-    . "-primaryDelimiter \$\"$valueDelimiter\" -fieldSeparator \$\"$fieldSeparator\" ");
-}
 __PACKAGE__->meta->make_immutable;
 
 1;
