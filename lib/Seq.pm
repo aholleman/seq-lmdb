@@ -25,8 +25,7 @@ use MCE::Shared;
 use Seq::InputFile;
 use Seq::Output;
 use Seq::Headers;
-use Seq::Tracks;
-use Seq::Statistics;
+
 use Seq::DBManager;
 use Path::Tiny;
 use File::Which qw/which/;
@@ -35,50 +34,24 @@ use Scalar::Util qw/looks_like_number/;
 
 use Cpanel::JSON::XS;
 
-extends 'Seq::Base';
-
-# Defines most of the properties that can be configured at run time
-# Needed because there are variations of Seq.pm, ilke SeqFromQuery.pm
-with 'Seq::Definition';
-
 # We  add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 # Users may configure these
 has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
   handles  => { inputFilePath => 'stringify' }, writer => 'setInputFile');
 
-with 'Seq::Role::Validator';
+extends 'Seq::Base';
+
+# To initialize Seq::Base with only getters
+has '+gettersOnly' => (init_arg => undef, default => 1);
+
+# Defines most of the properties that can be configured at run time
+# Needed because there are variations of Seq.pm, ilke SeqFromQuery.pm
+# Requires logPath to be provided (currently found in Seq::Base)
+with 'Seq::Definition', 'Seq::Role::Validator';
 
 
-# TODO: TOO DRY-improper (shared with SeqFromQuery.pm)
-sub BUILDARGS {
-  my ($self, $data) = @_;
-
-  if(exists $data->{temp_dir}) {
-    # Missing or undefined
-    if(!defined $data->{temp_dir}) {
-      delete $data->{temp_dir};
-    } else {
-      # It's a string, convert to path
-      if(!ref $data->{temp_dir}) {
-        $data->{temp_dir} = path($data->{temp_dir});
-      }
-      $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
-    }
-  }
-
-  if( !$data->{logPath} ) {
-    if(!ref $data->{output_file_base}) {
-      $data->{output_file_base} = path($data->{output_file_base});
-    }
-
-    $data->{logPath} = $data->{output_file_base}->sibling(
-      $data->{output_file_base}->basename . '.annotation-log.txt');
-  }
-
-  return $data;
-};
-
+# TODO: further reduce complexity
 sub BUILD {
   my $self = shift;
 
@@ -92,106 +65,57 @@ sub BUILD {
   # Disable this if need to rebuild one of the meta tracks, for one run
   $self->{_db}->setReadOnly(1);
 
-  my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
-
   # We separate out the reference track getter so that we can check for discordant
   # bases, and pass the true reference base to other getters that may want it (like CADD)
-  $self->{_refTrackGetter} = $tracks->getRefTrackGetter();
+  # Store these references as hashes, to avoid accessor penalty
+  $self->{_refTrackGetter} = $self->tracksObj->getRefTrackGetter();
+  $self->{_trackGettersExceptReference} = $self->tracksObj->getTrackGettersExceptReference();
 
-  # All other tracks
-  my $i = 0;
-  for my $trackGetter ($tracks->allTrackGetters) {
-    if($trackGetter->name ne $self->{_refTrackGetter}->name) {
-      push @{ $self->{_trackGettersExceptReference} }, $trackGetter;
-    }
+  # Makes or fails silently if exists
+  $self->outDir->mkpath();
 
-    $i++;
-  }
+  # This must happen here, because I have strange lockup issue when trying
+  # to override logPath in the role
+  $self->setLogPath($self->outputFilesInfo);
 
-  $self->{_outDir} = $self->output_file_base->parent();
-
-  ############################# Handle Temp Dir ################################
-  # TODO: TOO DRY-nonconformant (shared with Seq.pm)
-  # If we specify temp_dir, user data will be written here first, then moved to the
-  # final destination
-  # If we're given a temp_dir, then we need to make temporary out paths and log paths
-  if($self->temp_dir) {
-    # Provided by Seq::Base
-    if (defined $self->logPath) {
-      my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
-
-      unlink $self->logPath;
-
-      # Updates the log path held by Seq::Role::Message static variable
-      $self->setLogPath($logPath);
-    }
-
-    $self->{_workingDir} = $self->temp_dir;
-  } else {
-    $self->{_workingDir} = $self->output_file_base->parent;
-  }
-
-  ############### Set log, annotation, statistics output basenames #####################
-  my $outputFileBaseName = $self->output_file_base->basename;
-
-  $self->outputFilesInfo->{log} = $self->logPath ? path($self->logPath)->basename : undef;
-  $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
-
-  if($self->compress) {
-    $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
-  }
-
-  if($self->run_statistics) {
-    my %args = (
-      refTrackName => $self->{_refTrackGetter}->name,
-      altField => $self->altField,
-      homozygotesField => $self->homozygotesField,
-      heterozygotesField => $self->heterozygotesField,
-      outputBasePath => $self->output_file_base->stringify,
-    );
-
-    if($self->statistics) {
-      %args = (%args, %{$self->statistics});
-    }
-
-    # TODO : use go-style ($err, $statisticRunner)
-    my $statisticsRunner  = Seq::Statistics->new(\%args);
-    
-    # TODO: Move this as an export of Seq::Statistics
-    $self->outputFilesInfo->{statistics} = {
-      json => $statisticsRunner->jsonFilePath,
-      tab => $statisticsRunner->tabFilePath,
-      qc => $statisticsRunner->qcFilePath,
-    };
-
-    $self->{_statsArgs} = $statisticsRunner->getStatsArguments();
-  }
-
-   ######### Build the header, and write it as the first line #############
+  ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
-  # Seq.pm contains a pseudo-track, having its own header fields
-  # Adding them to Seq::Headers must come after Seq::Tracks->new(), which runs Seq::Headers::initialize
-  # Order here is important, we expect the first 7 keys to be in this order,
-  # or need to modify below in addTrackData
-  # TODO: Move the annotation stuff to a separate track, say called Tracks::Input?
-  $headers->addFeaturesToHeader( [
+  # Seqant has a single pseudo track, that is always present, regardless of whether
+# any tracks exist
+# Note: Field order is required to stay in the follwoing order, because
+# current API allows use of constant as array index:
+# these to be configured:
+# idx 0:  $self->chromField,
+# idx 1: $self->posField,
+# idx 2: $self->typeField,
+# idx 3: $self->discordantField,
+# index 4: $self->altField,
+# index 5: $self->heterozygotesField,
+# index 6: $self->homozygotesField
+  $headers->addFeaturesToHeader([
+    #index 0
     $self->chromField,
+    #index 1
     $self->posField,
+    #index 2
     $self->typeField,
+    #index 3
     $self->discordantField,
     #index 4
     $self->altField,
     #index 5
     $self->heterozygotesField,
     #index 6
-    $self->homozygotesField], undef, 1);
+    $self->homozygotesField
+  ], undef, 1);
 
   $self->{_lastHeaderIdx} = $#{$headers->get()};
 
   $self->{_trackIdx} = $headers->getParentFeaturesMap();
 
   ################### Creates the output file handler #################
+  # Used in makeAnnotationString
   $self->{_outputter} = Seq::Output->new();
 }
 
@@ -204,8 +128,7 @@ sub annotate {
 
   #################### Validate the input file ################################
   # Converts the input file if necessary
-  my ($err, $updatedOrOriginalInputFilePath) = $self->validateInputFile(
-    $self->temp_dir || $self->{_outDir}, $self->input_file );
+  my ($err, $updatedOrOriginalInputFilePath) = $self->validateInputFile($self->_workingDir, $self->input_file);
 
   if($err) {
     $self->_errorWithCleanup($err);
@@ -238,8 +161,6 @@ sub annotate {
     #time perl -e '$string .= "foo \t " for(1..150); for(1..100000) { split("\t", $string) }'
     @firstLine = split '\t', $1;
   } else {
-    $self->_moveFilesToFinalDestinationAndDeleteTemp();
-
     $self->_errorWithCleanup("First line of input file has illegal characters: '$firstLine'");
     return ("First line of input file has illegal characters: '$firstLine'", undef, undef);
   }
@@ -259,8 +180,7 @@ sub annotate {
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
-  my $outputPath = $self->{_workingDir}->child($self->outputFilesInfo->{annotation});
-  my $outputBasePath = $self->{_workingDir}->child($self->output_file_base->basename)->stringify;
+  my $outputPath = $self->_workingDir->child($self->outputFilesInfo->{annotation});
 
   # If user specified a temp output path, use that
   my $outFh = $self->get_write_fh( $outputPath );
@@ -274,8 +194,9 @@ sub annotate {
   say $outFh $outputHeader;
 
   # TODO: error handling if fh fails to open
-  if($self->{_statsArgs}) {
-    open($statsFh, "|-", $self->{_statsArgs});
+  if($self->run_statistics) {
+    my $args = $self->_statisticsRunner->getStatsArguments();
+    open($statsFh, "|-", $args);
 
     say $statsFh $outputHeader;
   }
@@ -284,8 +205,14 @@ sub annotate {
   ($self->{_genoNames}, $self->{_genosIdx}, $self->{_confIdx}) = $inputFileProcessor->getSampleNameConfidenceIndexes(\@firstLine);
   $self->{_genosIdxRange} = [0 .. $#{$self->{_genosIdx}} ];
 
-  my $abortErr;
+  # TODO: Get SIG INT handler to work, such that temp_dir gets cleaned up
+  # which will happen automatically if we cleanly return from this function
+  # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
+  # local $SIG{INT} = sub {
+  #   my $message = shift;
+  # };
 
+  my $abortErr;
   MCE::Loop::init {
     max_workers => 8, use_slurpio => 1,
     # Small chunk_size progress messages take large portion of recipient's run time
@@ -296,14 +223,6 @@ sub annotate {
     chunk_size => '2560k',
     gather => $self->makeLogProgressAndPrint(\$abortErr, $outFh, $statsFh),
   };
-
-  # Ctrl + C handler; doesn't seem to work properly; won't allow respawn
-  # local $SIG{INT} = sub {
-  #   my $message = shift;
-  #   $aborted = 1;
-
-  #   MCE->abort();
-  # };
 
   # Store a reference; Moose/Mouse accessors aren't terribly fast
   # And this is used millions of times
@@ -329,7 +248,6 @@ sub annotate {
   # and need to call MCE::Shared::stop() to exit 
 
   my $m1 = MCE::Mutex->new;
-  # tie my $abortErr, 'MCE::Shared', '';
   tie my $readFirstLine, 'MCE::Shared', 0;
 
   mce_loop_f {
@@ -390,7 +308,7 @@ sub annotate {
 
     if(@lines) {
       #TODO: implement better error handling
-      ($err, $outString) = $self->annotateLines(\@lines);
+      ($err, $outString) = $self->makeAnnotationString(\@lines);
     }
 
     # Write progress
@@ -414,20 +332,17 @@ sub annotate {
   # to copy the data from a scalar, and don't want to use a hash for this alone
   # So, using a scalar ref to abortErr in the gather function.
   if($abortErr) {
-    say "found abort $abortErr";
-
-    $self->temp_dir->remove_tree;
+    say "Aborted job";
 
     # Database & tx need to be closed
     $self->{_db}->cleanUp();
 
-    return ($abortErr, undef, undef);
+    return ('Job aborted due to error', undef, undef);
   }
 
-  # TODO: Too DRY, put into Statistics.pm
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
-  if($self->{_statsArgs}) {
+  if($statsFh) {
     # Force the stats program to write its outputs
     close $statsFh;
     system('sync');
@@ -445,11 +360,17 @@ sub annotate {
   }
 
   ################ Compress if wanted ##########
-  $self->_moveFilesToFinalDestinationAndDeleteTemp();
+  $err = $self->_moveFilesToOutputDir();
+
+  # If we have an error moving the output files, we should still return all data
+  # that we can
+  if($err) {
+    $self->log('error', $err);
+  }
 
   $self->{_db}->cleanUp();
 
-  return (undef, $statsHref, $self->outputFilesInfo);
+  return ($err || undef, $statsHref, $self->outputFilesInfo);
 }
 
 sub makeLogProgressAndPrint {
@@ -484,7 +405,7 @@ sub makeLogProgressAndPrint {
 }
 
 # Accumulates data from the database, and returns an output string
-sub annotateLines {
+sub makeAnnotationString {
   my ($self, $linesAref) = @_;
 
   my (@inputData, @output, $wantedChr, @positions);
@@ -726,16 +647,23 @@ sub addTrackData {
 
             $self->{_db}->dbRead($chr, \@indelDbData);
 
-            unshift @indelDbData, $dataFromDbAref->[$i];
-
+            #Note that the first position keeps the same $inputRef
+            #This means in the (rare) discordant multiallelic situation, the reference
+            #Will be identical between the SNP and DEL alleles
             #faster than perl-style loop (much faster than c-style)
-            @indelRef = map { $self->{_refTrackGetter}->get($_) } @indelDbData;
+            @indelRef = ($inputRef, map { $self->{_refTrackGetter}->get($_) } @indelDbData);
+
+            #Add the db data that we already have for this position
+            unshift @indelDbData, $dataFromDbAref->[$i];
           }
         } else {
           #It's an insertion, we always read + 1 to the position being annotated
           # which itself is + 1 from the db position, so we read  $out[1][0][0] to get the + 1 base
           @indelDbData = ( $dataFromDbAref->[$i], $self->{_db}->dbReadOne($chr, $pos) );
 
+          #Note that the first position keeps the same $inputRef
+          #This means in the (rare) discordant multiallelic situation, the reference
+          #Will be identical between the SNP and DEL alleles
           @indelRef =  ( $inputRef, $self->{_refTrackGetter}->get($indelDbData[1]) );
         }
       }
@@ -768,51 +696,6 @@ sub addTrackData {
   }
 
   # 0 status indicates success
-  return '';
-}
-
-sub _moveFilesToFinalDestinationAndDeleteTemp {
-  my $self = shift;
-
-  my $compressErr;
-
-  if($self->compress) {
-    $compressErr = $self->compressDirIntoTarball(
-      $self->temp_dir || $self->{_outDir}, $self->outputFilesInfo->{compressed} );
-
-    if($compressErr) {
-      return $self->_errorWithCleanup("Failed to compress output files because: $compressErr");
-    }
-  }
-
-  my $finalDestination = $self->{_outDir};
-
-  if($self->temp_dir) {
-    my $mvCommand = $self->delete_temp ? 'mv' : 'cp';
-    $self->log('info', "Putting output file into final destination on EFS or S3 using $mvCommand");
-
-    my $result;
-
-    if($self->compress) {
-      my $sourcePath = $self->temp_dir->child( $self->outputFilesInfo->{compressed} )->stringify;
-      $result = system("$mvCommand $sourcePath $finalDestination");
-
-    } else {
-      $result = system("$mvCommand " . $self->tempPath . "/* $finalDestination");
-    }
-
-    if($self->delete_temp) {
-      $self->temp_dir->remove_tree;
-    }
-
-    # System returns 0 unless error
-    if($result) {
-      return $self->_errorWithCleanup("Failed to $mvCommand file to final destination");
-    }
-
-    $self->log("info", "Successfully used $mvCommand to place outputs into final destination");
-  }
-
   return '';
 }
 

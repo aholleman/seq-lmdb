@@ -50,19 +50,19 @@ use Seq::Tracks::Base::Types;
 ########################### Configuration ##################################
 # This only matters the first time this class is called
 # All other calls will ignore this property
-has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
+has gettersOnly => (is => 'ro', isa => 'Bool', default => 0);
 
 # @param <ArrayRef> tracks: track configuration
-# Required only for the first run, after that cached, and re-used
 # expects: {
   # typeName : {
   #  name: someName (optional),
   #  data: {
   #   feature1:   
 #} } }
+# This is used to check whether this package has been initialized
 has tracks => (
   is => 'ro',
-  isa => 'ArrayRef[HashRef]',
+  isa => 'ArrayRef[HashRef]'
 );
 
 ########################### Public Methods #################################
@@ -107,10 +107,23 @@ sub getTrackGettersByType {
 
 my $types = Seq::Tracks::Base::Types->new();
 
-#only 1 refere
+#Returns 1st reference track
 sub getRefTrackGetter {
   my $self = shift;
   return $trackGettersByType->{$types->refType}[0];
+}
+
+sub getTrackGettersExceptReference {
+  my $self = shift;
+
+  my @trackGettersExceptReference;
+  for my $trackGetter (@{$self->trackGetters}) {
+    if($trackGetter->type ne $types->refType) {
+      push @trackGettersExceptReference, $trackGetter;
+    }
+  }
+
+  return \@trackGettersExceptReference;
 }
 
 sub allRegionTrackBuilders {
@@ -139,6 +152,12 @@ sub getRefTrackBuilder {
   return $trackBuildersByType->{$types->refType}[0];
 }
 
+# Used solely for clarity, keep with the interface used in other singleton classes
+sub initialize {
+  _clearStatiticGetters();
+  _clearStatiticBuilders();
+}
+
 sub BUILD {
   my $self = shift;
 
@@ -150,33 +169,41 @@ sub BUILD {
   # However it is important that in long-running parent processes, which may 
   # instantiate this program more than once, we do not re-use old configurations
   # So every time the parent passes a tracks object, we re-configure this class
-  if(! $self->tracks && %$trackGettersByName ) {
+  if( !$self->tracks && !_hasTrackGetters() ) {
+    $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
     return;
   }
 
-  # If this is 1st time we execute initialize, must have tracks configuration
-  if(!$self->tracks || !@{$self->tracks} ) {
-    $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
-  }
-
-  # Cache for future calls to Seq::Tracks
-  my $tracks = $self->tracks;
-
-  # Each track getter adds its own features to Seq::Headers, which is a singleton
-  # Since instantiating Seq::Tracks also instantiates getters at this point
-  # We must clear Seq::Headers here to ensure our tracks can properly do this
-  Seq::Headers::initialize();
-
-  $self->_buildTrackGetters($tracks);
+  $self->_buildTrackGetters($self->tracks);
 
   if($self->gettersOnly) {
     return;
   }
 
-  $self->_buildTrackBuilders($tracks);
+  $self->_buildTrackBuilders($self->tracks);
 }
 
 ################### Private builders #####################
+sub _clearStatiticGetters {
+  $trackGettersByName = {};
+  $orderedTrackGettersAref = [];
+  $trackGettersByType = {};
+}
+
+sub _clearStatiticBuilders {
+  $trackBuildersByName = {};
+  $orderedTrackBuildersAref = [];
+  $trackBuildersByType = {};
+}
+
+sub _hasTrackGetters {
+  return %{$trackGettersByName} && @{$orderedTrackGettersAref} && %{$trackGettersByType};
+}
+
+sub _hasTrackBuilders {
+  return  %{$trackBuildersByName} && @{$orderedTrackBuildersAref} && %{$trackBuildersByType};
+}
+
 sub _buildTrackGetters {
   my $self = shift;
   my $trackConfigurationAref = shift;
@@ -186,14 +213,10 @@ sub _buildTrackGetters {
   }
 
   my %seenTrackNames;
-
+  my $seenRef = 0;
   # We may have previously configured this class in a long running process
   # If so, remove the tracks, free the memory
-  if(%$trackGettersByName) {
-    $trackGettersByName = {};
-    $orderedTrackGettersAref = [];
-    $trackGettersByType = {};
-  }
+  _clearStatiticGetters();
 
   for my $trackHref (@$trackConfigurationAref ) {
     #get the trackClass
@@ -202,6 +225,13 @@ sub _buildTrackGetters {
     my $className = $self->_toTrackGetterClass( $trackHref->{type} );
 
     my $track = $className->new($trackHref);
+
+    if(!$seenRef) {
+      $seenRef = $track->{type} eq $types->refType;
+    } elsif($track->{type} eq $types->refType) {
+      $self->log('fatal', "Only one reference track allowed, found at least 2");
+      return;
+    }
 
     if(exists $seenTrackNames{ $track->{name} } ) {
       $self->log('fatal', "More than one track with the same name 
@@ -220,6 +250,10 @@ sub _buildTrackGetters {
 
     push @{$trackGettersByType->{$trackHref->{type} } }, $track;
   }
+
+  if(!$seenRef) {
+    $self->log('fatal', "One reference track required, found none");
+  }
 }
 
 #different from Seq::Tracks in that we store class instances hashed on track type
@@ -233,14 +267,10 @@ sub _buildTrackBuilders {
   }
 
   my %seenTrackNames;
-
+  my $seenRef;
   # We may have previously configured this class in a long running process
   # If so, remove the tracks, free the memory
-  if(%$trackBuildersByName) {
-    $trackBuildersByName = {};
-    $orderedTrackBuildersAref = [];
-    $trackBuildersByType = {};
-  }
+  _clearStatiticBuilders();
 
   for my $trackHref (@$trackConfigurationAref) {
     my $trackFileName = $self->_toTrackBuilderClass($trackHref->{type} );
@@ -248,6 +278,13 @@ sub _buildTrackBuilders {
     my $className = $self->_toTrackBuilderClass( $trackHref->{type} );
 
     my $track = $className->new($trackHref);
+
+    if(!$seenRef) {
+      $seenRef = $track->{type} eq $types->refType;
+    } elsif($track->{type} eq $types->refType){
+      $self->log('fatal', "Only one reference track allowed, found at least 2");
+      return;
+    }
 
     #we use the track name rather than the trackHref name
     #because at the moment, users are allowed to rename their tracks
@@ -269,6 +306,10 @@ sub _buildTrackBuilders {
     push @{$orderedTrackBuildersAref}, $track;
 
     push @{$trackBuildersByType->{$trackHref->{type} } }, $track;
+  }
+
+  if(!$seenRef) {
+    $self->log('fatal', "One reference track required, found none");
   }
 }
 
@@ -301,213 +342,3 @@ sub _toTrackBuilderClass{
 
 __PACKAGE__->meta->make_immutable;
 1;
-
-######### Alternative way of storing the singleton configuration, by assembly #####
-
-# ########################### Configuration ##################################
-# # This only matters the first time this class is called
-# # All other calls will ignore this property
-# has gettersOnly => (is => 'ro', isa => 'Bool', lazy=> 1, default => 0);
-
-# # @param <Str> assembly : The name of the genome assembly; used to identify
-# # which tracks the callee has configured
-# state $assembly;
-
-# # @param <ArrayRef> tracks: track configuration
-# # Required only for the first run, after that cached, and re-used
-# # Expects an array of track key/values that are understood by Seq::Tracks::Base
-# # and Seq::Tracks::Build, as well as any children of those classes
-# has tracks => (
-#   is => 'ro',
-#   isa => 'ArrayRef[HashRef]',
-# );
-
-# ########################### Public Methods #################################
-
-# # @param <ArrayRef> trackBuilders : ordered track builders
-# # {
-# #   assembly => [Seq::Tracks::*,Seq::Tracks::*]
-# # }
-# state $orderedTrackBuilders = {};
-# has trackBuilders => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
-#   traits => ['Array'], handles => { allTrackBulders => 'elements' }, 
-#   default => sub { $orderedTrackBuilders->{$assembly} } );
-
-# # @param <HashRef> $trackBuildersByName : track builders stored on name
-# # {
-# #   assembly => { name => Seq::Tracks::*::Build }
-# # }
-# state $trackBuildersByName = {};
-# sub getTrackBuilderByName {
-#   # my ($self, $name) = @_; #$_[1] == $name
-#   return $trackBuildersByName->{$assembly}{$_[1]};
-# }
-
-# # @param <HashRef> $trackBuildersByType : track builders stored on type
-# # {
-# #   assembly => { type => Seq::Tracks::*::Build }
-# # }
-# state $trackBuildersByType = {};
-# sub getTrackBuildersByType {
-#   #my ($self, $type) = @_; #$_[1] == $type
-#   return $trackBuildersByType->{$assembly}{$_[1]};
-# }
-
-# # @param <ArrayRef> trackGetters : ordered track getters
-# state $orderedTrackGetters = {};
-
-# # @param <ArrayRef> trackGetters : ordered track getters
-# has trackGetters => ( is => 'ro', isa => 'ArrayRef', init_arg => undef, lazy => 1,
-#   traits => ['Array'], handles => { allTrackGetters => 'elements' } , 
-#   default => sub { $orderedTrackGetters->{$assembly} } );
-
-# state $trackGettersByName = {};
-# sub getTrackGetterByName {
-#   #my ($self, $name) = @_; #$_[1] == $name
-#   return $trackGettersByName->{$assembly}{$_[1]};
-# }
-
-# state $trackGettersByType = {};
-# sub getTrackGettersByType {
-#   # my ($self, $type) = @_; # $_[1] == $type
-#   return $trackGettersByType->{$assembly}{$_[1]};
-# }
-
-# ################### Individual track getters ##################
-
-# my $types = Seq::Tracks::Base::Types->new();
-
-# #only 1 refere
-# sub getRefTrackGetter {
-#   #my $self = shift;
-#   return $trackGettersByType->{$assembly}{$types->refType}[0];
-# }
-
-# sub allRegionTrackBuilders {
-#   #my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->regionType};
-# }
-
-# sub allScoreTrackBuilders {
-#  # my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->scoreType};
-# }
-
-# sub allSparseTrackBuilders {
-#  # my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->sparseType};
-# }
-
-# sub allGeneTrackBuilders {
-# #  my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->geneType};
-# }
-
-# #only one ref track allowed, so we return the first
-# sub getRefTrackBuilder {
-#   #my $self = shift;
-#   return $trackBuildersByType->{$assembly}{$types->refType}[0];
-# }
-
-# sub BUILD {
-#   my $self = shift;
-#   # If $self->gettersOnly set the first time this track is called, all future
-#   # invocations will only have getters
-#   # This allows us to safely avoid locks, properly treating that as a singleton
-
-#   # $trackGetters is always set upon the first invocation, so it is a reliable
-#   # marker of previous initialization
-#   # Note that if $self->gettersOnly set, all future invocations cannot get
-#   # builders
-#   if(!$assembly && !$self->assembly) {
-#     $self->log('fatal', 'First tiem Seq::Tracks is run, assembly must be provided');
-#   }
-
-#   $assembly = $self->assembly;
-
-#   if(defined $trackGettersByName->{$assembly} &&
-#   %{ $trackGettersByName->{$assembly} } ) { 
-#     return;
-#   }
-
-#   # If this is 1st time we execute initialize, must have tracks configuration
-#   if(! @{$self->tracks} ) {
-#     $self->log('fatal', 'First time Seq::Tracks is run tracks configuration must be passed');
-#   }
-
-#   $self->_buildTrackGetters;
-
-#   if($self->gettersOnly) {
-#     return;
-#   }
-
-#   if(!defined $trackBuildersByName->{$assembly} && %{ $trackBuildersByName->{$assembly} }) {
-#     $self->_buildTrackBuilders;
-#   }
-# }
-
-# ################### Private builders #####################
-# sub _buildTrackGetters {
-#   my $self = shift;
-
-#   for my $trackHref (@{$self->tracks}) {
-#     #get the trackClass
-#     my $trackFileName = $self->_toTrackGetterClass($trackHref->{type} );
-#     #class 
-#     my $className = $self->_toTrackGetterClass( $trackHref->{type} );
-
-#     my $track = $className->new($trackHref);
-
-#     if(exists $trackGettersByName->{$assembly}{$track->{name} } ) {
-#       $self->log('fatal', "More than one track with the same name 
-#         exists: $trackHref->{name}. Each track name must be unique
-#       . Overriding the last object for this name, with the new")
-#     }
-
-#     #we use the track name rather than the trackHref name
-#     #because at the moment, users are allowed to rename their tracks
-#     #by name : 
-#       #   something : someOtherName
-#     $trackGettersByName->{$assembly}{$track->{name} } = $track;
-    
-#     #allows us to preserve order when iterating over all track getters
-#     push @{ $orderedTrackGetters->{$assembly} }, $track;
-
-#     push @{$trackGettersByType->{$assembly}{$trackHref->{type} } }, $track;
-#   }
-# }
-
-# #different from Seq::Tracks in that we store class instances hashed on track type
-# #this is to allow us to more easily build tracks of one type in a certain order
-# sub _buildTrackBuilders {
-#   my $self = shift;
-
-#   for my $trackHref (@{$self->tracks}) {
-#     my $trackFileName = $self->_toTrackBuilderClass($trackHref->{type} );
-#     #class 
-#     my $className = $self->_toTrackBuilderClass( $trackHref->{type} );
-
-#     my $track = $className->new($trackHref);
-
-#     #we use the track name rather than the trackHref name
-#     #because at the moment, users are allowed to rename their tracks
-#     #by name : 
-#       #   something : someOtherName
-#     if(exists $trackBuildersByName->{$assembly}{$track->{name} } ) {
-#       $self->log('fatal', "More than one track with the same name 
-#         exists: $trackHref->{name}. Each track name must be unique
-#       . Overriding the last object for this name, with the new")
-#     }
-
-#     #we use the track name rather than the trackHref name
-#     #because at the moment, users are allowed to rename their tracks
-#     #by name : 
-#       #   something : someOtherName
-#     #TODO: make this go away by automating track name conversion/storing in db
-#     $trackBuildersByName->{$assembly}{$track->{name} } = $track;
-
-#     push @{ $orderedTrackBuilders->{$assembly} }, $track;
-
-#     push @{$trackBuildersByType->{$assembly}{$trackHref->{type} } }, $track;
-#   }
-# }

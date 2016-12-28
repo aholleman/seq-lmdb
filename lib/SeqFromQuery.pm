@@ -10,25 +10,15 @@ our $VERSION = '0.001';
 
 use Search::Elasticsearch;
 
-use Path::Tiny;
-
-
 use namespace::autoclean;
 
-use DDP;
+use Seq::Output;
 
-use Seq::Output::Delimiters;
-# use MCE::Loop;
-# use MCE::Shared;
-use Seq::Statistics;
-use Seq::Headers;
-use Seq::InputFile;
-
-use YAML::XS qw/LoadFile/;
-use Try::Tiny;
 use Cpanel::JSON::XS qw/decode_json encode_json/;
 
 # Defines basic things needed in builder and annotator, like logPath,
+# Also initializes the database with database_dir
+# TODO: could move away from initializing the LMDB database, not needed here
 extends 'Seq::Base';
 
 # Defines most of the properties that can be configured at run time
@@ -51,110 +41,16 @@ has assembly => (is => 'ro', isa => 'Str', required => 1);
 # If so, this is a re-indexing job, and we will want to append the header fields
 has fieldNames => (is => 'ro', isa => 'ArrayRef', required => 1);
 
-
-# TODO: TOO DRY-improper (shared with Seq.pm)
-sub BUILDARGS {
-  my ($self, $data) = @_;
-
-  if($data->{temp_dir} ) {
-    # It's a string, convert to path
-    if(!ref $data->{temp_dir}) {
-      $data->{temp_dir} = path($data->{temp_dir});
-    }
-
-    $data->{temp_dir} = $self->makeRandomTempDir($data->{temp_dir});
-  }
-  
-  if( !$data->{logPath} ) {
-    if(!ref $data->{output_file_base}) {
-      $data->{output_file_base} = path($data->{output_file_base});
-    }
-
-    $data->{logPath} = $data->{output_file_base}->sibling(
-      $data->{output_file_base}->basename . '.annotation-log.txt');
-  }
-
-  return $data;
-};
-
-
 # TODO: This is too complicated, shared with Seq.pm for the most part
 sub BUILD {
   my $self = shift;
 
-  $self->{_outDir} = $self->output_file_base->parent();
+  # Makes or fails silently if exists
+  $self->outDir->mkpath();
 
-  ############################# Handle Temp Dir ################################
-  # TODO: TOO DRY-nonconformant (shared with Seq.pm)
-  # If we specify temp_dir, user data will be written here first, then moved to the
-  # final destination
-  # If we're given a temp_dir, then we need to make temporary out paths and log paths
-  if($self->temp_dir) {
-    # Provided by Seq::Base
-    my $logPath = $self->temp_dir->child( path($self->logPath)->basename );
-    
-    unlink $self->logPath;
-
-    # Updates the log path held by Seq::Role::Message static variable
-    $self->setLogPath($logPath);
-
-    $self->{_tempOutPath} = $self->temp_dir->child( $self->output_file_base->basename )->stringify;
-  }
-
-  ############### Set log, annotation, statistics output basenames #####################
-  my $outputFileBaseName = $self->output_file_base->basename;
-
-  if(!$self->output_file_base->parent->exists) {
-    $self->output_file_base->parent->mkpath;
-  }
-
-  $self->outputFilesInfo->{log} = path($self->logPath)->basename;
-  $self->outputFilesInfo->{annotation} = $outputFileBaseName . '.annotation.tab';
-
-  if($self->compress) {
-    $self->outputFilesInfo->{compressed} = $self->makeTarballName( $outputFileBaseName );
-  }
-
-  my $tracks = Seq::Tracks->new({tracks => $self->tracks, gettersOnly => 1});
-
-  # We separate out the reference track getter so that we can check for discordant
-  # bases, and pass the true reference base to other getters that may want it (like CADD)
-  $self->{_refTrackGetter} = $tracks->getRefTrackGetter();
-
-  my %trackNamesMap;
-  for my $track (@{ $tracks->trackGetters }) {
-    $trackNamesMap{$track->name} = 1;
-  }
-
-  $self->{_trackNames} = \%trackNamesMap;
-  ################### Creates the output file handler #################
-  $self->{_outputter} = Seq::Output->new();
-
-  if($self->run_statistics) {
-    my %args = (
-      refTrackName => $self->{_refTrackGetter}->name,
-      altField => $self->altField,
-      homozygotesField => $self->homozygotesField,
-      heterozygotesField => $self->heterozygotesField,
-      outputBasePath => $self->output_file_base->stringify,
-    );
-
-    if($self->statistics) {
-      %args = (%args, %{$self->statistics});
-    }
-
-    # TODO : use go-style ($err, $statisticRunner)
-    my $statisticsRunner  = Seq::Statistics->new(\%args);
-    
-    # TODO: Move this as an export of Seq::Statistics
-    $self->outputFilesInfo->{statistics} = {
-      json => $statisticsRunner->jsonFilePath,
-      tab => $statisticsRunner->tabFilePath,
-      qc => $statisticsRunner->qcFilePath,
-    };
-
-    $self->{_statsArgs} = $statisticsRunner->getStatsArguments();
-  }
+  # This must happen here, because I have strange lockup issue when trying
+  # to override logPath in the role
+  $self->setLogPath($self->outputFilesInfo);
 }
 
 sub annotate {
@@ -164,11 +60,13 @@ sub annotate {
 
   $self->log( 'info', 'Input query is: ' . encode_json($self->inputQueryBody) );
 
-  my $alleleDelimiter = $self->{_outputter}->delimiters->alleleDelimiter;
-  my $positionDelimiter = $self->{_outputter}->delimiters->positionDelimiter;
-  my $valueDelimiter = $self->{_outputter}->delimiters->valueDelimiter;
-  my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
-  my $emptyFieldChar = $self->{_outputter}->delimiters->emptyFieldChar;
+  my $outputter = Seq::Output->new();
+
+  my $alleleDelimiter = $outputter->delimiters->alleleDelimiter;
+  my $positionDelimiter = $outputter->delimiters->positionDelimiter;
+  my $valueDelimiter = $outputter->delimiters->valueDelimiter;
+  my $fieldSeparator = $outputter->delimiters->fieldSeparator;
+  my $emptyFieldChar = $outputter->delimiters->emptyFieldChar;
 
   my @fieldNames = @{$self->fieldNames};;
 
@@ -198,20 +96,14 @@ sub annotate {
 
   ################## Make the full output path ######################
   # The output path always respects the $self->output_file_base attribute path;
-  my $outputPath;
-
-  if($self->temp_dir) {
-    $outputPath = $self->temp_dir->child($self->outputFilesInfo->{annotation} );
-  } else {
-    $outputPath = $self->output_file_base->parent->child($self->outputFilesInfo->{annotation} );
-  }
+  my $outputPath = $self->_workingDir->child($self->outputFilesInfo->{annotation});
 
   my $outFh = $self->get_write_fh($outputPath);
   
   if(!$outFh) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
     #i.e inappropriate ioctl when actually no issue
-    my $err = "Failed to open " . $self->{_tempOutPath} || $self->{outputFileBasePath};
+    my $err = "Failed to open " . $self->_workingDir;
     $self->_errorWithCleanup($err);
     return ($err, undef);
   }
@@ -236,8 +128,9 @@ sub annotate {
   say $outFh $outputHeader;
 
   # TODO: error handling if fh fails to open
-  if($self->{_statsArgs}) {
-    open($statsFh, "|-", $self->{_statsArgs});
+  if($self->run_statistics) {
+    my $args = $self->_statisticsRunner->getStatsArguments();
+    open($statsFh, "|-", $args);
 
     say $statsFh $outputHeader;
   }
@@ -279,7 +172,7 @@ sub annotate {
   # TODO: Too DRY, put into Statistics.pm
   ################ Finished writing file. If statistics, print those ##########
   my $statsHref;
-  if($self->{_statsArgs}) {
+  if($statsFh) {
     # Force the stats program to write its outputs
     close $statsFh;
     system('sync');
@@ -297,9 +190,15 @@ sub annotate {
   }
 
   ################ Compress if wanted ##########
-  $self->_moveFilesToFinalDestinationAndDeleteTemp();
+  my $err = $self->_moveFilesToOutputDir();
 
-  return (undef, $statsHref, $self->outputFilesInfo);
+  # If we have an error moving the output files, we should still return all data
+  # that we can
+  if($err) {
+    $self->log('error', $err);
+  }
+
+  return ($err || undef, $statsHref, $self->outputFilesInfo);
 }
 
 sub _populateArrayPathFromHash {
@@ -378,53 +277,6 @@ sub makeLogProgress {
     }
   }
 }
-
-sub _moveFilesToFinalDestinationAndDeleteTemp {
-  my $self = shift;
-
-  my $compressErr;
-
-  if($self->compress) {
-    $compressErr = $self->compressDirIntoTarball(
-      $self->temp_dir || $self->{_outDir}, $self->outputFilesInfo->{compressed} );
-
-    if($compressErr) {
-      return $self->_errorWithCleanup("Failed to compress output files because: $compressErr");
-    }
-  }
-
-  my $finalDestination = $self->{_outDir};
-
-  if($self->temp_dir) {
-    my $mvCommand = $self->delete_temp ? 'mv' : 'cp';
-    
-    $self->log('info', "Putting output file into final destination on EFS or S3 using $mvCommand");
-
-    my $result;
-
-    if($self->compress) {
-      my $sourcePath = $self->temp_dir->child( $self->outputFilesInfo->{compressed} )->stringify;
-      $result = system("$mvCommand $sourcePath $finalDestination");
-      
-    } else {
-      $result = system("$mvCommand " . $self->tempPath . "/* $finalDestination");
-    }
-
-    if($self->delete_temp) {
-      $self->temp_dir->remove_tree;
-    }
-  
-    # System returns 0 unless error
-    if($result) {
-      return $self->_errorWithCleanup("Failed to $mvCommand file to final destination");
-    }
-
-    $self->log("info", "Successfully used $mvCommand to place outputs into final destination");
-  }
-
-  return '';
-}
-
 
 sub _errorWithCleanup {
   my ($self, $msg) = @_;

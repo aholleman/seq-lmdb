@@ -36,7 +36,7 @@ has exonicAlleleFunctionField => (is => 'ro', isa => 'Str', required => 1);
 
 # Optional. Can be specified in YAML, command line, or passed.
 # If not passed, 
-has refTrackName => (is => 'ro', isa => 'Str', required => 1);
+has refTrackField => (is => 'ro', isa => 'Str', required => 1);
 
 has altField => (is => 'ro', isa => 'Str', required => 1);
 
@@ -84,7 +84,6 @@ sub BUILD {
   }
 
   $self->_setJsonFilePath($self->outputBasePath . $self->outputExtensions->{json});
-
   $self->_setTabFilePath($self->outputBasePath . $self->outputExtensions->{tab});
   $self->_setQcFilePath($self->outputBasePath . $self->outputExtensions->{qc});
 }
@@ -99,7 +98,7 @@ sub getStatsArguments {
   my $fieldSeparator = $self->{_outputter}->delimiters->fieldSeparator;
   my $emptyFieldString = $self->{_outputter}->delimiters->emptyFieldChar;
 
-  my $refColumnName = $self->refTrackName;
+  my $refColumnName = $self->refTrackField;
   my $alleleColumnName = $self->altField;
 
   my $homozygotesColumnName = $self->homozygotesField;
