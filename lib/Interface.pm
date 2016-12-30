@@ -29,7 +29,7 @@ has input_file => (
   isa         => 'Str',
   required      => 1,
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/input i/],
+  cmd_aliases   => [qw/input i in/],
   documentation => qq{Input file path.},
 );
 

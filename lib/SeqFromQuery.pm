@@ -47,10 +47,6 @@ sub BUILD {
 
   # Makes or fails silently if exists
   $self->outDir->mkpath();
-
-  # This must happen here, because I have strange lockup issue when trying
-  # to override logPath in the role
-  $self->setLogPath($self->outputFilesInfo);
 }
 
 sub annotate {

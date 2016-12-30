@@ -26,14 +26,14 @@ with 'Seq::Role::IO';
 # Ex: /dir/child/BaseName ; BaseName is appended with .annotated.tab , .annotated-log.txt, etc
 # for the various outputs
 has output_file_base => ( is => 'ro', isa => AbsPath, coerce => 1, required => 1,
-  handles => { outDir => 'parent' });
+  handles => { outDir => 'parent', outBaseName => 'basename' });
 
 ############################### Optional #####################################
 # String, allowing us to ignore it if not truthy
-has temp_dir => (is => 'ro', isa => 'Str');
+has temp_dir => (is => 'ro', isa => 'Maybe[Str]');
 
 # Do we want to compress?
-has compress => (is => 'ro', default => 1, lazy => 1);
+has compress => (is => 'ro', default => 1);
 
 # The statistics configuration options, usually defined in a YAML config file
 has statistics => (is => 'ro', isa => 'HashRef');
@@ -66,14 +66,9 @@ has outputFilesInfo => (is => 'ro', isa => 'HashRef', init_arg => undef, lazy =>
   $out{log} = $self->logPath;
 
   # Must be lazy in order to allow "revealing module pattern", with output_file_base below
-  my $outputFileBaseName = $self->output_file_base->basename;
+  my $outBaseName = $self->outBaseName;
 
-  $out{annotation} = $outputFileBaseName . '.annotation.tab';
-
-  if($self->compress) {
-    #makeTarballname is a Seq::Role::IO method
-    $out{compressed} = $self->makeTarballName( $outputFileBaseName );
-  }
+  $out{annotation} = $outBaseName . '.annotation.tab';
 
   # Must be lazy in order to allow "revealing module pattern", with _statisticsRunner below
   if($self->run_statistics) {
@@ -84,58 +79,42 @@ has outputFilesInfo => (is => 'ro', isa => 'HashRef', init_arg => undef, lazy =>
     };
   }
 
+  if($self->compress) {
+    # Seq::Role::IO method
+    $out{compressed} = $self->makeTarballName($outBaseName);
+  }
+
   return \%out;
 });
 
 ############################ Private ###################################
-sub _moveFilesToOutputDir {
-  my $self = shift;
-
-  if($self->outputFilesInfo->{compressed}) {
-    my $compressErr = $self->compressDirIntoTarball( $self->_workingDir, $self->outputFilesInfo->{compressed} );
-
-    if($compressErr) {
-      return $compressErr;
-    }
-  }
-
-  if($self->_workingDir eq $self->outDir) {
-    $self->log('debug', "Nothing to move, workingDir equals outDir");
-    return 0;
-  }
-
-  my $workingDir = $self->_workingDir->stringify;
-  my $outDir = $self->outDir->stringify;
-
-  $self->log('info', "Moving output file to EFS or S3");
-
-  my $result = system("mv $workingDir/* $outDir");
-
-  return $result ? $! : 0;
-}
-
+# Must be lazy... Mouse doesn't seem to respect attribute definition order at all times
+# Leading to situations where $self->outDir doesn't exist by the time _workingDir
+# is created. This can lead to the contents of the current working directory being accidentally compressed
+# into $self->outputFilesInfo->{compressed}
 has _workingDir => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
   my $self = shift;
   return $self->temp_dir ? Path::Tiny->tempdir(DIR => $self->temp_dir, CLEANUP => 1) : $self->outDir;
 });
 
 ### Override logPath to use the working directory / output_file_base basename ###
-has '+logPath' => ( init_arg => undef, lazy => 1, default => sub {
+has logPath => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
   my $self = shift;
-  return $self->_workingDir->child($self->output_file_base->basename . '.annotation-log.txt')->stringify();
+  return $self->_workingDir->child($self->outBaseName. '.annotation-log.txt')->stringify();
 });
 
 # Must be lazy because needs run_statistics and statistics
 has _statisticsRunner => (is => 'ro', init_arg => undef, lazy => 1, default => sub {
   my $self = shift;
 
+  my $basePath = $self->_workingDir->child($self->outBaseName)->stringify;
   # Assumes that is run_statistics is specified, $self-statistics exists
   if($self->run_statistics) {
     my %args = (
       altField => $self->altField,
       homozygotesField => $self->homozygotesField,
       heterozygotesField => $self->heterozygotesField,
-      outputBasePath => $self->output_file_base->stringify,
+      outputBasePath => $basePath,
     );
 
     %args = (%args, %{$self->statistics});
@@ -145,6 +124,41 @@ has _statisticsRunner => (is => 'ro', init_arg => undef, lazy => 1, default => s
 
   return undef;
 });
+
+sub _moveFilesToOutputDir {
+  my $self = shift;
+
+  if($self->compress) {
+    my $compressErr = $self->compressDirIntoTarball( $self->_workingDir, $self->outputFilesInfo->{compressed} );
+
+    if($compressErr) {
+      return $compressErr;
+    }
+  }
+
+  if( $self->outDir eq $self->_workingDir) {
+    $self->log('debug', "Nothing to move, workingDir equals outDir");
+    return 0;
+  }
+
+  my $workingDir = $self->_workingDir->stringify;
+  my $outDir = $self->outDir->stringify;
+
+  $self->log('info', "Moving output file to EFS or S3");
+
+  my $result = system("mv $workingDir/* $outDir;");
+
+  return $result ? $! : 0;
+}
+
+# If we need another way of instantiating workingDir that is less error-prone
+# (because of the extreme dependence on laziness)
+around 'BUILD' => sub {
+  my $orig = shift;
+  my $self = shift;
+
+  $self->$orig(@_);
+};
 
 no Mouse::Role;
 1;

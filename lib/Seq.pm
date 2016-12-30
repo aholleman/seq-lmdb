@@ -34,22 +34,21 @@ use Scalar::Util qw/looks_like_number/;
 
 use Cpanel::JSON::XS;
 
+extends 'Seq::Base';
+
 # We  add a few of our own annotation attributes
 # These will be re-used in the body of the annotation processor below
 # Users may configure these
 has input_file => (is => 'rw', isa => AbsFile, coerce => 1, required => 1,
   handles  => { inputFilePath => 'stringify' }, writer => 'setInputFile');
 
-extends 'Seq::Base';
-
-# To initialize Seq::Base with only getters
-has '+gettersOnly' => (init_arg => undef, default => 1);
-
 # Defines most of the properties that can be configured at run time
 # Needed because there are variations of Seq.pm, ilke SeqFromQuery.pm
 # Requires logPath to be provided (currently found in Seq::Base)
 with 'Seq::Definition', 'Seq::Role::Validator';
 
+# To initialize Seq::Base with only getters
+has '+gettersOnly' => (init_arg => undef, default => 1);
 
 # TODO: further reduce complexity
 sub BUILD {
@@ -71,28 +70,21 @@ sub BUILD {
   $self->{_refTrackGetter} = $self->tracksObj->getRefTrackGetter();
   $self->{_trackGettersExceptReference} = $self->tracksObj->getTrackGettersExceptReference();
 
-  # Makes or fails silently if exists
-  $self->outDir->mkpath();
-
-  # This must happen here, because I have strange lockup issue when trying
-  # to override logPath in the role
-  $self->setLogPath($self->outputFilesInfo);
-
   ######### Build the header, and write it as the first line #############
   my $headers = Seq::Headers->new();
 
   # Seqant has a single pseudo track, that is always present, regardless of whether
-# any tracks exist
-# Note: Field order is required to stay in the follwoing order, because
-# current API allows use of constant as array index:
-# these to be configured:
-# idx 0:  $self->chromField,
-# idx 1: $self->posField,
-# idx 2: $self->typeField,
-# idx 3: $self->discordantField,
-# index 4: $self->altField,
-# index 5: $self->heterozygotesField,
-# index 6: $self->homozygotesField
+  # any tracks exist
+  # Note: Field order is required to stay in the follwoing order, because
+  # current API allows use of constant as array index:
+  # these to be configured:
+  # idx 0:  $self->chromField,
+  # idx 1: $self->posField,
+  # idx 2: $self->typeField,
+  # idx 3: $self->discordantField,
+  # index 4: $self->altField,
+  # index 5: $self->heterozygotesField,
+  # index 6: $self->homozygotesField
   $headers->addFeaturesToHeader([
     #index 0
     $self->chromField,
