@@ -91,26 +91,26 @@ sub get_read_fh {
 
       say "opening file using tar command";
       say "$tar -O -xzf $filePath $innerFile";
-      open ($fh, '-|', "$tar -O -xf $filePath $innerFile");
+      open ($fh, '-|', "$tar -O -xf \"$filePath\" \"$innerFile\"");
     }
     # If an innerFile is passed, we assume that $file is a path to a tarball
   } elsif($filePath =~ /\.gz$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$gzip -d -c $filePath");
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
 
     # open($fh, "<:gzip", $filePath);
   } elsif($filePath =~ /\.zip$/) {
     $compressed = 1;
     #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
     #and then exits, so use gunzip, standard on linux, and faster
-    open ($fh, '-|', "$gzip -d -c $filePath");
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
     
     # open($fh, "<:gzip(none)", $filePath);
   } else {
     # open($fh, '<:unix', "$filePath");
-    open ($fh, '-|', "cat $filePath");
+    open ($fh, '-|', "cat \"$filePath\"");
   };
 
   if(!$fh) {
@@ -210,32 +210,7 @@ sub compressDirIntoTarball {
     return $?;
   }
 
-  return;
-}
-
-#http://www.perlmonks.org/?node_id=233023
-sub makeRandomTempDir {
-  my ($self, $parentDir) = @_;
-
-  srand( time() ^ ($$ + ($$ << 15)) );
-  my @v = qw ( a e i o u y );
-  my @c = qw ( b c d f g h j k l m n p q r s t v w x z );
-
-  my ($flip, $childDir) = (0,'');
-  $childDir .= ($flip++ % 2) ? $v[rand(6)] : $c[rand(20)] for 1 .. 9;
-  $childDir =~ s/(....)/$1 . int rand(10)/e;
-  $childDir = ucfirst $childDir if rand() > 0.5;
-
-  my $newDir = $parentDir->child($childDir);
-
-  # it shouldn't exist
-  if($newDir->is_dir) {
-    goto &_makeRandomTempDir;
-  }
-
-  $newDir->mkpath;
-
-  return $newDir;
+  return 0;
 }
 
 no Mouse::Role;

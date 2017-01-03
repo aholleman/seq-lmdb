@@ -25,4 +25,7 @@ cpan install MouseX::ConfigFromFile
 cpan install MouseX::Getopt
 cpan install Archive::Extract
 cpan install DBI
+# Needed for fetching SQL (Utils::SqlWriter::Connection)
+cpan install DBD::mysql
 cpan install IO/FDPass.pm
+cpan install Beanstalk::Client

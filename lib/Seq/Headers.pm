@@ -6,18 +6,106 @@ use 5.10.0;
 use strict;
 use warnings;
 use namespace::autoclean;
+use DDP;
 
 with 'Seq::Role::Message';
 #stored as array ref to preserve order
 # [ { $parent => [ $child1, $child2 ] }, $feature2, $feature3, etc ]
 state $orderedHeaderFeaturesAref = [];
+# [ [ $child1, $child2 ], $feature2, $feature3, etc ]
+state $orderedHeaderFeaturesArefNoMap = [];
+# { $parent => [ $child1, $child2 ] }
+state $parentChild = {};
+# { $parent => {childName => childIdx}}
+state $parentChildHashRef = {};
+# { childFeature1 => idx, childFeature2 => idx;
+state $orderMap = {};
 
-sub initialize {
+# All singleton tracks have an initialize method, which clears 
+sub initialize() {
   $orderedHeaderFeaturesAref = [];
+  $orderedHeaderFeaturesArefNoMap = [];
+  $parentChild = {};
+  $parentChildHashRef = {};
+  $orderMap = {};
 }
 
-sub get {
+sub get() {
   return $orderedHeaderFeaturesAref;
+}
+
+sub getParentFeatures {
+  my ($self, $parentName) = @_;
+  return $parentChild->{$parentName};
+}
+
+sub getChildFeaturesMap {
+  my ($self, $parentName) = @_;
+
+  if($parentChildHashRef->{$parentName}) {
+    return $parentChildHashRef->{$parentName};
+  }
+
+  my %map;
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    # say "trackName is $orderedHeaderFeaturesAref->[$i]";
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      my $trackName = (keys %{$orderedHeaderFeaturesAref->[$i]})[0];
+
+      # say "trackName is $trackName, parentName is $parentName";
+      if($trackName eq $parentName) {
+        my $y = 0;
+        for my $child (@{ $orderedHeaderFeaturesAref->[$i]{$trackName} }) {
+          # say "child is $child, id is $y";
+          $map{$child} = $y;
+          $y++;
+        }
+      }
+      
+      next;
+    }
+  }
+
+  $parentChildHashRef->{$parentName} = %map ? \%map : undef;
+
+  return $parentChildHashRef->{$parentName}; 
+}
+
+# Memoized, should be called only after all features of interest are added
+
+sub getOrderedHeaderNoMap() {
+  if(@$orderedHeaderFeaturesArefNoMap) {
+    return $orderedHeaderFeaturesArefNoMap;
+  }
+
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      my $trackName = (keys %{$orderedHeaderFeaturesAref->[$i]})[0];
+
+      $orderedHeaderFeaturesArefNoMap->[$i] = $orderedHeaderFeaturesAref->[$i]{$trackName};
+    } else {
+      $orderedHeaderFeaturesArefNoMap->[$i] = $orderedHeaderFeaturesAref->[$i];
+    }
+  }
+
+  return $orderedHeaderFeaturesArefNoMap; 
+}
+
+# Memoized, should be called only after all features of interest are added
+sub getParentFeaturesMap() {
+  if(%$orderMap) {
+    return $orderMap;
+  }
+
+  for my $i (0 .. $#$orderedHeaderFeaturesAref) {
+    if(ref $orderedHeaderFeaturesAref->[$i]) {
+      $orderMap->{ (keys %{$orderedHeaderFeaturesAref->[$i]})[0] } = $i;
+    } else {
+      $orderMap->{$orderedHeaderFeaturesAref->[$i]} = $i;
+    }
+  }
+
+  return $orderMap; 
 }
 
 sub getString {
@@ -69,6 +157,7 @@ sub addFeaturesToHeader {
           push @$valuesAref, $child;
         }
         
+        $parentChild->{$parent} = $valuesAref;
 
         $parentFound = 1;
         last;
@@ -84,6 +173,7 @@ sub addFeaturesToHeader {
         push @$orderedHeaderFeaturesAref, $val;
       }
       
+      $parentChild->{$parent} = [$child];
     }
 
     return;

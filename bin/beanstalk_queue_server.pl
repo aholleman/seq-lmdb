@@ -47,7 +47,7 @@ my $conf = LoadFile('./config/queue.yaml');
 my ($verbose, $type);
 
 GetOptions(
-  'v|verbose=s'   => \$verbose,
+  'v|verbose=i'   => \$verbose,
   't|type=s'     => \$type,
 );
 
@@ -172,7 +172,7 @@ while(my $job = $beanstalk->reserve) {
   if ($err) {
     say "job ". $job->id . " failed";
 
-    if($verbose) {
+    if(defined $verbose) {
       p $err;
     }
 
@@ -189,7 +189,7 @@ while(my $job = $beanstalk->reserve) {
       event => $events->{failed},
       reason => $err,
       queueID => $job->id,
-      submissionID   => $jobDataHref->{submissionID},
+      submissionID  => $jobDataHref->{submissionID},
     }) } );
 
     $job->bury; 

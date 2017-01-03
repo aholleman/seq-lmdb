@@ -29,7 +29,7 @@ has input_file => (
   isa         => 'Str',
   required      => 1,
   metaclass => 'Getopt',
-  cmd_aliases   => [qw/input i/],
+  cmd_aliases   => [qw/input i in/],
   documentation => qq{Input file path.},
 );
 
@@ -70,7 +70,7 @@ has debug => (
 
 has verbose => (
   is          => 'ro',
-  isa         => 'Bool',
+  isa         => 'Int',
   default     => 0,
   required    => 0,
   metaclass   => 'Getopt',
@@ -150,10 +150,13 @@ sub annotate {
     overwrite => $self->overwrite,
     publisher => $self->publisher,
     compress => $self->compress,
-    verbose => $self->verbose,
     run_statistics => !!$self->run_statistics,
     delete_temp => !!$self->delete_temp,
   };
+
+  if($self->verbose) {
+    $args->{verbose} = $self->verbose;
+  }
 
   my $annotator = Seq->new_with_config($args);
   $annotator->annotate();

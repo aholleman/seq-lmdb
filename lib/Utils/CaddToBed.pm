@@ -3,9 +3,10 @@ use strict;
 use warnings;
 
 use lib '../';
-# Takes a yaml file that defines one local file, and splits it on chromosome
+# Takes a CADD file and makes it into a bed-like file, retaining the property
+# That each base has 3 (or 4 for ambiguous) lines
 # Only works for tab-delimitd files that have the c
-package Utils::SplitCadd;
+package Utils::CaddToBed;
 
 our $VERSION = '0.001';
 
@@ -22,8 +23,6 @@ extends 'Utils::Base';
 
 ########## Arguments accepted ##############
 # Take the CADD file and make it a bed file
-has to_bed => (is => 'ro', isa => 'Bool', lazy => 1, default => 0);
-
 has delimiter => (is => 'ro', lazy => 1, default => "\t");
 
 my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
@@ -38,23 +37,12 @@ sub BUILD {
   }
 }
 
-sub split {
+sub go {
   my $self = shift;
 
   my %wantedChrs = map { $_ => 1 } @{ $self->_decodedConfig->{chromosomes} };
   
   my $inFilePath = $self->_wantedTrack->{local_files}[0];
-
-  my $outPathBase = substr($inFilePath, 0, rindex($inFilePath, '.') );
-
-  my $outExt;
-
-  if($self->to_bed) {
-    $outExt .= ".bed";
-  }
-
-  $outExt .= $outExt . $self->compress ? '.gz' : substr($inFilePath,
-    rindex($inFilePath, '.') );
 
   # Store output handles by chromosome, so we can write even if input file
   # out of order
@@ -78,7 +66,26 @@ sub split {
   # CADD seems to be 1-based
   my $based = 1;
 
-  while(my $l = $fh->getline() ) {
+  my $outPathBase = substr($inFilePath, 0, rindex($inFilePath, '.') );
+  my $outExt = '.bed';
+
+  $outExt .= $outExt . $self->compress ? '.gz' : substr($inFilePath,
+    rindex($inFilePath, '.') );
+
+  my $outPath = "$outPathBase.$chr$outExt";
+
+  if(-e $outPath && !$self->overwrite) {
+    $self->log('error', "File $outPath exists, and overwrite is not set");
+    return;
+  }
+
+  my $outFh = $self->get_write_fh($outPath);
+
+  say $outFh $versionLine;
+  say $outFh join($self->delimiter, 'chrom', 'chromStart', 'chromEnd',
+    @headerFields[2 .. $#headerFields]);
+
+  while(my $l = $outFh->getline() ) {
     chomp $l;
 
     my @line = split $self->delimiter, $l;
@@ -94,55 +101,35 @@ sub split {
       $chrIdPart = $line[0];
     }
 
+    if($chrIdPart eq 'MT') {
+      $chrIdPart = 'M';
+    }
+
     my $chr = "chr$chrIdPart";
 
     if(!exists $wantedChrs{$chr}) {
-      $self->log('warn', "Chromosome $chr not recognized (from $chrIdPart)");
-      next;
+      if($chrIdPart ne 'MT') {
+        $self->log('warn', "Chromosome $chr not recognized (from $chrIdPart)");
+        next;
+      }
+      
+      $chrIdPart = 'M';
     }
 
     if(exists $skippedBecauseExists{$chr}) {
       next;
     }
 
-    my $fh = $outFhs{$chr};
-
-    if(!$fh) {
-      my $outPath = "$outPathBase.$chr$outExt";
-
-      if(-e $outPath && !$self->overwrite) {
-        $self->log('warn', "File $outPath exists, and overwrite is not set");
-        
-        $skippedBecauseExists{$chr} = 1;
-
-        push @outPaths, $outPath;
-
-        next;
-      }
-
-      $outFhs{$chr} = $self->get_write_fh($outPath);
-
-      push @outPaths, $outPath;
-
-      $fh = $outFhs{$chr};
-
-      say $fh $versionLine;
-      say $fh join($self->delimiter, 'chrom', 'chromStart', 'chromEnd',
-        @headerFields[2 .. $#headerFields]);
-    }
     
-    if($self->to_bed) {
-      my $start = $line[1] - $based;
-      my $end = $start + 1;
-      say $fh join($self->delimiter, $chr, $start, $end, @line[2 .. $#line]);
-      next;
-    }
-    
-    say $fh $_;
+    my $start = $line[1] - $based;
+    my $end = $start + 1;
+    say $outFh join($self->delimiter, $chr, $start, $end, @line[2 .. $#line]);
   }
 
   $self->_wantedTrack->{local_files} = \@outPaths;
   
+  $self->_wantedTrack->{caddToBed_date} = $self->_dateOfRun;
+
   $self->_backupAndWriteConfig();
 }
 

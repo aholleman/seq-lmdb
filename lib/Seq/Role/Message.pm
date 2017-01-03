@@ -165,29 +165,29 @@ sub log {
   }
 
   if( $_[1] eq 'info' ) {
-    $Seq::Role::Message::LOG->INFO( "[INFO] $_[2]" );
+    $Seq::Role::Message::LOG->INFO( "$_[2]" );
 
-    $_[0]->publishMessage( "[INFO] $_[2]" );
+    $_[0]->publishMessage( "$_[2]" );
   } elsif( $_[1] eq 'debug') {
-    $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
+    $Seq::Role::Message::LOG->DEBUG( "Debug: $_[2]" );
 
     # do not publish debug messages by default
     if($debug) {
-      $_[0]->publishMessage( "[DEBUG] $_[2]" );
+      $_[0]->publishMessage( "Debug: $_[2]" );
     }
   } elsif( $_[1] eq 'warn' ) {
-    $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
+    $Seq::Role::Message::LOG->WARN( "Warning: $_[2]" );
 
-    $_[0]->publishMessage( "[WARN] $_[2]" );
+    $_[0]->publishMessage( "Warning: $_[2]" );
   } elsif( $_[1] eq 'error' ) {
-    $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
+    $Seq::Role::Message::LOG->ERR( "Error: $_[2]" );
     
-    $_[0]->publishMessage( "[ERROR] $_[2]" );
+    $_[0]->publishMessage( "Error: $_[2]" );
 
   } elsif( $_[1] eq 'fatal' ) {
-    $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
+    $Seq::Role::Message::LOG->ERR( "Fatal: $_[2]" );
 
-    $_[0]->publishMessage( "[FATAL] $_[2]" );
+    $_[0]->publishMessage( "Fatal: $_[2]" );
 
     croak("[FATAL] $_[2]");
   } else {

@@ -9,12 +9,12 @@ our $VERSION = '0.001';
 # ABSTRACT: Fetch and write some data using UCSC's public SQL db
 use Mouse 2;
 
-use DBI;
 use namespace::autoclean;
 use Time::localtime;
 use Path::Tiny qw/path/;
-use DDP;
 
+use lib './lib/';
+use Utils::SqlWriter::Connection;
 with 'Seq::Role::IO', 'Seq::Role::Message';
 
 # @param <Str> sql_statement : Valid SQL with fully qualified field names
@@ -29,47 +29,28 @@ has outputDir => ( is => 'ro', isa => 'Str', required => 1);
 # Compress the output?
 has compress => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0);
 
+has connection_config => (is => 'ro', isa => 'HashRef');
+
+has sqlClient => (is => 'ro', init_arg => undef, writer => '_setSqlClient');
 ######################### DB Configuartion Vars #########################
 my $year          = localtime->year() + 1900;
 my $mos           = localtime->mon() + 1;
 my $day           = localtime->mday;
 my $nowTimestamp = sprintf( "%d-%02d-%02d", $year, $mos, $day );
 
-has driver  => ( is => 'ro', isa => 'Str',  required => 1, default => "DBI:mysql" );
-has host => ( is => 'ro', isa => 'Str', lazy => 1, default  => "genome-mysql.cse.ucsc.edu");
-has user => ( is => 'ro', isa => 'Str', required => 1, default => "genome" );
-has password => ( is => 'ro', isa => 'Str', );
-has port     => ( is => 'ro', isa => 'Int', );
-has socket   => ( is => 'ro', isa => 'Str', );
-
-=method @public sub connect
-
-  Build database object, and return a handle object
-
-Called in: none
-
-@params:
-
-@return {DBI}
-  A connection object
-
-=cut
-
-sub connect {
+sub BUILD {
   my $self = shift;
-  my $databaseName = shift;
 
-  my $connection  = $self->driver;
-  $connection .= ":database=$databaseName;host=" . $self->host if $self->host;
-  $connection .= ";port=" . $self->port if $self->port;
-  $connection .= ";mysql_socket=" . $self->port_num if $self->socket;
-  $connection .= ";mysql_read_default_group=client";
-
-  return DBI->connect( $connection, $self->user, $self->password, {
-    RaiseError => 1, PrintError => 1, AutoCommit => 1
-  } );
+  if($self->connection_config) {
+    $self->_setSqlClient( Utils::SqlWriter::Connection->new({
+      connection_config => $self->connection_config
+    }) );
+  } else {
+    $self->_setSqlClient( Utils::SqlWriter::Connection->new({
+      connectino_config => $self->connection_config
+    }) );
+  }
 }
-
 =method @public sub fetchAndWriteSQLData
 
   Read the SQL data and write to file
@@ -120,7 +101,7 @@ sub fetchAndWriteSQLData {
     my $outFh = $self->get_write_fh($targetFile);
 
     ########### Connect to database ##################
-    my $dbh = $self->connect($databaseName);
+    my $dbh = $self->sqlClient->connect($databaseName);
     ########### Prepare and execute SQL ##############
     my $sth = $dbh->prepare($query) or $self->log('fatal', $dbh->errstr);
     

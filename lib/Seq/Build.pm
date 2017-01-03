@@ -37,12 +37,9 @@ has wantedType => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef)
 #TODO: allow building just one track, identified by name
 has wantedName => (is => 'ro', isa => 'Maybe[Str]', lazy => 1, default => undef);
 
-# Tracks configuration hash
-has tracks => (is => 'ro', required => 1);
-
 has meta_only => (is => 'ro', default => 0);
 
-# The config file path
+# The config file path, used to update the config file with build version date & author
 has config => (is => 'ro', required => 1);
 
 #Figures out what track type was asked for 
@@ -51,7 +48,8 @@ has config => (is => 'ro', required => 1);
 sub BUILD {
   my $self = shift;
 
-  my $tracks = Seq::Tracks->new({tracks => $self->tracks});
+  # From Seq::Base;
+  my $tracks = $self->tracksObj;
 
   my $buildDate = Utils::Base::getDate();
 

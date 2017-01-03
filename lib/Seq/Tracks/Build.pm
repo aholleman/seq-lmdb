@@ -32,7 +32,7 @@ has overwrite => (is => 'ro');
 # Not working yet
 has delete => (is => 'ro', lazy => 1, default => 0);
 
-has dry_run_insertions => (is => 'ro');
+has dryRun => (is => 'ro');
 
 
 has skip_completion_check => (is => 'ro');
@@ -40,8 +40,7 @@ has skip_completion_check => (is => 'ro');
 # Every builder needs access to the database
 # Don't specify types because we do not allow consumers to set this attribute
 has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
-  return Seq::DBManager->new({overwrite => $self->overwrite, delete => $self->delete,
-    dry_run_insertions => $self->dry_run_insertions});
+  return Seq::DBManager->new({overwrite => $self->overwrite, delete => $self->delete, dryRun => $self->dryRun});
 });
 
 # Allows consumers to record track completion, skipping chromosomes that have 

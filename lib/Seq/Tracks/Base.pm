@@ -23,6 +23,7 @@ use Seq::Tracks::Base::Types;
 
 with 'Seq::Role::Message';
 
+# state $indexOfThisTrack = 0;
 ################# Public Exports ##########################
 # Not lazy because every track will use this 100%, and rest are trivial values
 # Not worth complexity of Maybe[Type], default => undef,
@@ -122,10 +123,13 @@ has join => (is => 'ro', isa => 'Maybe[HashRef]', predicate => 'hasJoin', lazy =
 
 has debug => ( is => 'ro', isa => 'Bool', lazy => 1, default => 0 );
 
+# has index => (is => 'ro', init_arg => undef, default => sub { ++indexOfThisTrack; });
 #### Initialize / make dbnames for features and tracks before forking occurs ###
 sub BUILD {
   my $self = shift;
 
+  # say "index is";
+  # p $self->index;
   # getFieldDbNames is not a pure function; sideEffect of setting auto-generated dbNames in the
   # database the first time (ever) that it is run for a track
   # We could change this effect; for now, initialize here so that each thread

@@ -46,10 +46,6 @@ state $optionalInputHeaderFields = {
   alleleCountField => qr/Allele_Counts/i,
 };
 
-# The last field containing snp data; 5th or 6th
-# Set in checkInputFileHeader
-my $lastSnpFileFieldIdx;
-
 # @ public only the common fields exposed
 has chrFieldName => ( is => 'ro', init_arg => undef);
 
@@ -75,20 +71,49 @@ has typeFieldIdx => ( is => 'ro', init_arg => undef);
 
 has alleleCountFieldIdx => ( is => 'ro', init_arg => undef);
 
-sub getSampleNamesIdx {
+# The last field containing snp data; 5th or 6th
+# Set in checkInputFileHeader
+has lastSnpFileFieldIdx => ( is => 'ro', init_arg => undef, writer => '_setLastSnpFileFieldIdx');
+
+# The first sample genotype field
+# Set in checkInputFileHeader
+# has firstSampleIdx => (is => 'ro', init_arg => undef, writer => '_setFirstSampleIdx');
+
+# TODO: Remove. Currently depracated
+# sub getSampleNamesIdx {
+#   my ($self, $fAref) = @_;
+#   my $strt = $self->lastSnpFileFieldIdx + 1;
+
+#   # every other field column name is blank, holds genotype probability 
+#   # for preceeding column's sample;
+#   # don't just check for ne '', to avoid simple header issues
+#   my %data;
+  
+#   for(my $i = $strt; $i <= $#$fAref; $i += 2) {
+#     $data{$fAref->[$i] } = $i;
+#   }
+  
+#   return %data;
+# }
+
+sub getSampleNameConfidenceIndexes {
   my ($self, $fAref) = @_;
-  my $strt = $lastSnpFileFieldIdx + 1;
+  my $strt = $self->lastSnpFileFieldIdx + 1;
 
   # every other field column name is blank, holds genotype probability 
   # for preceeding column's sample;
   # don't just check for ne '', to avoid simple header issues
-  my %data;
+  my @sampleIdx;
+  my @sampleNames;
+  my @confidenceIdx;
   
   for(my $i = $strt; $i <= $#$fAref; $i += 2) {
-    $data{$fAref->[$i] } = $i;
+    push @sampleNames, $fAref->[$i];
+    push @sampleIdx, $i;
+    push @confidenceIdx, $i + 1;
   }
-  
-  return %data;
+    
+  return (\@sampleNames, \@sampleIdx, \@confidenceIdx);
 }
 
 #uses the input file headers to figure out what the file type is
@@ -125,7 +150,11 @@ sub checkInputFileHeader {
     }
   }
 
-  $lastSnpFileFieldIdx = max(@indicesFound);
+  my $lastSnpFileFieldIdx = max(@indicesFound);
+
+  $self->_setLastSnpFileFieldIdx($lastSnpFileFieldIdx);
+
+  # $self->_setFirstSampleIdx($lastSnpFileFieldIdx + 1);
 
   if($notFound) {
     if($dontDieOnUnkown) {

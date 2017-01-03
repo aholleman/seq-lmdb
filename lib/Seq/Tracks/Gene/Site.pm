@@ -30,6 +30,8 @@ with 'Seq::Role::Message';
 #internally using the variables directly, because when called tens of millions
 #of times, $self->codonMap may cost noticeable performance
 #TODO: test that theory
+#TODO: Remove these, consumers should just call Site::Class directly?
+#Maybe not, because used to make combinedMap below
 state $siteTypeMap = Seq::Tracks::Gene::Site::SiteTypeMap->new();
 has siteTypeMap => (
   is => 'ro',
@@ -46,15 +48,19 @@ has codonMap => (
   default => sub{ return $codonMap },
 );
 
-#These describe the site
+#These describe the site.
+#Note that unpack will return both the transcript number and the site information
+#So these indices refer only to the second value on, which represent
+#The site information other than the transcript number (which is a reference to the region db)
+#These must remain 0 - 4, used as constants in unpack
+#They are simply exported for the use in consumers here
+#Ex: 1-txSite : [txNubmer1, combinedStrandSitType, codonNumber, codonPosition, codonSequence]
+#Expanded to: [txNumber1, strand, siteType, codonNumber, codonPosition, codonSequence] (in unpack)
 has strandIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 0);
 has siteTypeIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 1);
-# This one is optional, obviously only applies to variants in exons
-has exonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
-
-has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
-has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
-has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 5);
+has codonNumberIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 2);
+has codonPositionIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 3);
+has codonSequenceIdx => (is => 'ro', init_arg => undef, lazy => 1, default => 4);
 
 #pack strands as small integers, save a byte in messagepack
 state $strandMap = { '-' => 0, '+' => 1, };
@@ -74,7 +80,7 @@ if(!$combinedMap) {
 # Unless the Perl messagePack implementation isn't good
 # So store as array to save pack / unpack overhead
 sub pack {
-  my ($self, $txNumber, $siteType, $strand, $exonNumber, $codonNumber, $codonPosition, $codonSeq) = @_;
+  my ($self, $txNumber, $siteType, $strand, $codonNumber, $codonPosition, $codonSeq) = @_;
 
   my @outArray;
 
@@ -97,10 +103,6 @@ sub pack {
   #combines the strand and site type
   push @outArray, $siteTypeNum - $strandMap->{$strand};
 
-  if(defined $exonNumber) {
-    push @outArray, $exonNumber;
-  }
-  
   if(defined $codonNumber || defined $codonPosition || defined $codonSeq) {
     if(!defined $codonNumber && !defined $codonPosition && !defined $codonSeq) {
       $self->log('fatal', "Codons must be given codonNumber, codonPosition, and codonSeq"); 
@@ -132,43 +134,50 @@ sub pack {
 }
 #@param <Seq::Tracks::Gene::Site> $self
 #@param <ArrayRef> $codon
+# This function assumes that the first value in any site array is the txNumber
+# And the rest of values contain strandSiteTypeCombined, codonNumber, codonPosition, codonSequence
+# The first value of that array is a combined siteType and strand
+# Note also that we store codonPosition as 0 index (to try to store as 1/2 byte)
 sub unpack {
-  #here $_[1] is the packedCodon string
-  # my @codon = unpack('SCCLCC', $_[1]);
-  # a single item
+  # my $self, $codon
+  # $_[0],    $_[1]
+
+  # Sites are stored in the form [ [ $txNumber1, codon1Val1, codon1Val2, ... codon1ValY ], [ txNumber2, ...], ...]
+  # and for sites with only 1 transcript: # In the form [ $txNumber1, codon1Val1, codon1Val2,... ]
+  # So if the first value isn't an array, we have a single transcript
+  #! ref $codon->[0]
   if(!ref $_[1]->[0] ) {
-    # Introns
-    if( @{$_[1] } == 2) {
+    # If the length of our only codon is 2, which happens in intergenic cases
+    # Then we return just the transcript number, and [strand, siteType]
+    #   #@{$codon} == 2
+    if( @{ $_[1] } == 2) {
+      #returns: transcriptNum, [<Str>$strand, <Str>$siteType ]
+      #      ( $codon->[0]),[( @{ $combinedMap->{ $codon->[1]} })  ]
       return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ) ] );
     }
-
-    #non-coding exons
-    if( @{$_[1] } == 3) {
-      return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ), $_[1]->[2] ] );
-    }
     
+    # The first value in the return list is the transcript number
+    #returns: transcriptNum, [<Str>$strand, <Str>$siteType ]
+    #return ( $codon->[0]),[( @{ $combinedMap->{ $codon->[1]} }) , $codon->[$codonNumberIdx], $codon->[$codonPositionIdx] + 1,
+    # $codonMap->num2Codon( $codon->[$codonSequenceIdx] ) ] );
     return ( $_[1]->[0], [ ( @{ $combinedMap->{ $_[1]->[1] } } ), $_[1]->[2], $_[1]->[3],
-      $_[1]->[4], $codonMap->num2Codon( $_[1]->[5] ) ] );
+      $codonMap->num2Codon( $_[1]->[4] ) ] );
   }
 
   my (@site, @txNumbers);
   foreach (@{ $_[1] }) {
+    # The first value is txNumber, and is always present
     push @txNumbers, $_->[0];
 
-    #Introns
     if( @{$_} == 2) {
+                # [ ( @{ $combinedMap->{ $_->[1] } } ) ]
       push @site, [ ( @{ $combinedMap->{ $_->[1] } } ) ];
       next;
     }
-
-    # non-coding exons
-    if( @{$_} == 3) {
-      push @site, [ ( @{ $combinedMap->{ $_->[1] } } ), $_->[2] ];
-      next;
-    }
-
+    #push @site,[ ( @{ $combinedMap->{ $_->[1] } } ), $_->[$codonNumberIdx], $_->[$codonPositionIdx] + 1,
+    # $codonMap->num2Codon( $_->[$codonSequenceIdx] ) ];
     push @site, [ ( @{ $combinedMap->{ $_->[1] } } ), $_->[2], $_->[3],
-      $_->[4], $codonMap->num2Codon( $_->[5] ) ];
+      $codonMap->num2Codon( $_->[4] ) ];
   }
 
   return (\@txNumbers, \@site);

@@ -18,16 +18,13 @@ has headers => (
   init_arg => undef,
   lazy => 1,
   default => sub { Seq::Headers->new() },
-  handles => {
-    addFeaturesToHeader => 'addFeaturesToHeader',
-  }
 );
 
 sub BUILD {
   my $self = shift;
 
   # Skip accesor penalty, the get function in this package may be called
-  # billions of times
+  # hundreds of millions of times
   $self->{_dbName} = $self->dbName;
 
   #register all features for this track
@@ -35,13 +32,14 @@ sub BUILD {
   #if this class has no features, then the track's name is also its only feature
   if($self->noFeatures) {
     $self->{_noFeatures} = 1;
-    return $self->addFeaturesToHeader($self->name);
+    $self->headers->addFeaturesToHeader($self->name);
+    return;
   }
 
-  $self->addFeaturesToHeader([$self->allFeatureNames], $self->name);
+  $self->headers->addFeaturesToHeader([$self->allFeatureNames], $self->name);
 
-  $self->{_fieldNameMap} = { map { $self->getFieldDbName($_) => $_ } $self->allFeatureNames };
-  $self->{_fieldDbNames} = [ map { $self->getFieldDbName($_) } $self->allFeatureNames ];
+  $self->{_fieldDbNames} = [map { $self->getFieldDbName($_) } $self->allFeatureNames];
+  $self->{_fieldIdxRange} = [ 0 .. $#{$self->{_fieldDbNames}} ];
 }
 
 # Take a hash (that is passed to this function), and get back all features
@@ -51,45 +49,44 @@ sub BUILD {
 # @return <HashRef> : A hash ref of featureName => featureValue pairs for
 # all features the user specified for this Track in their config file
 sub get {
+  #my ($self, $href, $chr, $refBase, $altAlleles, $outAccum, $alleleNumber) = @_
   #$href is the data that the user previously grabbed from the database
-  #my ($self, $href) = @_;
-  # so $_[0] is $self, $_[1] is $href; 
+  # $_[0] == $self
+  # $_[1] == $href
+  # $_[2] == $chr
+  # $_[3] == $refBase
+  # $_[4] == $altAlleles
+  # $_[5] == $alleleIdx
+  # $_[6] == $positionIdx
+  # $_[7] == $outAccum
   
-  #internally the feature data is store keyed on the dbName not name, to save space
+  #internally the data is store keyed on the dbName not name, to save space
   # 'some dbName' => someData
-
   #dbName is simply the track name as stored in the database
-  #this is handled transparently to use, we just need to call $self->dbName
-
-  #we do this to save space in the database, by a huge number of bytes
-  #dbName defined in Seq::Tracks::Base
-  if(!defined $_[1]->[ $_[0]->{_dbName} ] ) {
-    #interestingly, perl may complain in map { $_ => $_->get($dataHref) } @tracks
-    #if undef is not explicitly returned
-    return undef;
-  }
 
   #some features simply don't have any features, and for those just return
   #the value they stored
   if($_[0]->{_noFeatures}) {
-    return $_[1]->[ $_[0]->{_dbName} ];
+    #$outAccum->[$alleleIdx][$positionIdx] = $href->[ $self->{_dbName} ]
+    $_[7]->[$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
+
+    #      $outAccum;
+    return $_[7];
   }
 
   # We have features, so let's find those and return them
   # Since all features are stored in some shortened form in the db, we also
   # will first need to get their dbNames ($self->getFieldDbName)
   # and these dbNames will be found as a value of $href->{$self->dbName}
-
-  #return a hash reference
-  #$_[0] == $self, $_[1] == $href, $_ the current value from the array passed to map
-   return {
-    #reads:$self->{_fieldNameMap}{$_} => $href->[$self->{_dbName}  ][ $_ ] } @{ $self->{_fieldDbNames} }
-    map { $_[0]->{_fieldNameMap}{$_} => $_[1]->[ $_[0]->{_dbName} ][ $_ ] } @{ $_[0]->{_fieldDbNames} }
+  # #http://ideone.com/WD3Ele
+  # return [ map { $_[1]->[$_[0]->{_dbName}][$_] } @{$_[0]->{_fieldDbNames}} ];
+  for my $idx (@{$_[0]->{_fieldIdxRange}}) {
+    #$outAccum->[$idx][$alleleIdx][$positionIdx] = $href->[$self->{_dbName}][$self->{_fieldDbNames}[$idx]] }
+    $_[7]->[$idx][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][$_[0]->{_fieldDbNames}[$idx]];
   }
+        #$outAccum;
+  return $_[7];
 }
-
 __PACKAGE__->meta->make_immutable;
 
 1;
-
-#TODO: figure out how to neatly add feature exclusion, if it's useful

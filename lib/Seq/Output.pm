@@ -4,21 +4,13 @@ use strict;
 use warnings;
 
 use Mouse 2;
-use Search::Elasticsearch;
-# use Search::Elasticsearch::Async;
-use Scalar::Util qw/looks_like_number/;
 
 use Seq::Output::Delimiters;
+use Seq::Headers;
+
+with 'Seq::Role::Message';
 
 use DDP;
-
-has outputDataFields => (
-  is => 'ro',
-  isa => 'ArrayRef',
-  lazy => 1,
-  default => sub { [] },
-  writer => 'setOutputDataFieldsWanted',
-);
 
 has delimiters => (is => 'ro', isa => 'Seq::Output::Delimiters', default => sub {
   return Seq::Output::Delimiters->new();
@@ -26,14 +18,8 @@ has delimiters => (is => 'ro', isa => 'Seq::Output::Delimiters', default => sub 
 
 sub BUILD {
   my $self = shift;
-  my $delimiters = Seq::Output::Delimiters->new();
 
-  # To try to avoid accessor penalty; 
-  # These may be called hundreds of millions of times
-  $self->{_primaryDelimiter} = $self->delimiters->primaryDelimiter;
-  $self->{_secondaryDelimiter} = $self->delimiters->secondaryDelimiter;
-  $self->{_fieldSeparator} = $self->delimiters->fieldSeparator;
-  $self->{_emptyFieldChar} = $self->delimiters->emptyFieldChar;
+  $self->{_headers} = Seq::Headers->new();
 }
 
 # ABSTRACT: Knows how to make an output string
@@ -44,204 +30,106 @@ sub BUILD {
 #and an array of <ArrayRef> input data, which contains our original input fields
 #which we are going to re-use in our output (namely chr, position, type alleles)
 sub makeOutputString {
-  my ( $self, $outputDataAref) = @_;
+  my ($self, $outputDataAref) = @_;
+  # my $fieldSeparator = $self->{_fieldSeparator};
+  my $emptyFieldChar = $self->delimiters->emptyFieldChar;
 
-  #open(my $fh, '>', $filePath) or $self->log('fatal', "Couldn't open file $filePath for writing");
-  # flatten entry hash references and print to file
-  my $outStr = '';
-  my $count = 1;
+  my $rowIdx;
 
-  my $primaryDelim = $self->{_primaryDelimiter};
-  my $secondDelim = $self->{_secondaryDelimiter};
-  my $fieldSeparator = $self->{_fieldSeparator};
-  my $emptyFieldChar = $self->{_emptyFieldChar};
+  my $alleleDelimiter = $self->delimiters->alleleDelimiter;
+  my $positionDelimiter = $self->delimiters->positionDelimiter;
+  my $valueDelimiter = $self->delimiters->valueDelimiter;
+  my $fieldSeparator = $self->delimiters->fieldSeparator;
 
-  for my $href (@$outputDataAref) {
-    
-    my @singleLineOutput;
-    
-    PARENT: for my $feature ( @{$self->outputDataFields} ) {
-      if(ref $feature) {
-        #it's a trackName => {feature1 => value1, ...}
-        my ($parent) = %$feature;
+  if(!$self->{_multiDepth}) {
+    my @headers = @{ $self->{_headers}->getOrderedHeaderNoMap() };
 
-        if(!defined $href->{$parent} ) {
-          #https://ideone.com/v9ffO7
-          push @singleLineOutput, map { $emptyFieldChar } @{ $feature->{$parent} };
-          next PARENT;
-        }
+    $self->{_multiDepth} = { map {
+      $_ => ref $headers[$_] ? 3 : 2;
+    } 0 .. $#headers };
 
-        if(!ref $href->{$parent}) {
-          push @singleLineOutput, $href->{$parent};
-          next PARENT;
-        }
-
-        CHILD: for my $child (@{ $feature->{$parent} } ) {
-          if(!defined $href->{$parent}{$child} ) {
-            push @singleLineOutput, $emptyFieldChar;
-            next CHILD;
-          }
-
-          if(!ref $href->{$parent}{$child} ) {
-            push @singleLineOutput, $href->{$parent}{$child};
-            next CHILD;
-          }
-
-          # if(ref $href->{$parent}{$child} eq 'HASH') {
-          #   push @singleLineOutput, $href->{$parent}{$child};
-          #   next CHILD;
-          # }
-
-          # Empty array
-          if( !@{ $href->{$parent}{$child} } ) {
-            push @singleLineOutput, $emptyFieldChar;
-            next PARENT;
-          }
-
-          # if( @{ $href->{$parent}{$child} } == 1 && !ref $href->{$parent}{$child}[0] ) {
-          #   push @singleLineOutput, defined $href->{$parent}{$child}[0] ? $href->{$parent}{$child}[0] : 'NA';
-
-  
-
-          #   next PARENT;
-          # }
-
-
-          my $accum = '';
-          ACCUM: foreach ( @{  $href->{$parent}{$child} } ) {
-            if(!defined $_) {
-              $accum .= "$emptyFieldChar$primaryDelim";
-              next ACCUM;
-            }
-            # we could have an array of arrays, separate those by commas
-            if(ref $_) {
-              for my $val (@{$_}) {
-                $accum .= defined $val ? "$val$primaryDelim" : "$emptyFieldChar$primaryDelim";
-              }
-              chop $accum;
-              $accum .= $secondDelim;
-              next ACCUM;
-            }
-
-            $accum .= "$_$primaryDelim";
-          }
-
-          chop $accum;
-          push @singleLineOutput, $accum;
-        }
-        next PARENT;
-      }
-
-      ### This could be split into separate function, and used 2x;
-      ### kept like this in case perf matters
-
-      #say "feature is $feature";
-      #p $href->{feature};
-      if(!defined $href->{$feature} ) {
-        push @singleLineOutput, $emptyFieldChar;
-        next PARENT;
-      }
-
-      if(!ref $href->{$feature} ) {
-        push @singleLineOutput, $href->{$feature};
-        next PARENT;
-      }
-
-      if(! @{ $href->{$feature} } ) {
-        push @singleLineOutput, $emptyFieldChar;
-        next PARENT;
-      }
-
-      # if( @{ $href->{$feature} } == 1 && !ref $href->{$feature}[0] ) {
-      #   push @singleLineOutput, defined $href->{$feature}[0] ? $href->{$feature}[0] : 'NA';
-      #   next PARENT;
-      # }
-
-      #TODO: could break this out into separate function;
-      #need to evaluate performance implications
-
-      my $accum;
-      ACCUM: foreach ( @{ $href->{$feature} } ) {
-        if(!defined $_) {
-          $accum .= "$emptyFieldChar$primaryDelim";
-          next ACCUM;
-        }
-
-        # we could have an array of arrays, separate those by commas
-        if(ref $_) {
-          for my $val (@{$_}) {
-            $accum .= defined $val ? "$val$primaryDelim" : "$emptyFieldChar$primaryDelim";
-          }
-          chop $accum;
-          $accum .= $secondDelim;
-          next ACCUM;
-        }
-
-        $accum .= $_ . $primaryDelim;
-      }
-
-      chop $accum;
-      push @singleLineOutput, $accum;
-    }
-
-    $outStr .= join($fieldSeparator, @singleLineOutput) . "\n";
+    $self->{_orderedHeader} = \@headers;
   }
-  
-  return $outStr;
+
+  my $trackIdx = -1;
+  my $multiallelic;
+  my $featureData;
+  for my $row (@$outputDataAref) {
+    $rowIdx = 0;
+    $trackIdx = 0;
+
+    TRACK_LOOP: for my $trackName ( @{$self->{_orderedHeader}} ) {
+      if(ref $trackName) {
+        if(!defined $row->[$trackIdx] || ! @{$row->[$trackIdx]}) {
+          $row->[$trackIdx] = join($fieldSeparator, ($emptyFieldChar) x @$trackName);
+
+          $trackIdx++;
+          next TRACK_LOOP;
+        }
+
+        for my $featureIdx (0 .. $#$trackName) {
+          for my $alleleData (@{$row->[$trackIdx][$featureIdx]}) {
+            for my $positionData (@$alleleData) {
+              $positionData //= $emptyFieldChar;
+
+              if(ref $positionData) {
+                $positionData = join($valueDelimiter, map { 
+                  $_
+                  # Unfortunately, prior to 11/30/16 Seqant dbs would merge sparse tracks
+                  # incorrectly, resulting in an extra array depth
+                  ? (ref $_ ? join($valueDelimiter, map { $_ || $emptyFieldChar } @$_) : $_)
+                  : $emptyFieldChar
+                } @$positionData);
+              }
+            }
+            $alleleData = @$alleleData > 1 ? join($positionDelimiter, @$alleleData) : $alleleData->[0];
+          }
+
+          # p  $row->[$trackIdx][$featureIdx];
+          $row->[$trackIdx][$featureIdx] =
+            @{$row->[$trackIdx][$featureIdx]} > 1 
+            ? join($alleleDelimiter, @{$row->[$trackIdx][$featureIdx]})
+            : $row->[$trackIdx][$featureIdx][0];
+        }
+
+        $row->[$trackIdx] = join($fieldSeparator, @{$row->[$trackIdx]});
+
+        # p $row->[$trackIdx];
+      } else {
+        if(!defined $row->[$trackIdx] || !@{$row->[$trackIdx]}) {
+          $row->[$trackIdx] = $emptyFieldChar;
+
+          $trackIdx++;
+          next TRACK_LOOP;
+        }
+
+        for my $alleleData (@{$row->[$trackIdx]}) {
+          # if(!$alleleData) {
+          #   # p $row;
+          # }
+          for my $positionData (@$alleleData) {
+            $positionData //= $emptyFieldChar;
+
+            if(ref $positionData) {
+              $positionData = join($valueDelimiter, map { $_ || $emptyFieldChar } @$positionData);
+            }
+          }
+
+          $alleleData = @$alleleData > 1 ? join($positionDelimiter, @$alleleData) : $alleleData->[0];
+        }
+
+        $row->[$trackIdx] = join($alleleDelimiter, @{$row->[$trackIdx]});
+
+      }
+
+      $trackIdx++;
+    }
+    
+    $row = join("\t", @$row);
+  }
+
+  return join("\n", @$outputDataAref) . "\n";
 }
 
-# TODO: In Go, or other strongly typed languages, type should be controlled
-# by the tracks. In Perl it carriers no benefit, except here, so keeping here
-# Otherwise, the Perl Elasticsearch client seems to treat strings that look like a number
-# as a string
-# Oh, and the reason we don't store all numbers as numbers in the db is because
-# we save space, because Perl's msgpack library doesn't support single-precision
-# floats.
-# sub indexOutput {
-#   my ($self, $outputDataAref) = @_;
-
-#   # my $bulk = $e->bulk_helper(
-#   #   index   => 'test_job6', type => 'job',
-#   # );
-
-#   my @out;
-#   my $count = 1;
-#   for my $href (@$outputDataAref) {
-#     my %doc;
-#     PARENT: for my $feature ( @{$self->outputDataFields} ) {
-#       if(ref $feature) {
-#           #it's a trackName => {feature1 => value1, ...}
-#           my ($parent) = %$feature;
-
-#           CHILD: for my $child (@{ $feature->{$parent} } ) {
-#             my $value;
-#             if(defined $href->{$parent}{$child} && looks_like_number($href->{$parent}{$child} ) ) {
-#               $value = 0 + $href->{$parent}{$child};
-#             }
-
-#             if(index($child, ".") > -1) {
-#               my @parts = split(/\./, $child);
-#               $doc{$parent}{$parts[0]}{$parts[1]} = $value;
-#               next CHILD;
-#             }
-
-#             $doc{$parent}{$child} = $value;
-#           }
-#           next PARENT;
-#       }
-      
-#       if(defined $href->{$feature} && looks_like_number($href->{$feature} ) ) {
-#         $doc{$feature} = 0 + $href->{$feature};
-#         next PARENT;
-#       }
-
-#       $doc{$feature} = $href->{$feature};
-#       push @out, \%doc;
-#     }
-#   }
-#   # $bulk->index({
-#   #     source => \@out,
-#   #   });
-# }
 __PACKAGE__->meta->make_immutable;
 1;

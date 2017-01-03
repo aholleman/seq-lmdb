@@ -6,6 +6,8 @@ sudo yum install openssl -y
 sudo yum install openssl-devel -y
 sudo yum install git-all -y
 sudo yum install pigz -y
+sudo yum install unzip -y
+sudo yum install wget -y
 
 # for perlbrew, in case you want to install a different perl version
 sudo yum install patch -y
@@ -15,11 +17,13 @@ make
 sudo make install
 cd ~/
 
+wget https://storage.googleapis.com/golang/go1.7.linux-amd64.tar.gz
+tar -xvf go1.7.linux-amd64.tar.gz
+sudo mv go /usr/local
+
 go get github.com/akotlar/seqant-statistics
 go install github.com/akotlar/seqant-statistics
 
-wget https://storage.googleapis.com/golang/go1.6.3.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.6.3.linux-amd64.tar.gz
 (echo "" ; echo 'export PATH=$PATH:/usr/local/go/bin') >> ~/.bash_profile 
 # export GOROOT=/usr/local/go
 (echo ""; echo 'export GOPATH=$HOME/go') >> ~/.bash_profile
@@ -29,12 +33,12 @@ echo 'export PATH=$PATH:$HOME/go/bin/' >> ~/.bash_profile && source ~/.bash_prof
 mkdir -p $GOPATH/src/github.com
 
 git clone https://akotlar@bitbucket.org/wingolab/linkage.git $GOPATH/src/bitbucket.org/wingolab/linkage
-go get install bitbucket.org/wingolab/linkage
+go install bitbucket.org/wingolab/linkage
 
 git clone git://github.com/urfave/cli.git $GOPATH/src/github.com/codegangsta/cli
 go install bitbucket.org/wingolab/linkage/cmd/linkage2Snp
 
-wget https://www.cog-genomics.org/static/bin/plink160804/plink_linux_x86_64.zip
+wget https://www.cog-genomics.org/static/bin/plink161202/plink_linux_x86_64.zip
 sudo unzip -j plink_linux_x86_64.zip plink -d /usr/local/bin/
 
 \wget -O - https://install.perlbrew.pl | bash
