@@ -41,6 +41,7 @@ has assembly => (is => 'ro', isa => 'Str', required => 1);
 # If so, this is a re-indexing job, and we will want to append the header fields
 has fieldNames => (is => 'ro', isa => 'ArrayRef', required => 1);
 
+my $prettyCoder = Cpanel::JSON::XS->new->ascii->pretty->allow_nonref;;
 # TODO: This is too complicated, shared with Seq.pm for the most part
 sub BUILD {
   my $self = shift;
@@ -54,7 +55,7 @@ sub annotate {
 
   $self->log( 'info', 'Beginning saving annotation from query' );
 
-  $self->log( 'info', 'Input query is: ' . encode_json($self->inputQueryBody) );
+  $self->log( 'info', 'Input query is: ' . $prettyCoder->encode($self->inputQueryBody) );
 
   my $outputter = Seq::Output->new();
 
@@ -131,7 +132,7 @@ sub annotate {
     say $statsFh $outputHeader;
   }
 
-  $self->log('info', "finished indexing");
+  $self->log('info', "Beginning to create annotation from the query");
 
   my $progressHandler = $self->makeLogProgress();
 
