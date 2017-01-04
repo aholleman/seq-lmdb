@@ -35,7 +35,7 @@ has delete => (is => 'ro', lazy => 1, default => 0);
 has dryRun => (is => 'ro');
 
 
-has skip_completion_check => (is => 'ro');
+has skipCompletionCheck => (is => 'ro');
 
 # Every builder needs access to the database
 # Don't specify types because we do not allow consumers to set this attribute
@@ -47,7 +47,7 @@ has db => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
 # already been built
 has completionMeta => (is => 'ro', init_arg => undef, default => sub { my $self = shift;
   return Seq::Tracks::Build::CompletionMeta->new({name => $self->name,
-    db => $self->db, skip_completion_check => $self->skip_completion_check});
+    db => $self->db, skipCompletionCheck => $self->skipCompletionCheck});
 });
 
 # Transaction size. If large, re-use of pages may be inefficient

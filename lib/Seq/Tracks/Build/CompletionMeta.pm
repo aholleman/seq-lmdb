@@ -14,7 +14,7 @@ with 'Seq::Role::Message';
 
 has name => ( is => 'ro', isa => 'Str', required => 1 );
 has db => (is => 'ro', isa => 'Seq::DBManager', required => 1);
-has skip_completion_check => (is => 'ro', isa => 'Bool');
+has skipCompletionCheck => (is => 'ro', isa => 'Bool');
 
 ############################ Private attributes ########################
 # Instance variable holding completion status for this $self->name db
@@ -26,9 +26,9 @@ sub okToBuild {
   my ($self, $chr) = @_;
 
   if($self->_isCompleted($chr) ) {
-    if(!$self->db->delete && !$self->db->overwrite && !$self->skip_completion_check) {
+    if(!$self->db->delete && !$self->db->overwrite && !$self->skipCompletionCheck) {
       return $self->log('debug', "$chr recorded completed for " . $self->name .
-        ". Since neither overwrite nor delete nor skip_completion_check set, ".
+        ". Since neither overwrite nor delete nor skipCompletionCheck set, ".
         " not ok to build $chr " . $self->name . " db");
     }
     # Else we're either erasing or re-creating the db; need to erase completion status

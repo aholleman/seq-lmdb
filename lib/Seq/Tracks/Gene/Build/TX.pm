@@ -140,6 +140,12 @@ has debug => (
   lazy => 1,
 );
 
+######################### Public exports ################################
+has tss => (is => 'ro', init_arg => undef, isa => 'Int', lazy => 1, default => sub {
+  my $self = shift;
+  return $self->strand eq '+' ? $self->txStart : $self->txEnd;
+});
+
 #@private
 state $codonPacker = Seq::Tracks::Gene::Site->new();
 
@@ -157,16 +163,20 @@ sub BUILDARGS {
   if(!ref $href->{exonEnds}) {
     $href->{exonEnds} = [ split(',', $href->{exonEnds} ) ];
   }
+
+  if($href->{strand} ne '+' && $href->{strand} ne '-') {
+    self->log('fatal', "Strand must be + or -, got $href->{strand}");
+    return;
+  }
   
   return $href;
 };
 
-state $db;
 sub BUILD {
   my $self = shift;
 
   # Expects DBManager to have been previously configured
-  $db = $db || Seq::DBManager->new();
+  $self->{_db} = Seq::DBManager->new();
 
   #seeds transcriptSequence and transcriptPositions
   my ($seq, $seqPosMapAref) = $self->_buildTranscript();
@@ -217,9 +227,9 @@ sub _buildTranscript {
 
   my (@sequencePositions, $txSequence);
 
-  state $tracks = Seq::Tracks->new();
+  my $tracks = Seq::Tracks->new();
 
-  state $refTrack = $tracks->getRefTrackGetter();
+  my $refTrack = $tracks->getRefTrackGetter();
 
   #in scalar, as in less than, @array gives length
   for ( my $i = 0; $i < @exonStarts; $i++ ) {
@@ -254,7 +264,7 @@ sub _buildTranscript {
     
     # As a result of modifying the reference, each position in exonPosHref
     # now has database data, or undefined
-    $db->dbRead($self->chrom, $exonPosHref); 
+    $self->{_db}->dbRead($self->chrom, $exonPosHref); 
 
     #Now get the base for each item found in $dAref ($exonPosHref);
     #This is handled by the refTrack of course
@@ -326,85 +336,26 @@ sub _buildTranscriptAnnotation {
   # Also store the exon number;
   my $exonPosNumHref;
 
-  # Store intron site type if that's what this is
-  # Note that the splice loop below this will ovewrite any positions that are
-  # Called Splice Sites
-  INTRON_LOOP: for ( my $i = 0; $i < @exonEnds; $i++ ) {
-    my $thisExonEnd = $exonEnds[$i];
-    my $nextExonStart = $exonStarts[$i + 1];
-
-    if(!$nextExonStart) {
-      last INTRON_LOOP;
-    }
-    #exon Ends are open, so the exon actually ends $exonEnds - 1
-    for (my $intronPos = $thisExonEnd; $intronPos < $nextExonStart; $intronPos++ ) {
-      $txAnnotationHref->{$intronPos} = $codonPacker->siteTypeMap->intronicSiteType;
-    }
-  }
+  #  - what we want to capture is the bp that are within 2 bp of the start or end of
+  #    an exon start/stop; whether this is only within the bounds of coding exons does
+  #    not particularly matter to me
+  #
+  # From the gDNA:
+  #
+  #        EStart    CStart          EEnd       EStart    EEnd      EStart   CEnd      EEnd
+  #        +-----------+---------------+-----------+--------+---------+--------+---------+
+  #  Exons  111111111111111111111111111             22222222           333333333333333333
+  #  Code               *******************************************************
+  #  APR                                        ###                ###
+  #  DNR                                %%%                  %%%
+  #
 
   #Then store non-coding, 5'UTR, 3'UTR annotations
   for (my $i = 0; $i < @exonStarts; $i++) {
-    # Annotate splice donor/acceptor bp
-    #  - i.e., bp within 2 bp of exon start / stop
-    #  - what we want to capture is the bp that are within 2 bp of the start or end of
-    #    an exon start/stop; whether this is only within the bounds of coding exons does
-    #    not particularly matter to me
-    #
-    # From the gDNA:
-    #
-    #        EStart    CStart          EEnd       EStart    EEnd      EStart   CEnd      EEnd
-    #        +-----------+---------------+-----------+--------+---------+--------+---------+
-    #  Exons  111111111111111111111111111             22222222           333333333333333333
-    #  Code               *******************************************************
-    #  APR                                        ###                ###
-    #  DNR                                %%%                  %%%
-    #
-
-    #Compared to the "Seq" codebase written completely by Dr. Wingo: 
-    #The only change to the logic that I have made, is to add a bit of logic
-    #to check for cases when our splice donor / acceptor sites 
-    #as calculated by a the use of $spliceSiteLength, which is set to 2 by default
-    #actually overlap either the previous exonEnd, or the next exonStart
-    #and are therefore inside of a coding sequence.
-    #Dr. Wingo's original solution was completely correct, because it also 
-    #assumed that downstream someone was smart enough to intersect 
-    #coding sequences and splice site annotations, and keep the coding sequence
-    #in any overlap
-
-    #TODO: should we check if start + n is past end? or >= end - $n
-    SPLICE_LOOP: for ( my $n = 1; $n <= $spliceSiteLength; $n++ ) {
-      my $exonPos = $exonStarts[$i] - $n;
-
-      #This last condition to prevent splice acceptors for being called in
-      #coding sites for weirdly tight transcripts
-      # >= because EEnd (exonEnds) are open range, aka their actual number is not 
-      #to be included, it's 1 past the last base of that exon
-      # Note: We're no longer checking $exonPos > $codingStart && $exonPos < $codingEnd && 
-      # Because if an intron is after/before a cdsEnd/Start, we still want to record it
-      # as a splice site, if it falls within our range
-      if ( $exonPos >= $exonEnds[$i-1] ) {
-        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->spliceAcSiteType : 
-          $codonPacker->siteTypeMap->spliceDonSiteType;
-        next SPLICE_LOOP;
-      }
-
-      #inserting into a string https://ideone.com/LlAbeE
-      $exonPos = $exonEnds[$i] + $n - 1;
-      if ( $exonPos > $codingStart && $exonPos < $codingEnd ) {
-        #This last condition to prevent splice acceptors for being called in
-        #coding sites for weirdly tight transcripts
-        if( defined $exonStarts[$i+1] && $exonPos >= $exonStarts[$i+1] ) {
-          next SPLICE_LOOP;
-        }
-        $txAnnotationHref->{$exonPos} = $posStrand ? 
-          $codonPacker->siteTypeMap->spliceDonSiteType : $codonPacker->siteTypeMap->spliceAcSiteType;
-      }
-    }
-
     # Store this last, and check that it's within an exon.
     # We call an intronic area past a cdsEnd or before a cdsStart "introinc" or "spliceAcceptro" or "spliceDonor"
     UTR_LOOP: for ( my $exonPos = $exonStarts[$i]; $exonPos < $exonEnds[$i]; $exonPos++ ) {
-      # Record exon numbers, even for non-coding exons
+      # Record exon numbers
       $exonPosNumHref->{$exonPos} = $i + 1;
 
       if($nonCoding) {
@@ -416,27 +367,84 @@ sub _buildTranscriptAnnotation {
       #TODO this may be a subtle bug, I think it shuold be $pos <= $codingEnd
       #checking with Thomas
       #On second thought, it looks fine. codingEnd is treated as closed here
-      if( $exonPos < $codingEnd ) {
-        if( $exonPos >= $codingStart ) {
-          #not 5'UTR,3'UTR, or non-coding
-          #we've already gotten the ref base at this position in $seq
-          #so skip this pos
-          next UTR_LOOP;
-        }  
+      if( $exonPos < $codingStart ) {
         #if we're before cds start, but in an exon we must be in the 5' UTR
         $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->fivePrimeSiteType 
           : $codonPacker->siteTypeMap->threePrimeSiteType;
 
         next UTR_LOOP;
-       } 
-      #if we're after cds end, but in an exon we must be in the 3' UTR
-      $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
-        : $codonPacker->siteTypeMap->fivePrimeSiteType;
+      }
+
+      # codonEnd is half closed in refGene/refSeq (UCSC), so $codingEnd represents the first
+      # base of the UTR3 (pos strand; UTR5 is neg strand)
+      # TODO: triple check this
+      if($exonPos >= $codingEnd) {
+        #if we're after cds end, but in an exon we must be in the 3' UTR
+        $txAnnotationHref->{$exonPos} = $posStrand ? $codonPacker->siteTypeMap->threePrimeSiteType 
+          : $codonPacker->siteTypeMap->fivePrimeSiteType;
+      }
     }
   }
 
-  #my $errorsAref = $self->_buildTranscriptErrors($txSequence, $txAnnotationHref);
+  # Store intron site type if that's what this is
+  # Note that the splice loop below this will ovewrite any positions that are
+  # Called Splice Sites
+  INTRON_LOOP: for ( my $y = 0; $y < @exonEnds; $y++ ) {
+    # refGene/refSeq (UCSC) stores half-closed, so $exonEnds[$y] is the first base
+    # of the intron (because it is open), and $exonStarts[$y + 1] is the first
+    # base of the next exon (because it's closed) 
+    my $intronStart = $exonEnds[$y];
+    my $nextExonStart = $exonStarts[$y + 1];
+    
+    if(!$nextExonStart) {
+      last INTRON_LOOP;
+    }
 
+    #exon Ends are open, so the exon actually ends $exonEnds - 1
+    INNER_INTRON_LOOP: for (my $intronPos = $intronStart; $intronPos < $nextExonStart; $intronPos++ ) {
+      $txAnnotationHref->{$intronPos} = $codonPacker->siteTypeMap->intronicSiteType;
+    }
+
+    # Since $nextExonStart is the base beyond the last of the current intron bases
+    # we don't need to add +1
+    # Say 2 is the first intron base, and 5 is the next exon start
+    # 5 - 2 = 3 intron lenght (2, 3, 4 positions are introns)
+    my $intronLength = $nextExonStart - $intronStart;
+
+    my $spliceAcceptorAccum = 0;
+    my $spliceDonorAccum = 0;
+    
+     # Annotate splice donor/acceptor bp
+    #  - i.e., bp within 2 bp of exon start / stop
+    # 12/26/16: Further change. We now call spliceSite anything PAST the preceeding
+    # exonEnd by up to $spliceSiteLength bases downstream
+    # Taking into account that exonEnds[$I] is open, and therefore represents
+    # the first intronic base
+    # If we choose say a spliceSiteLength of 2,
+    # then the intron must be at least 4 bases long,
+    # If it isn't, how can we possibly call a splice acceptor or donor site?
+    if($intronLength >= $spliceSiteLength * 2) {
+      my $spliceAcceptPos = $intronStart;
+
+      SPLICE_ACCEPTOR_LOOP: for (my $spliceAccum = 0; $spliceAccum < $spliceSiteLength; $spliceAccum++) {
+        $spliceAcceptPos += $spliceAccum;
+
+        $txAnnotationHref->{$spliceAcceptPos} =
+          $posStrand 
+          ? $codonPacker->siteTypeMap->spliceAcSiteType
+          : $codonPacker->siteTypeMap->spliceDonSiteType;
+      }
+
+      SPLICE_DONOR_LOOP: for (my $spliceDonorPos = $nextExonStart - $spliceSiteLength; $spliceDonorPos < $nextExonStart; $spliceDonorPos++) {
+        $txAnnotationHref->{$spliceDonorPos} =
+          $posStrand 
+          ? $codonPacker->siteTypeMap->spliceAcSiteType
+          : $codonPacker->siteTypeMap->spliceDonSiteType;
+      }
+    } else {
+      $self->log('warn', "TX #" . $self->txNumber . " has an intron shorter than 2 * the spliceSiteLength $spliceSiteLength, between exons " . ($y) . " and " . ($y + 1) );
+    }
+  }
   return ($txAnnotationHref, $exonPosNumHref);
   #return ($txAnnotationHref, $errorsAref);
 }

@@ -96,8 +96,6 @@ has features => (
     allFeatureNames => 'elements',
     noFeatures  => 'is_empty',
   },
-  lazy => 1,
-  default => sub{[]},
   predicate => 'hasFeatures',
 ); 
 
@@ -124,25 +122,23 @@ has nearest => (
   is => 'ro',
   # Cannot use traits with Maybe
   isa => 'ArrayRef',
+  traits   => ['Array'],
   handles => {
     noNearestFeatures => 'is_empty',
     allNearestFeatureNames => 'elements',
   },
-  lazy => 1,
-  default => sub{[]},
   predicate => 'hasNearest',
 );
 
 has flanking => (
   is => 'ro',
   isa => 'ArrayRef',
+  traits   => ['Array'],
   # Cannot use traits with Maybe
   handles => {
     noFlankingFeatures => 'is_empty',
     allFlankingFeatures => 'elements',
   },
-  lazy => 1,
-  default => sub{[]},
   predicate => 'hasFlanking',
 );
 

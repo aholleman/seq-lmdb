@@ -33,9 +33,9 @@ use List::Util qw/first/;
 has buildRegionTrackOnly => (is => 'ro', lazy => 1, default => 0);
 
 # These are the features stored in the Gene track's region database
-# Does not include $geneDef->txErrorField here, because that is something
+# Does not include $self->txErrorField here, because that is something
 # that is not actually present in UCSC refSeq or knownGene records, we add ourselves
-has '+features' => (default => sub{ $geneDef->allUCSCgeneFeatures; });
+has '+features' => (default => sub{ my $self = shift; return $self->ucscGeneAref; });
 
 my $txNumberKey = 'txNumber';
 my $joinTrack;
@@ -47,8 +47,8 @@ sub BUILDARGS {
   my @coreFeatures = $self->allUCSCgeneFeatures;
 
   for my $coreFeature (@coreFeatures) {
-    if(! first { $coreFeature eq $_ } @featureAref) {
-      push @$featureAref, $coreFeature;
+    if(!first{ $coreFeature eq $_ } @$featuresAref) {
+      push @$featuresAref, $coreFeature;
     }
   }
 
@@ -62,20 +62,15 @@ sub BUILD {
 
   # txErrorField isn't a default feature, initializing here to make sure 
   # we store this value (if calling for first time) before any threads get to it
-  $self->getFieldDbName($geneDef->txErrorField);
+  $self->getFieldDbName($self->txErrorField);
 
   if($self->nearest && $self->noNearestFeatures) {
     $self->log('fatal', "Nearest gene track must specify at least one feature");
     return;
   }
 
-  if($self->nearest && ! first $_$self->nearest) {
-    $self->log('fatal', "Nearest gene track must specify at least one feature");
-    return;
-  }
-
-  if($self->flanking && $self->noNearestFeatures) {
-    $self->log('fatal', "Nearest gene track must specify at least one feature");
+  if($self->flanking && $self->noFlankingFeatures) {
+    $self->log('fatal', "Flanking gene track must specify at least one feature");
     return;
   }
 }
@@ -236,8 +231,8 @@ sub buildTrack {
         }
 
         #a field added by Seqant
-        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($geneDef->txSizeName)} = $txEnd + 1 - $txStart; 
-        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($geneDef->txSizeName)} = $txEnd + 1 - $txStart; 
+        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($self->txSizeName)} = $txEnd + 1 - $txStart; 
+        $regionData{$wantedChr}->{$txNumber}{$self->getFieldDbName($self->txSizeName)} = $txEnd + 1 - $txStart; 
 
         if(defined $txStartData{$wantedChr}{$txStart} ) {
           push @{ $txStartData{$wantedChr}{$txStart} }, [$txNumber, $txEnd];
@@ -266,7 +261,7 @@ sub buildTrack {
 
       my $pm2 = Parallel::ForkManager->new(scalar @allChrs);
 
-      my $txErrorDbname = $self->getFieldDbName($geneDef->txErrorField);
+      my $txErrorDbname = $self->getFieldDbName($self->txErrorField);
 
       for my $chr (@allChrs) {
         $pm2->start($chr) and next;

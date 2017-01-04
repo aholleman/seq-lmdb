@@ -41,16 +41,16 @@ use Seq::DBManager;
 # These are features defined by Gene::Site, but we name them in Seq::Tracks::Gene
 # Because it gets really confusing to track down the features defined in Seq::Tracks::Gene::Site
 # TODO: rename these siteTypeField to match the interface used by Seq.pm (TODO: and Seq::Tracks::Sparse::Build)
-has siteTypeKey => (is => 'ro', default => 'siteType');
-has strandKey => (is => 'ro', default => 'strand');
-has codonNumberKey => (is => 'ro', default => 'codonNumber');
-has codonPositionKey => (is => 'ro', default => 'codonPosition');
-has codonSequenceKey => (is => 'ro', default => 'referenceCodon');
+has siteTypeField => (is => 'ro', default => 'siteType');
+has strandField => (is => 'ro', default => 'strand');
+has codonNumberField => (is => 'ro', default => 'codonNumber');
+has codonPositionField => (is => 'ro', default => 'codonPosition');
+has codonSequenceField => (is => 'ro', default => 'referenceCodon');
 
-has refAminoAcidKey => (is => 'ro', default => 'referenceAminoAcid');
-has newCodonKey => (is => 'ro', default => 'alleleCodon');
-has newAminoAcidKey => (is => 'ro', default => 'alleleAminoAcid');
-has exonicAlleleFunctionKey => (is => 'ro', default => 'exonicAlleleFunction');
+has refAminoAcidField => (is => 'ro', default => 'referenceAminoAcid');
+has newCodonField => (is => 'ro', default => 'alleleCodon');
+has newAminoAcidField => (is => 'ro', default => 'alleleAminoAcid');
+has exonicAlleleFunctionField => (is => 'ro', default => 'exonicAlleleFunction');
 
 ########################## Private Attributes ##################################
 ########## The names of various features. These cannot be configured ##########
@@ -107,17 +107,17 @@ sub BUILD {
 
   # Avoid accessor penalties by aliasing to the $self hash
   # These correspond to all of the sites held in Gene::Site
-  $self->{_strandKey} = $self->strandKey; 
-  $self->{_siteTypeKey} = $self->siteTypeKey;
-  $self->{_codonSequenceKey} = $self->codonSequenceKey;
-  $self->{_codonPositionKey} = $self->codonPositionKey;
-  $self->{_codonNumberKey} = $self->codonNumberKey;
+  $self->{_strandField} = $self->strandField; 
+  $self->{_siteTypeField} = $self->siteTypeField;
+  $self->{_codonSequenceField} = $self->codonSequenceField;
+  $self->{_codonPositionField} = $self->codonPositionField;
+  $self->{_codonNumberField} = $self->codonNumberField;
 
   # The values for these keys we calculate at get() time.
-  $self->{_refAminoAcidKey} = $self->refAminoAcidKey;
-  $self->{_newCodonKey} = $self->newCodonKey;
-  $self->{_newAminoAcidKey} = $self->newAminoAcidKey;
-  $self->{_exonicAlleleFunctionKey} = $self->exonicAlleleFunctionKey;
+  $self->{_refAminoAcidField} = $self->refAminoAcidField;
+  $self->{_newCodonField} = $self->newCodonField;
+  $self->{_newAminoAcidField} = $self->newAminoAcidField;
+  $self->{_exonicAlleleFunctionField} = $self->exonicAlleleFunctionField;
 
   $self->{_features} = $self->features;
   $self->{_dbName} = $self->dbName;
@@ -130,10 +130,10 @@ sub BUILD {
   #  Providing 1 as the last argument means "prepend" instead of append
   #  So these features will come before any other refSeq.* features
   $self->headers->addFeaturesToHeader([
-    $self->siteTypeKey, $self->exonicAlleleFunctionKey,
-    $self->codonSequenceKey, $self->newCodonKey, $self->refAminoAcidKey,
-    $self->newAminoAcidKey, $self->codonPositionKey,
-    $self->codonNumberKey, $self->strandKey,
+    $self->siteTypeField, $self->exonicAlleleFunctionField,
+    $self->codonSequenceField, $self->newCodonField, $self->refAminoAcidField,
+    $self->newAminoAcidField, $self->codonPositionField,
+    $self->codonNumberField, $self->strandField,
   ], $self->name, 1);
 
   if(!$self->noNearestFeatures) {
@@ -239,7 +239,7 @@ sub get {
   }
   
   if( !$txNumbers ) {
-    $out[ $idxMap->{$self->{_siteTypeKey}} ] = $intergenic;
+    $out[ $idxMap->{$self->{_siteTypeField}} ] = $intergenic;
     
     return accumOut($alleleIdx, $positionIdx, $outAccum, \@out);
   }
@@ -260,19 +260,19 @@ sub get {
   # Push, because we'll use the indexes in calculating alleles
   # TODO: Better handling of truncated codons
   # Avoid a bunch of \;\ for non-coding sites
-  # By not setting _codonNumberKey, _codonPositionKey, _codonSequenceKey if !hasCodon
+  # By not setting _codonNumberField, _codonPositionField, _codonSequenceField if !hasCodon
   my $hasCodon;
   if(!$multiple) {
-    $out[ $idxMap->{$self->{_strandKey}} ] = $siteData->[$strandIdx];
-    $out[ $idxMap->{$self->{_siteTypeKey}} ] = $siteData->[$siteTypeIdx];
+    $out[ $idxMap->{$self->{_strandField}} ] = $siteData->[$strandIdx];
+    $out[ $idxMap->{$self->{_siteTypeField}} ] = $siteData->[$siteTypeIdx];
 
     if(defined $siteData->[$codonSequenceIdx]) {
       $hasCodon = 1;
     }
   } else {
     for my $site (@$siteData) {
-      push @{ $out[ $idxMap->{$self->{_strandKey}} ] }, $site->[$strandIdx];
-      push @{ $out[ $idxMap->{$self->{_siteTypeKey}} ] }, $site->[$siteTypeIdx];
+      push @{ $out[ $idxMap->{$self->{_strandField}} ] }, $site->[$strandIdx];
+      push @{ $out[ $idxMap->{$self->{_siteTypeField}} ] }, $site->[$siteTypeIdx];
 
       if(defined $site->[$codonSequenceIdx]) {
         $hasCodon //= 1;
@@ -304,7 +304,7 @@ sub get {
   $i = 0;
 
   if(length($allele) > 1) {
-    # Indels get everything besides the _*AminoAcidKey and _newCodonKey
+    # Indels get everything besides the _*AminoAcidKey and _newCodonField
     my $indelAllele = 
       substr($allele, 0, 1) eq '+'
       ? length(substr($allele, 1)) % 3 ? $frameshift : $inFrame
@@ -388,21 +388,21 @@ sub get {
   }
 
   if(!$multiple) {
-    $out[ $idxMap->{$self->{_codonPositionKey}} ] = $codonPos[0];
-    $out[ $idxMap->{$self->{_codonSequenceKey}} ] = $codonSeq[0];
-    $out[ $idxMap->{$self->{_codonNumberKey}} ] = $codonNum[0];
-    $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = $funcAccum[0];
-    $out[ $idxMap->{$self->{_refAminoAcidKey}} ] = $refAA[0];
-    $out[ $idxMap->{$self->{_newAminoAcidKey}} ] = $newAA[0];
-    $out[ $idxMap->{$self->{_newCodonKey}} ] = $newCodon[0];
+    $out[ $idxMap->{$self->{_codonPositionField}} ] = $codonPos[0];
+    $out[ $idxMap->{$self->{_codonSequenceField}} ] = $codonSeq[0];
+    $out[ $idxMap->{$self->{_codonNumberField}} ] = $codonNum[0];
+    $out[ $idxMap->{$self->{_exonicAlleleFunctionField}} ] = $funcAccum[0];
+    $out[ $idxMap->{$self->{_refAminoAcidField}} ] = $refAA[0];
+    $out[ $idxMap->{$self->{_newAminoAcidField}} ] = $newAA[0];
+    $out[ $idxMap->{$self->{_newCodonField}} ] = $newCodon[0];
   } else {
-    $out[ $idxMap->{$self->{_codonPositionKey}} ] = \@codonPos;
-    $out[ $idxMap->{$self->{_codonSequenceKey}} ] = \@codonSeq;
-    $out[ $idxMap->{$self->{_codonNumberKey}} ] = \@codonNum;
-    $out[ $idxMap->{$self->{_exonicAlleleFunctionKey}} ] = \@funcAccum;
-    $out[ $idxMap->{$self->{_refAminoAcidKey}} ] = \@refAA;
-    $out[ $idxMap->{$self->{_newAminoAcidKey}} ] = \@newAA;
-    $out[ $idxMap->{$self->{_newCodonKey}} ] = \@newCodon;
+    $out[ $idxMap->{$self->{_codonPositionField}} ] = \@codonPos;
+    $out[ $idxMap->{$self->{_codonSequenceField}} ] = \@codonSeq;
+    $out[ $idxMap->{$self->{_codonNumberField}} ] = \@codonNum;
+    $out[ $idxMap->{$self->{_exonicAlleleFunctionField}} ] = \@funcAccum;
+    $out[ $idxMap->{$self->{_refAminoAcidField}} ] = \@refAA;
+    $out[ $idxMap->{$self->{_newAminoAcidField}} ] = \@newAA;
+    $out[ $idxMap->{$self->{_newCodonField}} ] = \@newCodon;
   }
 
   return accumOut($alleleIdx, $positionIdx, $outAccum, \@out);
