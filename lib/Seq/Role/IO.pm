@@ -210,32 +210,7 @@ sub compressDirIntoTarball {
     return $?;
   }
 
-  return;
-}
-
-#http://www.perlmonks.org/?node_id=233023
-sub makeRandomTempDir {
-  my ($self, $parentDir) = @_;
-
-  srand( time() ^ ($$ + ($$ << 15)) );
-  my @v = qw ( a e i o u y );
-  my @c = qw ( b c d f g h j k l m n p q r s t v w x z );
-
-  my ($flip, $childDir) = (0,'');
-  $childDir .= ($flip++ % 2) ? $v[rand(6)] : $c[rand(20)] for 1 .. 9;
-  $childDir =~ s/(....)/$1 . int rand(10)/e;
-  $childDir = ucfirst $childDir if rand() > 0.5;
-
-  my $newDir = $parentDir->child($childDir);
-
-  # it shouldn't exist
-  if($newDir->is_dir) {
-    goto &_makeRandomTempDir;
-  }
-
-  $newDir->mkpath;
-
-  return $newDir;
+  return 0;
 }
 
 no Mouse::Role;

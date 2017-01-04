@@ -29,6 +29,7 @@ chromosomes:
 database_dir: ~
 files_dir: ~
 statistics:
+  refTrackField: ref
   dbSNPnameField: dbSNP.name
   exonicAlleleFunctionField: refSeq.exonicAlleleFunction
   outputExtensions:

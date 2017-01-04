@@ -1,7 +1,26 @@
-Seq
----
----
-## How genome assemblies work
+# Seqant 2.0
+## Annotator Output
+
+Seqant outputs an incredible amount of data.
+
+We recommend using the [Seqant web app](https://seqant.genetics.emory.edu) to annotate, because that automatically creates a Google-like search engine for your results, which makes filtering, sorting, etc much easier.
+
+### Default Columns
+
+1. chrom
+	- The chromosome name
+
+2. pos
+	- The position. For deletions this is the first base deleted, for insertions this is the base just before the insertion.
+
+3. type
+	- The variant call. Possibilities: SNP, INS, DEL, MULTIALLELIC.
+	- Seqant skips LOW (low confidence) or MESS (confusing) calls, which may be created by PECaller (does not apply to vcf annotation)
+	- Seqant drops MULTIALLELIC calls from VCF files, because it uses Plink to convert the vcf file, and [Plink drops the additional alleles] (http://apol1.blogspot.com/2014/11/best-practice-for-converting-vcf-files.html)
+
+4. etc
+
+### How genome assemblies work
 
 - A configuration file is required to build/update a database, or annotate
 - It has several keys:

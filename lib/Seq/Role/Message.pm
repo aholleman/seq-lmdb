@@ -1,208 +1,218 @@
-package Seq::Role::Message;
 use 5.10.0;
 use strict;
 use warnings;
+# TODO: Also support reading zipped files (right now only gzip files)
+package Seq::Role::IO;
 
 our $VERSION = '0.001';
 
-# ABSTRACT: A class for communicating to log and to some plugged in messaging service
+# ABSTRACT: A moose role for all of our file handle needs
 # VERSION
-use Mouse::Role 2;
 
-#doesn't work with Parallel::ForkManager;
-#for more on AnyEvent::Log
-#http://search.cpan.org/~mlehmann/AnyEvent-7.12/lib/AnyEvent/Log.pm
-# use AnyEvent;
-# use AnyEvent::Log;
+use Mouse::Role;
 
-use Log::Fast;
-use namespace::autoclean;
-use Beanstalk::Client;
-use Cpanel::JSON::XS;
-use DDP return_value => 'dump';
-use Carp qw/croak/;
+use PerlIO::utf8_strict;
+use PerlIO::gzip;
+use File::Which qw/which/;
 
-$Seq::Role::Message::LOG = Log::Fast->new({
-  level           => 'WARN',
-  prefix          =>  '%D %T ',
-  type            => 'fh',
-  fh              => \*STDOUT,
-});
+use Path::Tiny;
+use Try::Tiny;
+use DDP;
 
-$Seq::Role::Message::mapLevels = {
-  info => 'INFO', #\&{$LOG->INFO}
-  INFO => 'INFO',
-  ERR => 'ERR',
-  error => 'ERR',
-  fatal => 'ERR',
-  warn => 'WARN',
-  WARN => 'WARN',
-  debug => 'DEBUG',
-  DEBUG => 'DEBUG',
-  NOTICE => 'NOTICE',
-};
+with 'Seq::Role::Message';
+# tried various ways of assigning this to an attrib, with the intention that
+# one could change the taint checking characters allowed but this is the simpliest
+# one that worked; wanted it precompiled to improve the speed of checking
+our $taint_check_regex = qr{\A([\+\,\.\-\=\:\/\t\s\w\d/]+)\z};
 
-my %mapSeverity = (
-  debug => 0,
-  info => 0,
-  warn => 1,
-  fatal => 2,
-  error => 2,
-  err => 2,
+has taint_check_regex => (
+  is => 'ro',
+  lazy => 1,
+  init_arg => undef,
+  default => sub{ $taint_check_regex },
 );
 
-# Static variables; these need to be cleared by the consuming class
-state $debug = 0;
-state $verbose = 0;
-state $publisher;
-state $messageBase;
+has delimiter => (
+  is => 'ro',
+  lazy => 1,
+  default => "\t",
+); 
 
-sub initialize {
-  $debug = 0;
-  $verbose = 10000;
-  $publisher = undef;
-  $messageBase = undef;
-}
+has endOfLineChar => (
+  is => 'ro',
+  lazy => 1,
+  default => "\n",
+); 
 
-sub setLogPath {
-  my ($self, $path) = @_;
-  #open($Seq::Role::Message::Fh, '<', $path);
+state $tar = which('tar');
+state $gzip = which('pigz') || which('gzip');
+# state $gzip = which('gzip');
+$tar = "$tar --use-compress-program=$gzip";
 
-  #$AnyEvent::Log::LOG->log_to_file ($path);
-  $Seq::Role::Message::LOG->config({
-    fh => $self->get_write_fh($path),
-  });
-}
+has gzipPath => (is => 'ro', isa => 'Str', init_arg => undef, lazy => 1,
+  default => sub {$gzip});
 
-sub setLogLevel {
-  my ($self, $level) = @_;
+#if we compress the output, the extension we store it with
+has _compressTarballExtension => (
+  is      => 'ro',
+  lazy    => 1,
+  default => '.tar.gz',
+  init_arg => undef,
+);
+
+#@param {Path::Tiny} $file : the Path::Tiny object representing a single input file
+#@param {Str} $innerFile : if passed a tarball, we will want to stream a single file within
+#@return file handle
+sub get_read_fh {
+  my ( $self, $file, $innerFile) = @_;
+  my $fh;
   
-  our $mapLevels;
-
-  if($level =~ /debug/i) {
-    $debug = 1;
+  if(ref $file ne 'Path::Tiny' ) {
+    $file = path($file)->absolute;
   }
 
-  $Seq::Role::Message::LOG->level( $mapLevels->{$level} );
-}
+  my $filePath = $file->stringify;
 
-sub setVerbosity {
-  my ($self, $verboseLevel) = @_;
+  if (!$file->is_file) {
+    $self->log('fatal', 'file does not exist for reading: '. $filePath);
+  }
   
-  if($verboseLevel != 0 && $verboseLevel != 1 && $verboseLevel != 2) {
-    # Should log this
-    say "Verbose level must be 0, 1, or 2, setting to 10000 (no verbose output)";
-    $verbose = 10000;
-    return;
-  }
+  #duck type compressed files
+  my $compressed = 0;
+  my $err;
+  if($innerFile) {
+    # We do this because we have not built in error handling from opening streams
+    if($filePath !~ /tar.gz$/) {
+      $err = "If an inner file is passed, the annotation file path should be *.tar.gz";
+    } else {
+      $compressed = 1;
 
-  $verbose = $verboseLevel;
-}
+      say "is tar.gz";
 
-has hasPublisher => (is => 'ro', init_arg => undef, writer => '_setPublisher', isa => 'Bool', lazy => 1, default => sub {!!$publisher});
-
-sub setPublisher {
-  my ($self, $publisherConfig) = @_;
-
-  if(!ref $publisherConfig eq 'Hash') {
-    return $self->log->('fatal', 'setPublisherAndAddress requires hash');
-  }
-
-  if(!( defined $publisherConfig->{server} && defined $publisherConfig->{queue}
-  && defined $publisherConfig->{messageBase} ) ) {
-    return $self->log('fatal', 'setPublisher server, queue, messageBase properties');
-  }
-
-  $publisher = Beanstalk::Client->new({
-    server => $publisherConfig->{server},
-    default_tube => $publisherConfig->{queue},
-    connect_timeout => 1,
-  });
-
-  $self->_setPublisher(!!$publisher);
-
-  $messageBase = $publisherConfig->{messageBase};
-}
-
-# note, accessing hash directly because traits don't work with Maybe types
-sub publishMessage {
-  # my ( $self, $msg ) = @_;
-  # to save on perf, $_[0] == $self, $_[1] == $msg;
-
-  # because predicates don't trigger builders, need to check hasPublisherAddress
-  return unless $publisher;
-  
-  $messageBase->{data} = $_[1];
-  
-  $publisher->put({
-    priority => 0,
-    data => encode_json($messageBase),
-  });
-
-  return;
-}
-
-sub publishProgress {
-  # my ( $self, $annotatedCount, $skippedCount ) = @_;
-  #     $_[0],  $_[1],           $_[2]
-
-  # because predicates don't trigger builders, need to check hasPublisherAddress
-  return unless $publisher;
-
-  $messageBase->{data} = { progress => $_[1], skipped => $_[2] };
-
-  $publisher->put({
-    priority => 0,
-    data => encode_json($messageBase),
-  });
-}
-
-sub log {
-  #my ( $self, $log_method, $msg ) = @_;
-  #$_[0] == $self, $_[1] == $log_method, $_[2] == $msg;
- 
-  if(ref $_[2] ) {
-    $_[2] = p $_[2];
-  }
-
-  if( $_[1] eq 'info' ) {
-    $Seq::Role::Message::LOG->INFO( "[INFO] $_[2]" );
-
-    $_[0]->publishMessage( "[INFO] $_[2]" );
-  } elsif( $_[1] eq 'debug') {
-    $Seq::Role::Message::LOG->DEBUG( "[DEBUG] $_[2]" );
-
-    # do not publish debug messages by default
-    if($debug) {
-      $_[0]->publishMessage( "[DEBUG] $_[2]" );
+      say "opening file using tar command";
+      say "$tar -O -xzf $filePath $innerFile";
+      open ($fh, '-|', "$tar -O -xf \"$filePath\" \"$innerFile\"");
     }
-  } elsif( $_[1] eq 'warn' ) {
-    $Seq::Role::Message::LOG->WARN( "[WARN] $_[2]" );
+    # If an innerFile is passed, we assume that $file is a path to a tarball
+  } elsif($filePath =~ /\.gz$/) {
+    $compressed = 1;
+    #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
+    #and then exits, so use gunzip, standard on linux, and faster
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
 
-    $_[0]->publishMessage( "[WARN] $_[2]" );
-  } elsif( $_[1] eq 'error' || $_[1] eq 'err' ) {
-    $Seq::Role::Message::LOG->ERR( "[ERROR] $_[2]" );
+    # open($fh, "<:gzip", $filePath);
+  } elsif($filePath =~ /\.zip$/) {
+    $compressed = 1;
+    #PerlIO::gzip doesn't seem to play nicely with MCE, reads random number of lines
+    #and then exits, so use gunzip, standard on linux, and faster
+    open ($fh, '-|', "$gzip -d -c \"$filePath\"");
     
-    $_[0]->publishMessage( "[ERROR] $_[2]" );
-
-  } elsif( $_[1] eq 'fatal' ) {
-    $Seq::Role::Message::LOG->ERR( "[FATAL] $_[2]" );
-
-    $_[0]->publishMessage( "[FATAL] $_[2]" );
-
-    croak("[FATAL] $_[2]");
+    # open($fh, "<:gzip(none)", $filePath);
   } else {
-    return;
+    # open($fh, '<:unix', "$filePath");
+    open ($fh, '-|', "cat \"$filePath\"");
+  };
+
+  if(!$fh) {
+    $err = "Failed to open file";
+  }
+  return ($err, $compressed, $fh);
+}
+
+# TODO: return error if failed
+sub get_write_fh {
+  my ( $self, $file ) = @_;
+
+  $self->log('fatal', "get_fh() expected a filename") unless $file;
+
+  my $fh;
+  if ( $file =~ /\.gz$/ ) {
+    # open($fh, ">:gzip", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");
+    open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
+  } elsif ( $file =~ /\.zip$/ ) {
+    open($fh, "|-", "$gzip -c > $file") or $self->log('fatal', "Couldn't open gzip $file for writing");
+    # open($fh, ">:gzip(none)", $file) or die $self->log('fatal', "Couldn't open $file for writing: $!");
+  } else {
+    open($fh, ">", $file) or return $self->log('fatal', "Couldn't open $file for writing: $!");
   }
 
-  # So if verbosity is set to 1, only err, warn, and fatal messages
-  # will be printed to sdout
-  if($verbose <= $mapSeverity{$_[1]}) {
-    say $_[2];
-  }
+  return $fh;
+}
 
+sub getCleanFields {
+  # my ( $self, $line ) = @_;
+  #       $_[0]  $_[1]
+  # could be called millions of times, so don't copy arguments
+
+  # if(ref $_[1]) {
+  #   goto &getCleanFieldsBulk;
+  # }
+
+  #https://ideone.com/WVrYxg
+  if ( $_[1] =~ m/$taint_check_regex/xm ) {
+    my @out;
+    foreach ( split($_[0]->endOfLineChar, $1) ) {
+      push @out, [ split($_[0]->delimiter, $_) ];
+    }
+    return @out == 1 ? $out[0] : \@out;
+  }
+  
   return;
+}
+
+sub makeTarballName {
+  my ($self, $baseName) = @_;
+
+  return $baseName . $self->_compressTarballExtension;
+}
+
+# Assumes if ref's are passed for dir, baseName, or compressedName, they are path tiny
+sub compressDirIntoTarball {
+  my ($self, $dir, $compressedName) = @_;
+
+  if(!$tar) { 
+    $self->log( 'warn', 'No tar program found');
+    return 'No tar program found';
+  }
+
+  if(ref $dir) {
+    $dir = $dir->stringify;
+  }
+  
+  if(!$compressedName) {
+    $self->log('warn', 'must provide baseName or compressedName');
+    return 'Must provide baseName or compressedName';
+  }
+
+  if(ref $compressedName) {
+    $compressedName = $compressedName->stringify;
+  }
+
+  $self->log( 'info', 'Compressing all output files' );
+
+  my @files = glob $dir;
+
+  if ( !@files) {
+    $self->log( 'warn', "Directory is empty" );
+    return 'Directory is empty';
+  }
+
+  my $tarCommand = sprintf("cd %s; $tar --exclude '.*' --exclude %s -cf %s * --remove-files",
+    $dir,
+    $compressedName, #and don't include our new compressed file in our tarball
+    $compressedName, # the name of our tarball
+  );
+
+  $self->log('debug', "compress command: $tarCommand");
+    
+  if(system($tarCommand) ) {
+    $self->log( 'warn', "compressDirIntoTarball failed with $?" );
+    return $?;
+  }
+
+  return 0;
 }
 
 no Mouse::Role;
+
 1;
