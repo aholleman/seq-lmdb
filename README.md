@@ -16,7 +16,7 @@ We recommend using the [Seqant web app](https://seqant.genetics.emory.edu) to an
 3. type
 	- The variant call. Possibilities: SNP, INS, DEL, MULTIALLELIC.
 	- Seqant skips LOW (low confidence) or MESS (confusing) calls, which may be created by PECaller (does not apply to vcf annotation)
-	- Seqant drops MULTIALLELIC calls from VCF files, because it uses Plink to convert the vcf file, and [Plink drops these sites (http://apol1.blogspot.com/2014/11/best-practice-for-converting-vcf-files.html)
+	- Seqant drops MULTIALLELIC calls from VCF files, because it uses Plink to convert the vcf file, and [Plink drops the additional alleles] (http://apol1.blogspot.com/2014/11/best-practice-for-converting-vcf-files.html)
 
 4. etc
 
