@@ -13,7 +13,7 @@ use Mouse 2;
 use MouseX::NativeTraits;
 
 use DDP;
-use List::MoreUtils qw/first_index/;
+use List::Util qw/first/;
 
 use Seq::Tracks::Base::MapTrackNames;
 use Seq::Tracks::Base::MapFieldNames;
@@ -229,9 +229,9 @@ sub BUILDARGS {
        an array of feature names');
     }
     
-    for my $nearestFeatureName (@{ $data->{nearest} } ) {
+    for my $nearestFeatureName ( @{$data->{nearest}} ) {
       #~ takes a -1 and makes it a 0
-      if(! ~first_index{ $_ eq $nearestFeatureName } @ { $data->{features} } ) {
+      if(!defined( first{$_ eq $nearestFeatureName} @{$data->{features}} )) {
         $class->log('fatal', "$nearestFeatureName, which you've defined under 
           the nearest property, doesn't exist in the list of $data->{name} 'feature' 
           properties");

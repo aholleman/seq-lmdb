@@ -1,12 +1,13 @@
 package Seq::Headers;
 use Mouse 2;
 
-# Abstract: Responsible for building the header object and string
+# # Abstract: Responsible for building the header object and string
 use 5.10.0;
 use strict;
 use warnings;
 use namespace::autoclean;
 use DDP;
+use List::Util qw/first/;
 
 with 'Seq::Role::Message';
 #stored as array ref to preserve order
@@ -61,7 +62,7 @@ sub getChildFeaturesMap {
           $y++;
         }
       }
-      
+
       next;
     }
   }
@@ -127,7 +128,12 @@ sub getString {
   return join("\t", @out);
 }
 
-#not all children will have parents
+#######################addFeaturesToHeader#######################
+# Description: Add a single feature to the header
+# @param <Str|Number> $child: A feature name (required)
+# @param <Str|Number> $parent: A parent name that the $child belongs to (optional)
+# @param <Any> $prepend: Whether or not to add the $child to the beginning of
+# the features array, or to the beginning of the $parent feature array if !!$parent
 sub addFeaturesToHeader {
   my ($self, $child, $parent, $prepend) = @_;
 
@@ -150,52 +156,49 @@ sub addFeaturesToHeader {
       my ($key, $valuesAref) = %$headerEntry;
 
       if($key eq $parent) {
+        # If we have already added this feature, exit the function
+        if(defined(first {$_ eq $child} @$valuesAref)) {
+          return;
+        }
 
         if($prepend) {
           unshift @$valuesAref, $child;
         } else {
           push @$valuesAref, $child;
         }
-        
+
         $parentChild->{$parent} = $valuesAref;
 
-        $parentFound = 1;
-        last;
+        return;
       }
     }
 
-    if(!$parentFound) {
-      my $val = { $parent => [$child] };
+    # No parent found, no need to check if feature has previously been added
+    my $val = { $parent => [$child] };
 
-      if($prepend) {
-        unshift @$orderedHeaderFeaturesAref, $val; 
-      } else {
-        push @$orderedHeaderFeaturesAref, $val;
-      }
-      
-      $parentChild->{$parent} = [$child];
+    if($prepend) {
+      unshift @$orderedHeaderFeaturesAref, $val;
+    } else {
+      push @$orderedHeaderFeaturesAref, $val;
     }
+
+    $parentChild->{$parent} = [$child];
 
     return;
   }
-  
-  my $childFound = 0;
 
-  #if no parent is provided, then we expect that the child is the only
-  #value stored, rather than a parentName => [value1, value2]
-  for my $headerEntry (@$orderedHeaderFeaturesAref) {
-    if($child eq $headerEntry) {
-      $childFound = 1;
-      last;
-    }
+  ######## No parent provided;  we expect that the child is the only ##########
+  ####### value stored, rather than a parentName => [value1, value2] ##########
+
+  # If the value was previously added, exit function;
+  if( defined(first {$_ eq $child} @$orderedHeaderFeaturesAref) ) {
+    return;
   }
 
-  if(!$childFound) {
-    if($prepend) {
-      unshift @$orderedHeaderFeaturesAref, $child;
-    } else {
-      push @$orderedHeaderFeaturesAref, $child;
-    }
+  if($prepend) {
+    unshift @$orderedHeaderFeaturesAref, $child;
+  } else {
+    push @$orderedHeaderFeaturesAref, $child;
   }
 }
 
