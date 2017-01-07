@@ -23,7 +23,7 @@ use Seq::Tracks;
 
 extends 'Seq::Tracks::Build';
 #exports regionTrackPath
-with 'Seq::Tracks::Gene::Definition', 'Seq::Tracks::Region::RegionTrackPath';
+with 'Seq::Tracks::Gene::Build::Definition', 'Seq::Tracks::Region::RegionTrackPath';
 
 use DDP;
 use List::Util qw/first/;

@@ -2,38 +2,20 @@ use 5.10.0;
 use strict;
 use warnings;
 
-package Seq::Tracks::Gene::Definition;
+package Seq::Tracks::Gene::Build::Definition;
 use Mouse::Role 2;
-#Defines a few keys common to the build and get functions of Tracks::Gene
 
-#these is features used in the region database
-#can be overwritten if needed in the config file, as described in Tracks::Build
+#Defines a few keys common to the build and get functions of Tracks::Gene
+######################## Public, Configurable ################################
+has strandField => (is => 'ro', lazy => 1, default => 'strand');
+has txStartField => (is => 'ro', lazy => 1, default => 'txStart');
+has txEndField => (is => 'ro', lazy => 1, default => 'txEnd');
+has chromField => (is => 'ro', lazy => 1, default => 'chrom');
+
+######################## Public Exports ################################
 has txErrorField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txError');
 has hasCdsField => (is => 'ro', init_arg => undef, lazy => 1, default => 'hasCds');
-has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
-
-has txStartField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txStart');
-has txEndField => (is => 'ro', init_arg => undef, lazy => 1, default => 'txEnd');
-
-has chromField => (is => 'ro', lazy => 1, default => 'chrom' );
-
-has txStartField => (is => 'ro', lazy => 1, default => 'txStart' );
-has txEndField => (is => 'ro', lazy => 1, default => 'txEnd' );
-
-# These fields we want to be present in every gene track
-has coreGeneFeatures => (
-  is => 'ro', 
-  init_arg => undef, 
-  lazy => 1, 
-  default => sub { 
-    my $self = shift;
-    return [$self->strandField, $self->txStartField, $self->txEndField];
-  },
-  traits => ['Array'],
-  handles => {
-    allUCSCgeneFeatures => 'elements',
-  }
-);
+has tssField => (is => 'ro', init_arg => undef, lazy => 1, default => 'tss');
 
 # has strandField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
 # has txStartField => (is => 'ro', init_arg => undef, lazy => 1, default => 'strand');
