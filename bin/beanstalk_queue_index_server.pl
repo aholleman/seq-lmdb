@@ -22,7 +22,6 @@ use Log::Any::Adapter;
 use File::Basename;
 use DDP;
 
-
 use Beanstalk::Client;
 
 use YAML::XS qw/LoadFile/;
@@ -69,13 +68,13 @@ while(my $job = $beanstalk->reserve) {
   # Also using forks helps clean up leaked memory from LMDB_File
   # Unfortunately, parallel fork manager doesn't play nicely with try tiny
   # prevents anything within the try from executing
-  
+
   my $jobDataHref;
   my ($err, $fieldNames, $searchConfigHashRef);
 
   try {
     $jobDataHref = decode_json( $job->data );
-    
+
     $beanstalkEvents->put({ priority => 0, data => encode_json{
       event => $events->{started},
       submissionID => $jobDataHref->{submissionID},
@@ -83,7 +82,7 @@ while(my $job = $beanstalk->reserve) {
     }  } );
 
     ($err, $fieldNames, $searchConfigHashRef) = handleJob($jobDataHref, $job->id);
-  
+
   } catch {      
     # Don't store the stack
     $err = $_; #substr($_, 0, index($_, 'at'));
@@ -127,12 +126,12 @@ while(my $job = $beanstalk->reserve) {
     fieldNames => $fieldNames,
     indexConfig => $searchConfigHashRef,
   }) } );
-  
+
   $beanstalk->delete($job->id);
 
   say "completed job with queue id " . $job->id;
 }
- 
+
 sub handleJob {
   my $submittedJob = shift;
   my $queueID = shift;
@@ -145,11 +144,10 @@ sub handleJob {
     say STDERR $err;
     return ($err, undef);
   }
-  
 
   my $log_name = join '.', 'index', 'indexName', $inputHref->{indexName}, 'log';
   my $logPath = File::Spec->rel2abs( ".", $log_name );
-    
+
   $inputHref->{logPath} = $logPath;
   $inputHref->{verbose} = $verbose;
   $inputHref->{publisher} = {
@@ -173,7 +171,7 @@ sub handleJob {
 
   # create the annotator
   my $indexer = SeqElastic->new($inputHref);
-  
+
   return $indexer->go;
 }
 

@@ -84,7 +84,7 @@ sub annotate {
       } elsif(@path > 2) {
         $childrenOrOnly[$i] = [ @path[ 1 .. $#path] ];
       }
-      
+
     } else {
       $parentNames[$i] = $fieldNames[$i];
       $childrenOrOnly[$i] = $fieldNames[$i];
@@ -96,7 +96,7 @@ sub annotate {
   my $outputPath = $self->_workingDir->child($self->outputFilesInfo->{annotation});
 
   my $outFh = $self->get_write_fh($outputPath);
-  
+
   if(!$outFh) {
     #TODO: should we report $err? less informative, but sometimes $! reports bull
     #i.e inappropriate ioctl when actually no issue
@@ -104,7 +104,7 @@ sub annotate {
     $self->_errorWithCleanup($err);
     return ($err, undef);
   }
-  
+
   my $es = Search::Elasticsearch->new(nodes => [
     '172.31.62.32:9200',
   ]);
@@ -160,8 +160,8 @@ sub annotate {
     my $outputString = _makeOutputString(\@sourceData, 
       $emptyFieldChar, $valueDelimiter, $positionDelimiter, $alleleDelimiter, $fieldSeparator);
 
-    print $outFh $outputString;
-    print $statsFh $outputString;
+    print $outFh $outputString . "\n";
+    print $statsFh $outputString . "\n";
 
     &{$progressHandler}(scalar @docs);
   }
@@ -281,7 +281,7 @@ sub _errorWithCleanup {
   # To send a message to clean up files.
   # TODO: Need somethign better
   #MCE->gather(undef, undef, $msg);
-  
+
   $self->log('warn', $msg);
   return $msg;
 }

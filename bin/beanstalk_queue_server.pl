@@ -24,7 +24,6 @@ use Getopt::Long;
 
 use DDP;
 
-
 use Beanstalk::Client;
 
 use YAML::XS qw/LoadFile/;
@@ -112,21 +111,21 @@ while(my $job = $beanstalk->reserve) {
   # Also using forks helps clean up leaked memory from LMDB_File
   # Unfortunately, parallel fork manager doesn't play nicely with try tiny
   # prevents anything within the try from executing
-  
+
   my $jobDataHref;
   my ($err, $statistics, $outputFileNamesHashRef);
 
   try {
     $jobDataHref = decode_json( $job->data );
-    
+
     if($verbose) {
       say "jobDataHref is";
       p $jobDataHref;
     }
-    
+
      # create the annotator
     ($err, my $inputHref) = coerceInputs($jobDataHref, $job->id);
-    
+
     if($err) {
       die $err;
     }
@@ -161,7 +160,7 @@ while(my $job = $beanstalk->reserve) {
     } elsif($type eq 'saveFromQuery') {
       $annotate_instance = SeqFromQuery->new_with_config($inputHref);
     }
-    
+
     ($err, $statistics, $outputFileNamesHashRef) = $annotate_instance->annotate();
 
   } catch {
@@ -208,7 +207,7 @@ while(my $job = $beanstalk->reserve) {
       outputFileNames => $outputFileNamesHashRef,
     }
   }) } );
-  
+
   say "completed job with queue id " . $job->id;
 
   $beanstalk->delete($job->id);
