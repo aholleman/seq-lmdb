@@ -109,8 +109,10 @@ sub annotate {
     '172.31.62.32:9200',
   ]);
 
+  my $batchSize = 4000;
+
   my $scroll = $es->scroll_helper(
-    size        => 1000,
+    size        => $batchSize,
     body        => $self->inputQueryBody,
     index => $self->indexName,
     type => $self->indexType,
@@ -136,7 +138,7 @@ sub annotate {
 
   my $progressHandler = $self->makeLogProgress();
 
-  while(my @docs = $scroll->next(1000)) {
+  while(my @docs = $scroll->next($batchSize)) {
     my @sourceData;
     $#sourceData = $#docs;
 
